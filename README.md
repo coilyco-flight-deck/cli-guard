@@ -22,7 +22,7 @@ See [`docs/FEATURES.md`](docs/FEATURES.md) for a feature inventory and [`example
 
 ## Support
 
-If you found a bug or have a feature request, [create a new issue].
+If you found a bug or have a feature request, [create a new issue]. Participation in this community is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 Sibling repos in the cli-* family: [cli-mcp], [cli-web-docs], [cli-web-ops].
 
