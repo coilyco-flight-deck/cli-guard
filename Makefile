@@ -1,4 +1,4 @@
-.PHONY: build test vet lint tidy cover docs docs-serve
+.PHONY: build test vet lint tidy cover docs docs-serve godoc-update
 
 build: ## Build all packages.
 	go build ./...
@@ -23,3 +23,6 @@ docs: ## Build the mkdocs site into ./site.
 
 docs-serve: ## Serve mkdocs locally with live reload on 127.0.0.1:8000.
 	mkdocs serve
+
+godoc-update: ## Regenerate godoc-current.txt; commit the diff to land API changes.
+	./scripts/check-godoc-current.sh --update

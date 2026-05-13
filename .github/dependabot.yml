@@ -1,0 +1,29 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go-deps:
+        applies-to: version-updates
+        patterns:
+          - "*"
+    labels:
+      - dependencies
+      - go
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
+    labels:
+      - dependencies
+      - github-actions
+    open-pull-requests-limit: 5

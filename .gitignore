@@ -1,0 +1,27 @@
+# Go
+*.test
+*.out
+/coverage.out
+/cover.html
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Build artifacts
+/bin/
+/dist/
+
+# mkdocs build output
+/site/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Local dev overrides
+*.local

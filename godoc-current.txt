@@ -1,0 +1,1028 @@
+## github.com/coilysiren/cli-guard/audit
+
+package audit // import "github.com/coilysiren/cli-guard/audit"
+
+Package audit writes one JSONL record per CLI invocation to an append-only log
+outside the working tree. Per SECURITY.md, the audit log is the forensic trail
+if an agent (or a confused human) invokes something destructive.
+
+Rotation is handled by lumberjack: when the active file reaches MaxSizeMB it is
+renamed with a timestamp suffix and a fresh file is started. Old backups past
+MaxBackups or MaxAgeDays are pruned. All files are written with 0600 perms.
+If the target directory does not exist it is created with 0700.
+
+Failure mode: per-call Append errors propagate up. The runtime is expected to
+call Preflight at startup so an unwritable audit dir fails loudly there instead
+of being swallowed across hundreds of invocations.
+
+CONSTANTS
+
+const (
+	EgressAllow = "allow"
+	EgressDeny  = "deny"
+)
+    Egress decision values.
+
+const (
+	DecisionAccept = "accept"
+	DecisionReject = "reject"
+)
+    Decision values for Record.Decision.
+
+const MaxStderrTailBytes = 2048
+    MaxStderrTailBytes caps Record.StderrTail so the audit row stays small even
+    when a wrapped tool spews. 2 KiB is enough to carry the last few lines of a
+    typical stderr (kubectl error, aws sdk error, gh API error) without bloating
+    each line of the JSONL log.
+
+
+VARIABLES
+
+var ErrPathUnset = errors.New("audit: log path not configured")
+    ErrPathUnset is returned when Append is called on a Writer with empty Path.
+
+
+FUNCTIONS
+
+func ParseTrailer(s string) (int64, string, bool)
+    ParseTrailer extracts the unix timestamp and short ID from a coily://
+    trailer value. Returns (ts, short, true) on a well-formed input. Accepts
+    either the bare URL form (`coily://<ts>/<short>`) or the full TrailerLine
+    form with an argv summary appended (`coily://<ts>/<short> - <argv...>`);
+    the suffix after ` - ` is informational and is discarded.
+
+
+TYPES
+
+type EgressRow struct {
+	Host       string `json:"host"`
+	Decision   string `json:"decision"`
+	BytesUp    int64  `json:"bytes_up"`
+	BytesDown  int64  `json:"bytes_down"`
+	DurationMS int64  `json:"duration_ms"`
+}
+    EgressRow is one (parent-invocation, host) pair from the egress proxy.
+    Decision is "allow" or "deny"; deny rows are produced when the host fails
+    the per-binary allowlist in enforce mode and the underlying CONNECT returned
+    403 instead of being forwarded.
+
+type Record struct {
+	// ID is a UUID v7 (time-ordered) populated on Append if unset. Used as
+	// the stable identifier in commit trailers (`coily://<ts>/<short>`),
+	// where short is the first 8 base32 chars of the raw bytes.
+	ID        string   `json:"id,omitempty"`
+	Timestamp int64    `json:"ts"`
+	Version   string   `json:"version,omitempty"`
+	Decision  string   `json:"decision"`
+	Verb      string   `json:"verb"`
+	Argv      []string `json:"argv"`
+	ExitCode  int      `json:"exit_code"`
+	Error     string   `json:"error,omitempty"`
+	// StderrTail is a bounded last-N-bytes capture of the wrapped tool's
+	// stderr, populated by pass-through verbs on non-zero exit so the audit
+	// row carries enough context to reconstruct what the tool said. Bare
+	// "exit status 1" is the failure mode this fixes (issue #63). Bounded
+	// at MaxStderrTailBytes to keep rows small. Empty when the verb did
+	// not run a captured subprocess, when exit was zero, or when the
+	// subprocess wrote nothing to stderr.
+	StderrTail string `json:"stderr_tail,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
+	// RepoRoot is git rev-parse --show-toplevel of cwd at invocation time,
+	// or empty if cwd was not inside a git repo. Forensic only: tells the
+	// reader where the operator actually was, independent of CommitScope.
+	RepoRoot string `json:"repo_root,omitempty"`
+	// CommitScope binds this row to a commit-trailer query. Resolved from
+	// --commit-scope (default "auto" = cwd's git toplevel). Empty means the
+	// op was deliberately not bound to any commit and will not appear in
+	// any trailer.
+	CommitScope string `json:"commit_scope,omitempty"`
+	// AuditOverride is set true when a repo verb ran with
+	// --audit-override-dirty: the clean+synced gate refused but the
+	// operator forced through. Companion field WorkingTreeStatus carries
+	// the porcelain snapshot at refusal time so the run can still be
+	// reconstructed after the fact.
+	AuditOverride bool `json:"audit_override,omitempty"`
+	// WorkingTreeStatus is the truncated `git status --porcelain` output
+	// captured when a repo verb ran with --audit-override-dirty. Empty for
+	// every other audit row.
+	WorkingTreeStatus string `json:"working_tree_status,omitempty"`
+	// Egress carries one row per host contacted by the wrapped subprocess
+	// when the verb runs through the per-invocation HTTP CONNECT proxy
+	// (see pkg/egress). Aggregated by host: a `coily npm install` that
+	// opens 200 connections to registry.npmjs.org produces one row, not 200.
+	// Empty when the verb did not run through the proxy.
+	Egress []EgressRow `json:"egress,omitempty"`
+}
+    Record is one line in the audit log. Timestamp is unix seconds (int64),
+    JSON-encoded as a number. Easier to sort and diff than RFC3339 strings.
+
+    Decision is "accept" if the verb was allowed to run (regardless of whether
+    the underlying tool then succeeded or failed) or "reject" if coily's policy
+    blocked the invocation before any subprocess or SDK call. Both outcomes are
+    audited; "reject" lets a forensic reader cleanly distinguish a metacharacter
+    scrub from an AccessDenied at the AWS edge.
+
+func ReadAll(r io.Reader) ([]Record, error)
+    ReadAll decodes every record from r. Useful for tests and for `coily audit
+    tail`-style verbs.
+
+func (r Record) ShortID() string
+    ShortID returns the 8-char base32 prefix of the raw UUID bytes. Used in the
+    trailer suffix. Returns empty if ID is unset or unparseable.
+
+func (r Record) Trailer() string
+    Trailer returns the canonical Audit-log trailer value for this record:
+    `coily://<unix-ts>/<short-id>`. Empty if ID is unset. This is the form
+    ParseTrailer round-trips; for the human-readable line that also includes the
+    argv summary, use TrailerLine.
+
+func (r Record) TrailerLine() string
+    TrailerLine returns the full Audit-log trailer value rendered for a commit:
+    `coily://<unix-ts>/<short-id> - <argv summary>`. The argv summary is the
+    recorded argv joined by spaces, with argv[0] reduced to its basename so
+    absolute paths to the coily binary do not leak into commit history. Empty if
+    ID is unset (matches Trailer's behavior).
+
+type Writer struct {
+	// Path is the JSONL file. Must be set.
+	Path string
+	// Now is used for timestamps. Tests override. Defaults to time.Now.
+	Now func() time.Time
+	// MaxSizeMB is the rotation trigger. Zero uses lumberjack's default (100).
+	MaxSizeMB int
+	// MaxBackups caps the number of rotated files retained. Zero keeps all.
+	MaxBackups int
+	// MaxAgeDays prunes rotated files older than this. Zero disables.
+	MaxAgeDays int
+	// Compress gzips rotated files.
+	Compress bool
+
+	// Has unexported fields.
+}
+    Writer appends records to a JSONL file. The zero value is unusable.
+    Use NewWriter or set Path explicitly.
+
+func NewWriter(path string) *Writer
+    NewWriter returns a Writer with Now set to time.Now. Rotation fields default
+    to zero (lumberjack defaults apply) and can be set by the caller.
+
+func (w *Writer) Append(r Record) error
+    Append writes one record as a JSON line. Timestamp is populated from the
+    Writer if unset on the Record (zero).
+
+func (w *Writer) Close() error
+    Close releases the underlying log file. Safe to call multiple times and on
+    a Writer that was never used. Call at process exit if you want to be tidy;
+    coily's short-lived CLI model doesn't require it.
+
+func (w *Writer) Preflight() error
+    Preflight ensures the audit directory exists with 0700 perms and that
+    the target path is writable. Call at startup so a broken config blows up
+    immediately instead of dropping records silently across the session.
+
+func (w *Writer) Wrap(ctx context.Context, base Record, fn func() error) error
+    Wrap records an invocation by running fn and logging the result. base
+    supplies caller-set fields (Verb, Argv, RepoRoot, CommitScope, Version);
+    Wrap fills in Decision, ExitCode, DurationMS, and Error. The returned error
+    is whatever fn returned, unmodified. Audit append failures are written to
+    stderr so the operator notices, but they do not mask fn's error.
+
+func (w *Writer) WrapHook(_ context.Context, base Record, fn func() error, onComplete func(*Record)) error
+    WrapHook is Wrap with an optional onComplete callback. The hook runs after
+    fn returns and before the record is appended; it gets a pointer to the
+    record so the caller can attach side-channel data (e.g. egress rows).
+    Decision/ExitCode/DurationMS/Error are already populated when the hook
+    fires.
+
+
+## github.com/coilysiren/cli-guard/egress
+
+package egress // import "github.com/coilysiren/cli-guard/egress"
+
+Package egress is the per-invocation HTTP CONNECT proxy that coily starts
+for the duration of a wrapped subprocess. The child inherits HTTPS_PROXY /
+HTTP_PROXY pointing at the proxy. The proxy logs every CONNECT, joins the rows
+back to the parent invocation's audit row, and (per-binary) either enforces a
+default-deny allowlist or observes silently.
+
+Two modes:
+
+  - ModeEnforce: per-binary allowlist pinned in code. Denied CONNECTs return 403
+    and the row is marked decision=deny. Used for the package- manager wrappers
+    (brew, npm, pip, cargo, ...).
+  - ModeObserve: no allowlist. Every CONNECT is forwarded and logged. Used for
+    aws/gh/kubectl/docker/tailscale (issue #33).
+
+CONNECT-only. No TLS interception, no CA install. Hostnames come from the
+CONNECT request line (host:port). Plaintext HTTP requests through the proxy are
+rejected with 405 - any tool that relies on plaintext for package fetching is
+already a bug.
+
+VARIABLES
+
+var Allowlists = map[string][]string{}
+    Allowlists is the per-binary set of upstreams each wrapped binary is allowed
+    to reach in enforce mode. Empty by default - consumers populate this map (or
+    call New with their own allowlist) before mounting any enforced passthrough.
+
+    The keys are binary names; the values are hostname strings matched against
+    the CONNECT host. Hostnames are exact-match for now (no wildcards).
+    See proxy.go for the matching contract.
+
+var ErrAlreadyStarted = errors.New("egress: proxy already started")
+    ErrAlreadyStarted is returned if Start is called twice on the same Proxy.
+
+
+TYPES
+
+type Mode int
+    Mode selects allowlist enforcement vs observe-only logging.
+
+const (
+	// ModeEnforce denies any host not on the allowlist.
+	ModeEnforce Mode = iota
+	// ModeObserve forwards every CONNECT and logs it. Allowlist is ignored.
+	ModeObserve
+)
+type Proxy struct {
+
+	// Now is overridable for tests.
+	Now func() time.Time
+	// Has unexported fields.
+}
+    Proxy is a single-use CONNECT proxy. New, Start, run the wrapped subprocess,
+    Stop. Not safe for reuse across invocations; build a fresh Proxy per coily
+    verb invocation.
+
+func New(allowlist []string, mode Mode) *Proxy
+    New returns a Proxy with the given allowlist and mode. The allowlist is
+    ignored when mode is ModeObserve. Hostname match is exact; suffix matching
+    (e.g. "*.crates.io") is a Phase 2 follow-up.
+
+func (p *Proxy) Start(_ context.Context) (string, error)
+    Start binds to 127.0.0.1:0 and starts serving. Returns the http://host:port
+    URL the child should use as HTTPS_PROXY/HTTP_PROXY.
+
+func (p *Proxy) Stop() []audit.EgressRow
+    Stop shuts the listener and returns the collected rows, one per host.
+    Safe to call once. After Stop the Proxy is not reusable.
+
+
+## github.com/coilysiren/cli-guard/exitcode
+
+package exitcode // import "github.com/coilysiren/cli-guard/exitcode"
+
+Package exitcode is the public contract for what the process exit code means.
+External consumers (an orchestrator, a CI step, a watchdog) can pattern-match on
+these values to decide retry vs. abort vs. handoff without parsing stderr.
+
+Add a new code only when an external consumer can act differently on it. Don't
+subdivide for taxonomy; a single rejection class with a yaml error envelope (see
+pkg/verb) is more useful than a fan-out of codes.
+
+CONSTANTS
+
+const (
+	// Success = the verb ran and the underlying tool / SDK call returned
+	// without error.
+	Success = 0
+	// Generic = catch-all for errors that haven't been classified yet.
+	// New code should not return this; reach for one of the typed codes
+	// below or define a new one.
+	Generic = 1
+	// PolicyDenied = coily's pre-flight rejected the invocation
+	// (shell-metacharacter validation, missing required arg, etc).
+	// The underlying tool was never called.
+	PolicyDenied = 2
+	// UpstreamFailed = the underlying tool / SDK call ran and returned a
+	// non-zero exit. Stdout/stderr from the tool flow through; the
+	// envelope's message is the wrapping error.
+	UpstreamFailed = 3
+	// Internal = coily-internal failure: config load, manifest miss,
+	// audit-write fail, etc. Distinct from PolicyDenied because there's
+	// nothing the user can do about it; this is a coily bug or a host
+	// problem (disk full, perms wrong).
+	Internal = 4
+	// UserError = the user supplied something obviously wrong: missing
+	// flag, wrong arg count, bad arg shape that wasn't a metacharacter
+	// reject. Distinct from PolicyDenied so a consumer can differentiate
+	// "you typed it wrong" from "policy says no".
+	UserError = 5
+)
+
+TYPES
+
+type Coded interface {
+	error
+	Code() int
+	// Kind returns a stable lowercase token (e.g. "policy_denied") used
+	// in the yaml error envelope. Lets the envelope stay decoupled from
+	// the numeric code.
+	Kind() string
+}
+    Coded is the optional interface errors implement to declare their intended
+    exit code. main.go checks this via errors.As; if no error in the chain is
+    Coded, the process exits Generic (1).
+
+    The method is deliberately Code() not ExitCode(), to avoid clashing with
+    urfave/cli/v3's ExitCoder interface (which would cause cli's default handler
+    to os.Exit before main() can format the yaml error envelope).
+
+func From(err error) Coded
+    From returns the deepest Coded error in the chain, or nil if none.
+
+type CodedError struct {
+	C    int
+	K    string
+	Err  error
+	Hint string
+}
+    CodedError wraps an error with a code+kind. Unwrap-friendly so callers can
+    still errors.Is / errors.As the underlying cause.
+
+func New(code int, kind string, err error, hint string) *CodedError
+    New tags an error with a code and kind.
+
+func (e *CodedError) Code() int
+    Code returns the numeric exit code coily should exit with.
+
+func (e *CodedError) Error() string
+    Error returns the wrapped error's message.
+
+func (e *CodedError) HintText() string
+    HintText returns the optional one-line recovery hint shown to the user
+    alongside the error envelope. Empty when no hint was attached.
+
+func (e *CodedError) Kind() string
+    Kind returns the lowercase stable token written into the yaml error
+    envelope.
+
+func (e *CodedError) Unwrap() error
+    Unwrap returns the underlying cause for errors.Is / errors.As.
+
+
+## github.com/coilysiren/cli-guard/gittree
+
+package gittree // import "github.com/coilysiren/cli-guard/gittree"
+
+Package gittree inspects a repo's working tree for the clean+synced state that
+gates `.coily/coily.yaml` repo verbs. The gate refuses repo-verb invocations
+when the audit log could not be reconstructed from git history alone:
+uncommitted changes, untracked files, detached HEAD, or a branch that has not
+been fetched against its upstream recently.
+
+The gate is repo-verb-only. Built-in verbs are reproducible from the binary
+version trailer in the audit row and are not subject to this check.
+
+CONSTANTS
+
+const MaxStatusBytes = 2048
+    MaxStatusBytes caps Status so a sprawling untracked tree does not bloat the
+    audit row or refusal message.
+
+
+VARIABLES
+
+var ErrNotGitRepo = errors.New("gittree: path is not inside a git repo")
+    ErrNotGitRepo is returned when the supplied path is not inside a git repo.
+    Repo verbs only fire when a repocfg file was discovered, which itself
+    implies a repo, so this error is exceptional rather than a normal gate
+    refusal.
+
+
+TYPES
+
+type State struct {
+	Clean    bool
+	Reason   string
+	Recovery string
+	Status   string
+	Branch   string
+	Upstream string
+	Ahead    int
+	Behind   int
+}
+    State is the outcome of CheckClean. Clean is true when every gate property
+    holds. When false, Reason names the first failure in human-readable form
+    and Recovery names the dictatable shell command(s) the operator should run.
+    Status is the raw porcelain output (truncated) so a forensic reader can
+    reconstruct what was outstanding at refusal time.
+
+func CheckClean(repoRoot string) (*State, error)
+    CheckClean evaluates the gate at repoRoot. Returns a *State whose Clean
+    field tells the caller whether the repo verb may run. A non-nil error is
+    returned only for environmental failures (git missing, repoRoot is not a git
+    repo) - normal "tree is dirty" outcomes are reported via State, not error,
+    so the caller can format a tailored refusal message.
+
+func (s *State) FormatRefusal(verbName string) string
+    FormatRefusal renders the human-readable refusal message for a non-clean
+    State, naming the verb so the operator's recovery suggestion includes the
+    retry command. Use this for the stderr line; the caller is responsible for
+    wrapping into an exitcode.New so the process exit reflects the gate.
+
+
+## github.com/coilysiren/cli-guard/passthrough
+
+package passthrough // import "github.com/coilysiren/cli-guard/passthrough"
+
+Package passthrough is the thin pass-through used to wrap any sub-CLI (aws, gh,
+kubectl, docker, tailscale, plus every package manager) as a single `coily <bin>
+...` verb. One Command(name, runner, audit) builder per binary, no subcommand
+modeling.
+
+What the wrapper buys:
+
+  - Audit log. Every invocation lands in ~/.coily/audit/*.jsonl with timestamp +
+    argv + cwd + exit code.
+  - Argv validation. Refusal of shell metacharacters in argv blocks the dumbest
+    injection paths. Doesn't stop a malicious tool; does stop the agent from
+    being tricked into "kubectl get pod 'foo; curl bad'".
+  - Symmetric deny coverage. The lockdown deny list blocks raw `aws` / `kubectl`
+    / `pnpm` / `cargo` / etc., so the agent can only reach them via coily.
+
+What it doesn't buy: protection from a malicious binary or package installed on
+the host. The wrapper is an audit + gate, not a sandbox; sandboxing belongs in
+agentcontainers, not here.
+
+Why the per-CLI subcommand trees were ripped (issue #27): the generator-driven
+trees that previously wrapped aws/gh/kubectl earned their cost only via per-leaf
+readonly-vs-mutator gating, which is already redundant with the lockdown deny
+list (Bash(kubectl get:*) allow vs Bash(kubectl apply:*) deny fires before coily
+ever runs). The remaining benefits (help mirroring, tab completion below `coily
+ops aws`) were convenience without security value, and the cost was ~80k lines
+of generated Go plus a weekly refresh cadence per upstream. SkipFlagParsing +
+verb.Wrap is the same security boundary in 60 lines.
+
+FUNCTIONS
+
+func Command(bin string, r *shell.Runner, w *audit.Writer, opts ...Option) *cli.Command
+    Command returns the *cli.Command for `coily <bin>`. Every argument after
+    the binary name is forwarded verbatim through the pass-through pipeline
+    (argv validation -> audit -> exec). SkipFlagParsing keeps urfave/cli from
+    interpreting flags meant for the underlying tool.
+
+
+TYPES
+
+type Option func(*config)
+    Option configures a pass-through Command. Use the With* helpers below rather
+    than setting fields directly.
+
+func WithArgvRewriter(fn func(argv []string) []string) Option
+    WithArgvRewriter installs a hook that may rewrite the argv passed to the
+    underlying binary before exec. The original argv is still recorded in the
+    audit log (verb.Wrap captures argv before Action runs); only what reaches
+    the child process changes. Used by the gh wrapper to rewrite GraphQL-backed
+    subcommands like `gh issue create` into REST equivalents via `gh api`,
+    so the GraphQL secondary rate limit is dodged on the common write paths.
+    Return the same slice unchanged to decline the rewrite.
+
+func WithEgress(allowlist []string, mode egress.Mode) Option
+    WithEgress wires the per-invocation HTTP CONNECT proxy. The child runs with
+    HTTPS_PROXY/HTTP_PROXY pointed at 127.0.0.1:NNNNN for the lifetime of this
+    invocation; the proxy collects one row per host contacted and attaches them
+    to the audit record. In ModeEnforce, hosts not on the allowlist are denied
+    with 403 (the underlying tool sees a connection failure). In ModeObserve,
+    every host is forwarded and logged; the allowlist is ignored. See pkg/egress
+    and issue #35.
+
+func WithScopeArgvHint(fn func(argv []string) string) Option
+    WithScopeArgvHint installs a fallback --commit-scope resolver that runs
+    only when the operator did not set --commit-scope (or COILY_COMMIT_SCOPE)
+    explicitly. The hook receives the verb's argv and returns an absolute path
+    or "" to decline. Used by `coily ops gh` to default the audit scope to
+    ~/projects/coilysiren/<name> when --repo coilysiren/<name> is on the command
+    line, so the agent does not have to also pass --commit-scope from outside a
+    git repo.
+
+func WithSkipPolicy() Option
+    WithSkipPolicy disables the shell-metacharacter check for this binary.
+    Use only for tools whose argv goes through execve straight to the underlying
+    CLI without ever being handed to a shell. Safe set: gh, aws, tailscale,
+    package managers (npm/pnpm/yarn/cargo/uv/pip/...). Unsafe set: kubectl,
+    docker, ssh - these have exec-into-shell paths where argv content can reach
+    a remote bash -c. The audit log and lockdown deny list still cover the safe
+    set; the metacharacter check was only ever defending the shell-bound path,
+    and rejecting '>' / backticks / '$' in argv breaks legitimate markdown
+    bodies in (e.g.) `gh issue create --body`.
+
+func WithVerbName(name string) Option
+    WithVerbName overrides the dotted verb name used for audit logging.
+    The user-visible cli command name (and the binary actually executed) stays
+    as bin; only the audit verb path changes. Used to namespace pass-throughs
+    that are mounted under a parent group, e.g. `coily ops aws` logs as verb
+    "ops.aws" while still exec'ing the aws binary.
+
+
+## github.com/coilysiren/cli-guard/policy
+
+package policy // import "github.com/coilysiren/cli-guard/policy"
+
+Package policy validates that verb arguments do not contain shell
+metacharacters. Per SECURITY.md, coily's subprocess execution always uses an
+explicit argv slice, but some downstream tools (ssh <host> <remote-command>,
+kubectl exec, etc.) hand the last positional argument to a remote shell.
+Rejecting these characters at the coily boundary keeps a deny-list surprise at
+one layer from turning into an execution surprise at another.
+
+Confirmation tokens used to live here too. They were removed once the
+threat model clarified that a local agent already has everything it needs to
+self-authorize (the HMAC key sat under $HOME, readable by the same user).
+The allowlist, audit log, and Claude Code deny rules carry the safety boundary;
+token ritual did not add to it.
+
+CONSTANTS
+
+const ShellMeta = "`$;&|<>(){}\\\n\r\t"
+    ShellMeta is the set of bytes rejected in any string argument that could
+    reach a subprocess. Exported so callers (and tests) can reason about it.
+
+
+VARIABLES
+
+var ErrShellMeta = errors.New("policy: shell metacharacter rejected")
+    ErrShellMeta is returned by ValidateArg when value contains a byte in
+    ShellMeta.
+
+
+FUNCTIONS
+
+func ValidateArg(name, value string) error
+    ValidateArg rejects strings containing shell metacharacters. Empty strings
+    are allowed. Callers should check for empty separately if the argument is
+    required.
+
+func ValidateArgSlice(namePrefix string, values []string) error
+    ValidateArgSlice runs ValidateArg over a []string (for variadic / positional
+    arguments). Uses a synthetic name that includes the index.
+
+func ValidateArgs(args map[string]string) error
+    ValidateArgs runs ValidateArg over a map, returning the first violation.
+    Convenience for Action funcs that have already gathered flag values.
+
+
+## github.com/coilysiren/cli-guard/repocfg
+
+package repocfg // import "github.com/coilysiren/cli-guard/repocfg"
+
+Package repocfg loads a per-repo command allowlist from a coily.yaml file
+discovered by walking up from the current working directory. Each command in the
+file becomes a top-level coily verb (coily test, coily lint, etc.) that expands
+to a pre-declared argv.
+
+Repo commands share the same security boundary as every other coily verb.
+Every argv token (both the tokens from coily.yaml and any user-supplied extras
+appended at invocation) is run through policy.ValidateArg, which rejects shell
+metacharacters. There is no "it's just a dev script" carve- out. If a repo
+command needs a shell pipeline, the repo author's answer is a wrapper script,
+not an escape hatch in coily.
+
+Unlike the embedded tool config, coily.yaml is loaded from disk at runtime.
+The blast radius is bounded by the same policy checks, and the file is expected
+to be checked into git where a human reviews diffs. Per-repo dev tools change
+too often to warrant a rebuild+install cycle.
+
+CONSTANTS
+
+const EnvOverride = "COILY_REPO_CONFIG"
+    EnvOverride, when set, is treated as the absolute path to the repo config
+    and skips directory walking. Primarily for tests and advanced users.
+
+const Filename = "coily.yaml"
+    Filename is the name repocfg looks for during discovery.
+
+const LegacyFilename = "coily.yaml"
+    LegacyFilename is the pre-overlay name (./coily.yaml) that we reject with
+    a pointer at the new location. Kept around so the error message can be
+    specific.
+
+const LocalDirName = ".coily"
+    LocalDirName is the per-repo overlay directory the loader prefers. The
+    canonical home for the repo allowlist is ./.coily/coily.yaml.
+
+
+VARIABLES
+
+var ErrLegacyLocation = errors.New("repocfg: coily.yaml at repo root is no longer supported, move it to .coily/coily.yaml")
+    ErrLegacyLocation is wrapped by Discover when a coily.yaml is found at
+    the repo root rather than under ./.coily/. The new convention is to put it
+    inside the .coily/ overlay so locals (config + allowlist) sit together.
+
+var ErrNoConfig = errors.New("repocfg: no coily.yaml found")
+    ErrNoConfig is returned by LoadDefault when no coily.yaml is found in the
+    cwd ancestry. Callers treat this as "no repo commands to register."
+
+
+FUNCTIONS
+
+func Discover(start string) (string, error)
+    Discover walks up from start looking for the repo config. Prefers
+    ./.coily/coily.yaml at each level. If no overlay file is found but a legacy
+    ./coily.yaml exists at the same level, returns ErrLegacyLocation pointing at
+    the new home. Returns "" and ErrNoConfig when neither exists anywhere in the
+    ancestry.
+
+
+TYPES
+
+type Command struct {
+	// Name is the key from the yaml map, e.g. "test".
+	Name string
+	// Description is the optional human-readable blurb shown in help/--list.
+	Description string
+	// Argv is the command split into tokens. argv[0] is the binary name as
+	// resolved via $PATH at exec time. Every token has already been run
+	// through policy.ValidateArg.
+	Argv []string
+}
+    Command is one parsed and validated entry from the commands: map.
+
+type Config struct {
+	// Path is the absolute path to the coily.yaml that produced this Config.
+	Path string
+	// Commands are sorted by Name. Safe to iterate directly for help output.
+	Commands []Command
+}
+    Config is the result of a successful Load.
+
+func DiscoverAll(start string) ([]*Config, error)
+    DiscoverAll returns every coily.yaml reachable from start in a single
+    deterministic pool: every level of the ancestor walk from start up to the
+    filesystem root, plus every direct child of start. Results are sorted
+    by Path and deduped. Best-effort like DiscoverChildren: a malformed or
+    unreadable config is silently skipped rather than aborting the whole scan,
+    because the caller's job is to present a unified menu of repo commands and
+    one broken sibling should not blank the menu.
+
+    This is the single discovery surface for `coily exec`. It replaces the older
+    "ancestor wins, else fall back to direct children" branching, which produced
+    non-deterministic "where did my config come from" behavior when cwd shifted
+    by one level. The new contract: every config the operator could plausibly
+    be targeting from cwd is a candidate, and the verb layer disambiguates by
+    command name (1 declarant auto-runs, >1 declarants prompt for a pick).
+
+func DiscoverChildren(parentDir string) ([]*Config, error)
+    DiscoverChildren scans direct children of parentDir for a
+    ./.coily/coily.yaml overlay, loads each one, and returns the resulting
+    Configs sorted by Path. Best-effort by design: a child whose .coily/
+    directory is unreadable or whose coily.yaml fails to parse is skipped
+    silently rather than failing the whole scan, because the caller's intent
+    is fallback discovery for a parent directory that itself has no config
+    and may sit above a mix of repos and unrelated directories. Hidden entries
+    (names beginning with ".") are skipped. Symlinks are followed at the
+    .coily/coily.yaml stat step.
+
+    Used by `coily exec` when no ancestor coily.yaml is found: instead of
+    refusing to run, the verb collects child configs so the operator can invoke
+    a command declared in a sibling repo (e.g. `coily exec daily-social` from
+    one directory above coilyco-ai). The legacy repo-root coily.yaml form is
+    intentionally ignored here; child discovery is opt-in via the .coily/
+    overlay.
+
+func Load(path string) (*Config, error)
+    Load parses the yaml at path. Every command is validated against
+    policy.ValidateArg. A single bad token fails the whole load.
+
+func LoadDefault() (*Config, error)
+    LoadDefault resolves the config path from $COILY_REPO_CONFIG or by walking
+    up from the current working directory, then parses it. Returns nil,
+    ErrNoConfig when no config is found. All other errors are parsing or
+    validation failures and are surfaced as-is.
+
+
+## github.com/coilysiren/cli-guard/scope
+
+package scope // import "github.com/coilysiren/cli-guard/scope"
+
+Package scope resolves the --commit-scope flag value into the absolute repo path
+that an audit record should be bound to. The trailer-emitting hook later filters
+audit rows by this exact-match field, so a stable resolution policy is the
+load-bearing part of the contract.
+
+Default value is "auto": resolve to the git toplevel of cwd. If cwd is not
+inside a git repo, "auto" is an error - the caller must pass an explicit path.
+Kai works in the directory above her repos most of the time, so this is the
+common case.
+
+There is no user-facing opt-out. Every audit row produced by a non- SkipScope
+verb must be bindable to a real commit; dashes, "none", "off", or any other
+"skip" sentinel are rejected. Verbs that genuinely should not be tied to a repo
+set verb.Spec.SkipScope at the definition site so the decision is visible in the
+verb's source, not papered over at the call site.
+
+VARIABLES
+
+var ErrNotInRepo = errors.New("scope: cwd is not inside a git repo; pass --commit-scope=<repo-path> explicitly")
+    ErrNotInRepo is returned when --commit-scope=auto is requested but cwd is
+    not inside a git repo. Caller is expected to pass --commit-scope explicitly.
+
+var ErrOptOutRejected = errors.New("scope: --commit-scope opt-out is not supported; pass an explicit repo path")
+    ErrOptOutRejected is returned when the caller passes a value meant to
+    disable binding ("-", "none", "off"). The opt-out hatch was removed - every
+    audit row must bind to a real commit-scope path. Verbs that genuinely should
+    run without a scope set verb.Spec.SkipScope at the definition site instead.
+
+
+FUNCTIONS
+
+func CWD() string
+    CWD returns the current working directory or empty on error. Convenience
+    wrapper so callers can do scope.Resolve(flag, env, scope.CWD()) without
+    importing os.
+
+func Resolve(flagValue, envFallback, cwd string) (string, error)
+    Resolve interprets a --commit-scope flag value:
+      - "auto" (case-insensitive): git toplevel of cwd, or ErrNotInRepo.
+      - "-", "none", "off" (case-insensitive): rejected with ErrOptOutRejected.
+      - any other value: treated as a path, made absolute relative to cwd.
+
+    An empty flagValue falls back to envFallback, then to "auto", so
+    $COILY_COMMIT_SCOPE works without overriding an explicit flag.
+
+
+## github.com/coilysiren/cli-guard/shell
+
+package shell // import "github.com/coilysiren/cli-guard/shell"
+
+Package shell is the argv-only exec wrapper. Every argument is passed as a
+distinct argv element. No shell string is ever composed. If a downstream tool
+needs a composed command (ssh <host> <remote>), the caller constructs the argv
+slice explicitly and the argv is guarded by policy.ValidateArg at the verb
+layer.
+
+Binary resolution is via $PATH. coily used to ship a manifest of pinned binaries
+(aws/gh/kubectl/tailscale) fetched from a GitHub Release and verified by sha256,
+with $PATH intentionally bypassed. That machinery was removed because the threat
+it addressed - an attacker with write to a $PATH directory but not to $HOME - is
+a narrow slice that did not justify the release-pipeline + manifest + per-tool
+refresh cadence. Argv validation, audit logging, and the lockdown deny list
+carry the safety boundary now; binary authenticity is the host's problem.
+
+VARIABLES
+
+var ErrEmptyBinary = errors.New("shell: bin is empty")
+    ErrEmptyBinary is returned when Exec or Capture is called with "".
+
+
+FUNCTIONS
+
+func PathResolver(bin string) (string, error)
+    PathResolver is the default resolver. Looks the binary up on $PATH.
+
+
+TYPES
+
+type Resolver func(bin string) (string, error)
+    Resolver turns a binary name into an executable path. Pluggable so tests can
+    avoid touching the real $PATH.
+
+type Runner struct {
+	Stdout io.Writer
+	Stderr io.Writer
+	Stdin  io.Reader
+	// Resolve locates a binary. Defaults to PathResolver when nil.
+	Resolve Resolver
+	// Env, when non-nil, is appended to os.Environ() and passed to the
+	// child as cmd.Env. Used by the egress-proxy plumbing to inject
+	// HTTPS_PROXY / HTTP_PROXY for the duration of one invocation. When
+	// nil, cmd.Env is left unset and the child inherits the parent
+	// environment (Go's default).
+	Env []string
+}
+    Runner executes subprocesses on behalf of coily verbs. Build one in main
+    with the default Resolver and plumb it through to verbs that need it.
+
+func (r *Runner) Capture(ctx context.Context, bin string, argv ...string) ([]byte, error)
+    Capture runs bin with argv and returns stdout as bytes. Stderr is forwarded
+    to the Runner's Stderr (defaulting to discard if nil). Useful for verbs that
+    parse the subprocess output, like whoami or dns list.
+
+func (r *Runner) Exec(ctx context.Context, bin string, argv ...string) error
+    Exec runs bin with argv, streaming stdin/stdout/stderr through the Runner's
+    fields. Returns the underlying exec error on failure.
+
+func (r *Runner) ExecIn(ctx context.Context, dir, bin string, argv ...string) error
+    ExecIn is like Exec but runs the child with cmd.Dir set to dir. Used by
+    coily exec when the matched coily.yaml lives in a direct child of cwd:
+    the declared argv references paths relative to the child repo, so the child
+    must run there, not from cwd. dir is not validated; callers ensure it points
+    at a real directory.
+
+
+## github.com/coilysiren/cli-guard/ttlcache
+
+package ttlcache // import "github.com/coilysiren/cli-guard/ttlcache"
+
+Package ttlcache is a small on-disk key/value cache with per-entry TTLs.
+Built for coily after the lockdown inversion: every aws / kubectl / gh call
+now round-trips through coily, and several of those (sts get-caller-identity,
+gh auth status, git rev-parse --show-toplevel) are read-mostly with results that
+are stable for minutes at a time.
+
+Why a CLI deserves a cache: each coily invocation is a fresh process,
+so in-memory memoization buys nothing. An on-disk cache under ~/.coily/cache/
+persists across invocations and keeps repeat-call latency low without giving up
+the "every invocation is auditable" property - audit-log writes happen at the
+verb layer, independent of whether the underlying read came from cache.
+
+Failure mode is "fall through to the underlying call." A corrupted entry,
+a permissions error, or a clock skew that makes everything look stale all
+degrade to "fetch fresh and overwrite." No cached entry is ever load-bearing for
+correctness; a cache miss is always recoverable.
+
+TYPES
+
+type Cache struct {
+	Dir string
+}
+    Cache is a directory of TTL'd JSON entries on disk. One file per key,
+    named by sha256(key) so disk layout stays bounded and predictable. The zero
+    value is unusable; build with New.
+
+func New(dir string) *Cache
+    New returns a Cache rooted at dir. The directory is created lazily on
+    first Set, with mode 0o700 so other local users cannot read cached values.
+    Callers typically pass filepath.Join(home, ".coily", "cache").
+
+func (c *Cache) Get(key string) ([]byte, bool)
+    Get returns the cached value for key, or (nil, false) if there is no fresh
+    entry. Any read / unmarshal / TTL failure is reported as a miss rather than
+    an error - the contract is "you got a value or you didn't," and callers
+    should fall through to the underlying fetch on miss.
+
+func (c *Cache) GetOrSet(key string, ttl time.Duration, fetch func() ([]byte, error)) ([]byte, error)
+    GetOrSet returns the cached value for key, or calls fetch() and stores the
+    result if there is no fresh entry. fetch is called at most once.
+
+    A fetch error is returned as-is; the cache is not updated. A Set error after
+    a successful fetch is swallowed (the value is returned anyway) - the cache
+    is a perf hint, not a correctness gate.
+
+func (c *Cache) Invalidate(key string) error
+    Invalidate removes the entry for key. Returns nil if the entry did not exist
+    (idempotent), the filesystem error otherwise. Used by callers that observed
+    a stale read and want to force a refetch on the next call.
+
+func (c *Cache) Set(key string, value []byte, ttl time.Duration) error
+    Set writes value under key with the given TTL. Returns the underlying
+    filesystem error if the write fails; callers can ignore it (the next Get
+    will simply miss).
+
+
+## github.com/coilysiren/cli-guard/verb
+
+package verb // import "github.com/coilysiren/cli-guard/verb"
+
+Package verb is the middleware that wraps every coily command action in the
+standard pipeline of:
+
+ 1. Argument validation (no shell metacharacters).
+ 2. Action execution.
+ 3. Audit-log record.
+
+Using verb.Wrap is the way coily guarantees that every user-visible verb goes
+through the security boundary. Anything that constructs a *cli.Command.Action by
+hand bypasses audit logging and argv validation. Don't do that.
+
+CONSTANTS
+
+const CommitScopeFlag = "commit-scope"
+    CommitScopeFlag is the canonical name of the global --commit-scope flag.
+    Exported so the host CLI can declare the flag and verb.Wrap can read it
+    without disagreeing on spelling.
+
+
+FUNCTIONS
+
+func Wrap(spec Spec, writer *audit.Writer) cli.ActionFunc
+    Wrap returns a cli.ActionFunc that runs the full coily verb pipeline.
+
+    writer may be nil in dev contexts; a nil writer skips audit logging.
+
+
+TYPES
+
+type Spec struct {
+	// Name is the dotted verb path used for audit logging, e.g.
+	// "aws.route53.change-resource-record-sets" or "lockdown".
+	Name string
+
+	// ArgsFunc extracts the user-supplied string arguments from the
+	// *cli.Command for validation. Returns named flags and positional args.
+	// Both are fed to policy.ValidateArgs / ValidateArgSlice. If ArgsFunc is
+	// nil, Wrap treats the verb as having no user-supplied string input.
+	ArgsFunc func(*cli.Command) (args map[string]string, positional []string)
+
+	// Action is the verb's real work. Called only after argv validation passes.
+	Action cli.ActionFunc
+
+	// SkipPolicy disables the shell-metacharacter check for this verb. Set
+	// true only for pass-throughs whose argv goes straight through execve to
+	// a tool that does not feed it back through a shell (gh, aws, tailscale,
+	// package managers). The audit log and the lockdown deny list still
+	// cover the boundary; the metacharacter check is paranoia for the
+	// remote-shell path (ssh remote-cmd, kubectl/docker exec into bash -c)
+	// and gets in the way of legitimate argv content like markdown bodies
+	// (backticks, '>', '$') that callers want to forward verbatim.
+	SkipPolicy bool
+
+	// SkipScope disables --commit-scope resolution for this verb. Set true
+	// for read-only or self-referential verbs that would refuse to run
+	// outside a git repo otherwise (version, whoami, audit, git trailer/
+	// audit-show, lockdown, setup, install-completion). The audit row is
+	// still written; CommitScope is just left empty so the row never appears
+	// in any commit's trailer query.
+	SkipScope bool
+
+	// OnComplete, if set, runs inside writer.Wrap after Action returns and
+	// before the audit record is appended. Receives a pointer to the record
+	// being finalized so the verb can attach side-channel data (e.g. the
+	// rows collected by the egress proxy in pkg/egress). Decision /
+	// ExitCode / DurationMS / Error are already set when OnComplete runs;
+	// mutating them is not the contract.
+	OnComplete func(*audit.Record)
+
+	// CommitScopeOverride, when non-empty, replaces flag/env resolution and
+	// uses this absolute path as the audit row's commit-scope. Set by `coily
+	// exec` discovered-from-child verbs so audit rows bind to the matched
+	// child repo, not cwd's git toplevel (which often is not a repo when the
+	// operator runs `coily exec` one directory above the target). Ignored
+	// when SkipScope is true.
+	CommitScopeOverride string
+
+	// CommitScopeArgvHint, when set, runs as a fallback resolver before
+	// scope.Resolve and only when neither --commit-scope (still at "auto")
+	// nor $COILY_COMMIT_SCOPE was set explicitly. Receives the verb's argv;
+	// returning a non-empty path becomes the resolved commit-scope. Used by
+	// `coily ops gh` to default the scope to ~/projects/coilysiren/<name>
+	// when the user passed --repo coilysiren/<name>. Loses to
+	// CommitScopeOverride and to any explicit flag/env value. Ignored when
+	// SkipScope is true.
+	CommitScopeArgvHint func(argv []string) string
+}
+    Spec describes a verb before it is wrapped into a cli.ActionFunc.
+
+
+## github.com/coilysiren/cli-guard/workdir
+
+package workdir // import "github.com/coilysiren/cli-guard/workdir"
+
+Package workdir does best-effort detection of the "primary working directory"
+that a coily invocation is operating against. Subcommands and audit-adjacent
+code that want a "what repo am I being called from" hint should call Detect
+rather than rederiving it.
+
+This is intentionally separate from pkg/scope. scope is authoritative:
+it produces the commit-scope path that audit rows bind to, and refuses to fall
+back when the answer is uncertain. workdir is a hint: it always returns a path,
+and tags the signal it used so callers can downgrade trust when the source is
+weak.
+
+Signal order (first match wins):
+ 1. $COILY_PRIMARY_DIR override - operator forced an answer.
+ 2. Nearest ancestor containing a .git entry (file or dir, so worktrees count).
+    Pure filesystem walk, no `git` spawn.
+ 3. If cwd is inside ~/projects/coilysiren/, the first path segment under it.
+    Matches Kai's repo-parent workspace shape.
+ 4. cwd itself.
+
+CONSTANTS
+
+const OverrideEnv = "COILY_PRIMARY_DIR"
+    OverrideEnv names the env var that forces Detect's answer.
+
+
+TYPES
+
+type Result struct {
+	Path   string
+	Source Source
+}
+    Result is what Detect returns. Path is always absolute and cleaned.
+
+func Detect() Result
+    Detect runs the signal chain against the current process cwd.
+
+func DetectFrom(cwd string) Result
+    DetectFrom is Detect parameterized on cwd, for tests and callers that
+    already have a working directory in hand.
+
+type Source string
+    Source labels which signal produced the result. Callers that need to gate
+    behavior on confidence should branch on this.
+
+const (
+	// SourceEnv means $COILY_PRIMARY_DIR forced the answer.
+	SourceEnv Source = "env"
+	// SourceGit means the nearest ancestor with a .git entry won.
+	SourceGit Source = "git"
+	// SourceCoilysiren means the first path segment under
+	// ~/projects/coilysiren/ won.
+	SourceCoilysiren Source = "coilysiren"
+	// SourceCWD means no other signal matched and cwd was returned verbatim.
+	SourceCWD Source = "cwd"
+)
+    Signal labels for Result.Source, in detection-precedence order.
+
+

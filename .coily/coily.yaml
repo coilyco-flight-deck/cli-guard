@@ -23,3 +23,6 @@ commands:
   docs-serve:
     run: make docs-serve
     description: Serve mkdocs locally with live reload on 127.0.0.1:8000.
+  godoc-update:
+    run: make godoc-update
+    description: Regenerate godoc-current.txt; commit the diff to land API changes.
