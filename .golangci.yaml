@@ -1,0 +1,17 @@
+# Adopted from urfave/cli's minimal config so the four cli-* repos
+# converge on the upstream style. See:
+#   https://github.com/urfave/cli/blob/main/.golangci.yaml
+
+version: "2"
+
+formatters:
+  enable:
+    - gofumpt
+
+linters:
+  enable:
+    - makezero
+    - misspell
+  exclusions:
+    presets:
+      - std-error-handling
