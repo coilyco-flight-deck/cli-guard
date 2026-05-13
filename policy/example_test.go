@@ -18,5 +18,5 @@ func ExampleValidateArgSlice() {
 func ExampleValidateArgSlice_rejected() {
 	err := policy.ValidateArgSlice("positional", []string{"hello; rm -rf /"})
 	fmt.Println("err:", err)
-	// Output: err: positional[0]: shell metacharacter ";" refused
+	// Output: err: policy: shell metacharacter rejected: arg positional[0] contains ';' at index 5
 }
