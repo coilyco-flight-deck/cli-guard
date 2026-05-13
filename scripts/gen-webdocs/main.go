@@ -7,11 +7,13 @@ package main
 
 import (
 	"fmt"
+	"html/template"
 	"os"
 	"path/filepath"
 
 	"github.com/coilysiren/cli-guard/examples/treebuilders"
 	webdocs "github.com/coilysiren/cli-web-docs"
+	"github.com/coilysiren/cli-web-docs/layout"
 	"github.com/urfave/cli/v3"
 )
 
@@ -57,16 +59,24 @@ func writeIndex(outRoot string, entries []entry) error {
 	if err := os.MkdirAll(outRoot, 0o755); err != nil {
 		return err
 	}
+	items := make([]layout.NavItem, 0, len(entries))
+	for _, e := range entries {
+		items = append(items, layout.NavItem{
+			Label:    e.dir,
+			Href:     e.dir + "/",
+			Subtitle: e.title,
+		})
+	}
+	body := layout.BuildNavList(items)
+	page := layout.Page{
+		Title:    "cli-guard CLI reference",
+		Subtitle: "Rendered command tree for every example.",
+		Body:     template.HTML(`<p>Pick an example:</p>` + string(body)),
+	}
 	f, err := os.Create(filepath.Join(outRoot, "index.html"))
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	fmt.Fprintln(f, `<!doctype html><meta charset="utf-8"><title>cli-guard CLI reference</title>`)
-	fmt.Fprintln(f, `<h1>cli-guard examples</h1><ul>`)
-	for _, e := range entries {
-		fmt.Fprintf(f, `<li><a href="%s/">%s</a></li>`+"\n", e.dir, e.dir)
-	}
-	fmt.Fprintln(f, `</ul>`)
-	return nil
+	return layout.Render(f, page)
 }
