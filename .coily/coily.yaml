@@ -17,3 +17,9 @@ commands:
   cover:
     run: make cover
     description: Unit tests with a coverage profile.
+  docs:
+    run: make docs
+    description: Build the mkdocs site into ./site.
+  docs-serve:
+    run: make docs-serve
+    description: Serve mkdocs locally with live reload on 127.0.0.1:8000.
