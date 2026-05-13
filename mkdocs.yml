@@ -8,6 +8,7 @@ nav:
   - Features: FEATURES.md
   - Examples: examples.md
   - Code of Conduct: CODE_OF_CONDUCT.md
+  - Security: SECURITY.md
 theme:
   name: material
   palette:
