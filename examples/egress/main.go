@@ -66,7 +66,7 @@ func run(_ context.Context, target string, mode egress.Mode) error {
 	rows := p.Stop()
 	fmt.Println("egress rows:")
 	for _, r := range rows {
-		fmt.Printf("  host=%-32s decision=%-7s up=%d down=%d ms=%d\n", r.Host, r.Decision, r.Up, r.Down, r.DurMS)
+		fmt.Printf("  host=%-32s decision=%-7s up=%d down=%d ms=%d\n", r.Host, r.Decision, r.BytesUp, r.BytesDown, r.DurationMS)
 	}
 	return nil
 }

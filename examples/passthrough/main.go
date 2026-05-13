@@ -31,7 +31,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	runner := &shell.Runner{Resolver: shell.PathResolver}
+	runner := &shell.Runner{Resolve: shell.PathResolver}
 
 	echoCmd := passthrough.Command("echo", runner, writer)
 
