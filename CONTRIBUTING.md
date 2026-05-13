@@ -7,7 +7,7 @@ This project is run on volunteer time, so please have patience.
 ## Before you open a PR
 
 1. **Open an issue first.** Every commit in this repo closes a same-repo issue (`closes #N` in the commit body). Discussion happens in the issue; the PR is the change itself. This applies even to trivial fixes - the issue gives the change a stable URL.
-2. **Stay close to scope.** The four [cli-* repos](https://github.com/coilysiren?tab=repositories&q=cli-) are intentionally small. Features that pull this package out of its lane will get pushed back, even when well-intentioned. The [README](README.md) and [docs/FEATURES.md](docs/FEATURES.md) describe the surface; if your idea expands it, lead with an issue arguing for the expansion.
+2. **Stay close to scope.** The four cli-* repos are intentionally small. Features that pull this package out of its lane will get pushed back, even when well-intentioned. The [README](https://github.com/coilysiren/cli-guard#readme) and [docs/FEATURES.md](https://github.com/coilysiren/cli-guard/blob/main/docs/FEATURES.md) describe the surface; if your idea expands it, lead with an issue arguing for the expansion.
 3. **Run the dev verbs before pushing.** Local dev routes through [`coily`](https://github.com/coilysiren/coily):
 
    ```
@@ -31,4 +31,4 @@ See [SECURITY.md](SECURITY.md). Do not file vulnerabilities as public issues.
 
 ## Agent-driven contributions
 
-Pull requests authored or substantially edited by an LLM-driven agent are welcome. See [AGENTS.md](AGENTS.md) for the conventions a contributing agent should follow (issue-first, `Dangerously*` naming, dev-verb routing through coily, etc).
+Pull requests authored or substantially edited by an LLM-driven agent are welcome. See [AGENTS.md](https://github.com/coilysiren/cli-guard/blob/main/AGENTS.md) for the conventions a contributing agent should follow (issue-first, `Dangerously*` naming, dev-verb routing through coily, etc).
