@@ -1,0 +1,19 @@
+commands:
+  build:
+    run: make build
+    description: Build all packages.
+  test:
+    run: make test
+    description: Run the unit test suite.
+  vet:
+    run: make vet
+    description: go vet across the tree.
+  lint:
+    run: make lint
+    description: Lint with golangci-lint.
+  tidy:
+    run: make tidy
+    description: go mod tidy.
+  cover:
+    run: make cover
+    description: Unit tests with a coverage profile.
