@@ -20,10 +20,11 @@ import (
 func main() {
 	auditPath := filepath.Join(os.TempDir(), "cli-guard-demo.jsonl")
 	writer := audit.NewWriter(auditPath)
-	defer writer.Close()
+	defer func() { _ = writer.Close() }()
 	if err := writer.Preflight(); err != nil {
 		fmt.Fprintln(os.Stderr, "cli-guard-demo: audit preflight:", err)
-		os.Exit(1)
+		_ = writer.Close()
+		os.Exit(1) //nolint:gocritic // intentional: failed preflight cannot proceed
 	}
 
 	app := &cli.Command{
@@ -62,6 +63,7 @@ func main() {
 
 	if err := app.Run(context.Background(), os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, "cli-guard-demo:", err)
-		os.Exit(1)
+		_ = writer.Close()
+		os.Exit(1) //nolint:gocritic // intentional: defer handled above
 	}
 }

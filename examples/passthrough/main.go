@@ -25,10 +25,11 @@ import (
 func main() {
 	auditPath := filepath.Join(os.TempDir(), "cli-guard-passthrough.jsonl")
 	writer := audit.NewWriter(auditPath)
-	defer writer.Close()
+	defer func() { _ = writer.Close() }()
 	if err := writer.Preflight(); err != nil {
 		fmt.Fprintln(os.Stderr, "audit preflight:", err)
-		os.Exit(1)
+		_ = writer.Close()
+		os.Exit(1) //nolint:gocritic
 	}
 
 	runner := &shell.Runner{Resolve: shell.PathResolver}
@@ -44,7 +45,8 @@ func main() {
 
 	if err := app.Run(context.Background(), os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		_ = writer.Close()
+		os.Exit(1) //nolint:gocritic
 	}
 	fmt.Fprintln(os.Stderr, "audit log:", auditPath)
 }
