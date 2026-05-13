@@ -1,0 +1,62 @@
+# pre-commit hooks for the cli-* family. Mirror of coily's setup with the
+# coily-internal-only hooks (skill regen, trailer, install) removed.
+#
+# Install: pip install pre-commit && pre-commit install
+# Run on all files: pre-commit run --all-files
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+
+  - repo: local
+    hooks:
+      - id: go-mod-tidy
+        name: go mod tidy
+        entry: go mod tidy
+        language: system
+        files: '(go\.mod|go\.sum)$'
+        pass_filenames: false
+
+      - id: go-vet
+        name: go vet
+        entry: go vet ./...
+        language: system
+        types: [go]
+        pass_filenames: false
+
+      - id: golangci-lint
+        name: golangci-lint
+        entry: golangci-lint run
+        language: system
+        types: [go]
+        pass_filenames: false
+
+      - id: godoc-current
+        name: godoc-current.txt up to date
+        description: Re-run scripts/check-godoc-current.sh --update if this fails.
+        entry: ./scripts/check-godoc-current.sh
+        language: system
+        types: [go]
+        pass_filenames: false
+
+      - id: coily-lint
+        name: coily lint .coily/coily.yaml
+        description: Enforce that every commands.<verb> in .coily/coily.yaml maps to `make <verb>` with a matching Makefile target and `## desc` auto-help string.
+        entry: coily lint
+        language: system
+        files: '^(\.coily/coily\.yaml|Makefile)$'
+        pass_filenames: false
+
+      - id: trufflehog
+        name: trufflehog (secret scan, offline)
+        description: Detect secrets in staged changes via local trufflehog binary (no API verification).
+        entry: trufflehog git file://. --since-commit HEAD --no-verification --no-update --fail
+        language: system
+        pass_filenames: false
+        stages: [pre-commit, pre-push]

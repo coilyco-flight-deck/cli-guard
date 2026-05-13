@@ -1,17 +1,152 @@
-# Adopted from urfave/cli's minimal config so the four cli-* repos
-# converge on the upstream style. See:
-#   https://github.com/urfave/cli/blob/main/.golangci.yaml
+# golangci-lint configuration adopted from coilysiren/coily for the cli-* family.
+#
+# Strict-ish. Leans on cyclomatic complexity checks because these packages are
+# security boundaries or wire-protocol layers and tangled branchy code is where
+# the bugs live.
+#
+# Run with `coily exec lint`.
 
 version: "2"
 
-formatters:
-  enable:
-    - gofumpt
+run:
+  timeout: 3m
+  tests: true
+  modules-download-mode: readonly
 
 linters:
+  default: none
   enable:
-    - makezero
+    # Correctness.
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gosec
+    # Style.
     - misspell
+    - unconvert
+    - unparam
+    - whitespace
+    # Complexity.
+    - gocyclo
+    - gocognit
+    - cyclop
+    - funlen
+    - nestif
+    # Reduce surprise.
+    - gocritic
+    - revive
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - errorlint
+    - exhaustive
+    - nilerr
+    - nilnil
+    - predeclared
+    - wastedassign
+
+  settings:
+    gocyclo:
+      min-complexity: 12
+    gocognit:
+      min-complexity: 20
+    cyclop:
+      max-complexity: 12
+      package-average: 8
+    funlen:
+      lines: 100
+      statements: 50
+    nestif:
+      min-complexity: 5
+    gosec:
+      excludes:
+        # G204 fires on every exec.CommandContext(ctx, bin, argv...) even with
+        # argv properly constructed. Argv validation happens at the cli-guard
+        # policy layer. Refusing it here would defeat the point of the wrappers.
+        - G204
+        # G301/G302/G304/G306 (file permissions): we manage perms deliberately
+        # per call site. Trust the per-site choice over a blanket rule.
+        - G301
+        - G302
+        - G304
+        - G306
+    errcheck:
+      check-type-assertions: false
+      exclude-functions:
+        - (*os.File).Close
+        - os.Remove
+        - os.RemoveAll
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: if-return
+        - name: increment-decrement
+        - name: var-naming
+        - name: var-declaration
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unused-parameter
+        - name: unreachable-code
+        - name: redefines-builtin-id
+
   exclusions:
-    presets:
-      - std-error-handling
+    rules:
+      # Generated files: mostly mechanical, skip most checks.
+      - path: "_generated\\.go$"
+        linters:
+          - cyclop
+          - funlen
+          - gocognit
+          - gocyclo
+          - revive
+          - gocritic
+          - goconst
+          - dupl
+          - unparam
+          - unused
+          - misspell
+          - errorlint
+          - staticcheck
+      # Tests: relaxed complexity, long table-driven cases are fine.
+      - path: "_test\\.go$"
+        linters:
+          - funlen
+          - gocognit
+          - gocyclo
+          - cyclop
+          - gocritic
+          - goconst
+          - errcheck
+          - gosec
+      # Examples are small demonstration mains; structure is illustrative, not
+      # production code.
+      - path: "^examples/"
+        linters:
+          - funlen
+          - gocognit
+          - gocyclo
+          - cyclop
+          - errcheck
+          - gosec
+          - revive
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  max-same-issues: 20
