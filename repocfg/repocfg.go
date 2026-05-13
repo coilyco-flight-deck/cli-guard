@@ -258,7 +258,6 @@ func LoadDefault() (*Config, error) {
 func Load(path string) (*Config, error) {
 	path = filepath.Clean(path)
 	b, err := os.ReadFile(path) // #nosec G304 -- caller-controlled config path is the intended input
-
 	if err != nil {
 		return nil, fmt.Errorf("repocfg: read %s: %w", path, err)
 	}
