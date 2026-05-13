@@ -1,55 +1,43 @@
 # cli-guard
 
-A security-boundary framework for [urfave/cli](https://github.com/urfave/cli) v3 applications.
+[![Go Reference][goreference_badge]][goreference_link]
+[![Go Report Card][goreportcard_badge]][goreportcard_link]
+[![Tests status][test_badge]][test_link]
 
-cli-guard turns a urfave/cli command tree into an audited, scoped, argv-validated security boundary suitable for use as the bridge between AI agents (or any semi-trusted automation) and the host system. Extracted from [coilysiren/coily](https://github.com/coilysiren/coily), the personal ops CLI that originally hosted this code.
+cli-guard is a **security-boundary** framework for [urfave/cli][urfave/cli] v3 applications, designed to sit between AI agents (or any semi-trusted automation) and the host system, featuring:
 
-This package is one of four urfave/cli extensions intended for the urfave/cli ecosystem:
+- argv validation rejecting shell metacharacters before they reach `execve`
+- append-only JSONL audit log with lumberjack rotation
+- read / write / delete scope tokens, validated per verb
+- `--commit-scope` resolution binding every audit row to a git toplevel
+- clean+synced gate refusing repo-shaped verbs on a dirty tree
+- per-repo command allowlist loaded from `.coily/coily.yaml`-style files
+- thin pass-through wrapper for embedding existing CLIs as audited subcommands
+- per-invocation CONNECT proxy with consumer-supplied egress allowlist
+- public exit-code taxonomy for orchestrators
 
-- **cli-guard** (this repo): scope tokens, audit log, lockdown writer, argv validation
-- [cli-mcp](https://github.com/coilysiren/cli-mcp): project a urfave/cli command tree as an MCP server
-- [cli-web-docs](https://github.com/coilysiren/cli-web-docs): static HTML documentation from a command tree
-- [cli-web-ops](https://github.com/coilysiren/cli-web-ops): mobile-first web executor over Tailscale
+## Documentation
 
-All four are MIT-licensed and donation-ready.
+See [`docs/FEATURES.md`](docs/FEATURES.md) for a feature inventory and [`examples/`](examples/) for runnable demos, one per primitive. Local dev verbs live in [`.coily/coily.yaml`](.coily/coily.yaml); `coily lint` validates that against the [`Makefile`](Makefile).
 
-## What's in the box
+## Support
 
-- `audit/` - append-only JSONL invocation log with lumberjack rotation
-- `config/` - default + global + local config layering
-- `exitcode/` - public exit-code taxonomy for orchestrators to pattern-match
-- `gittree/` - clean+synced working-tree gate (verbs that mutate require a reconstructable history)
-- `passthrough/` - thin wrapper for embedding existing CLIs (aws, gh, kubectl, ...) as audited subcommands
-- `policy/` - shell-metachar argv validation
-- `repocfg/` - per-repo command allowlist loaded from a configurable YAML file
-- `scope/` - resolve a `--commit-scope` flag to a git toplevel for audit-row binding
-- `shell/`, `ttlcache/`, `verb/`, `workdir/` - supporting utilities
+If you found a bug or have a feature request, [create a new issue].
 
-## Usage
+Sibling repos in the cli-* family: [cli-mcp], [cli-web-docs], [cli-web-ops].
 
-```go
-import (
-    "github.com/coilysiren/cli-guard/audit"
-    "github.com/coilysiren/cli-guard/passthrough"
-    "github.com/urfave/cli/v3"
-)
+### License
 
-// Wrap an existing CLI binary as an audited urfave subcommand:
-cmd := passthrough.Command("aws", passthrough.Runner{
-    Audit: audit.MustOpen("~/.cli-guard/audit"),
-})
-```
+See [`LICENSE`](./LICENSE).
 
-See `examples/demo/` for a tiny end-to-end CLI that wires every package together.
-
-## Planned for v0.1
-
-- `lockdown/` - generic permission-file writer with a `Driver` interface. Built-in: Claude Code. See [#2](https://github.com/coilysiren/cli-guard/issues/2).
-
-## Status
-
-v0. Extracted from coily on 2026-05-13. API will firm up under second-consumer pressure; pin a specific commit until v1.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+[test_badge]: https://github.com/coilysiren/cli-guard/actions/workflows/ci.yml/badge.svg
+[test_link]: https://github.com/coilysiren/cli-guard/actions/workflows/ci.yml
+[goreference_badge]: https://pkg.go.dev/badge/github.com/coilysiren/cli-guard.svg
+[goreference_link]: https://pkg.go.dev/github.com/coilysiren/cli-guard
+[goreportcard_badge]: https://goreportcard.com/badge/github.com/coilysiren/cli-guard
+[goreportcard_link]: https://goreportcard.com/report/github.com/coilysiren/cli-guard
+[urfave/cli]: https://github.com/urfave/cli
+[create a new issue]: https://github.com/coilysiren/cli-guard/issues/new/choose
+[cli-mcp]: https://github.com/coilysiren/cli-mcp
+[cli-web-docs]: https://github.com/coilysiren/cli-web-docs
+[cli-web-ops]: https://github.com/coilysiren/cli-web-ops
