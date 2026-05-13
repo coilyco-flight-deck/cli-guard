@@ -24,34 +24,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/coilysiren/cli-guard/gittree"
-	"github.com/urfave/cli/v3"
+	"github.com/coilysiren/cli-guard/examples/treebuilders"
 )
 
 func main() {
-	app := &cli.Command{
-		Name:    "gittree-demo",
-		Usage:   "show the clean+synced gate",
-		Version: "v0.0.0",
-		Commands: []*cli.Command{
-			{
-				Name:  "build",
-				Usage: "pretend-build verb, gated on a clean tree",
-				Action: func(_ context.Context, _ *cli.Command) error {
-					cwd, _ := os.Getwd()
-					state, err := gittree.CheckClean(cwd)
-					if err != nil {
-						return fmt.Errorf("refused: %w", err)
-					}
-					_ = state
-					fmt.Println("ok: tree is clean, pretend-build runs")
-					return nil
-				},
-			},
-		},
-	}
-
-	if err := app.Run(context.Background(), os.Args); err != nil {
+	if err := treebuilders.Gittree().Run(context.Background(), os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}

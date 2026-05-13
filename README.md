@@ -18,7 +18,7 @@ cli-guard is a **security-boundary** framework for [urfave/cli][urfave/cli] v3 a
 
 ## Documentation
 
-See [`docs/FEATURES.md`](docs/FEATURES.md) for a feature inventory and [`examples/`](examples/) for runnable demos, one per primitive. Local dev verbs live in [`.coily/coily.yaml`](.coily/coily.yaml); `coily lint` validates that against the [`Makefile`](Makefile).
+See [`docs/FEATURES.md`](docs/FEATURES.md) for a feature inventory, [`examples/`](examples/) for runnable demos one per primitive, and the [CLI reference](https://coilysiren.github.io/cli-guard/cli/) for the rendered command tree of every example. Local dev verbs live in [`.coily/coily.yaml`](.coily/coily.yaml); `coily lint` validates that against the [`Makefile`](Makefile).
 
 ## Support
 

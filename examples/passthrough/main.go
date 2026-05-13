@@ -17,9 +17,8 @@ import (
 	"path/filepath"
 
 	"github.com/coilysiren/cli-guard/audit"
-	"github.com/coilysiren/cli-guard/passthrough"
+	"github.com/coilysiren/cli-guard/examples/treebuilders"
 	"github.com/coilysiren/cli-guard/shell"
-	"github.com/urfave/cli/v3"
 )
 
 func main() {
@@ -34,16 +33,7 @@ func main() {
 
 	runner := &shell.Runner{Resolve: shell.PathResolver}
 
-	echoCmd := passthrough.Command("echo", runner, writer)
-
-	app := &cli.Command{
-		Name:     "passthrough-demo",
-		Usage:    "wrap an existing binary as an audited subcommand",
-		Version:  "v0.0.0",
-		Commands: []*cli.Command{echoCmd},
-	}
-
-	if err := app.Run(context.Background(), os.Args); err != nil {
+	if err := treebuilders.Passthrough(runner, writer).Run(context.Background(), os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		_ = writer.Close()
 		os.Exit(1) //nolint:gocritic

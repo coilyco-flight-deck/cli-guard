@@ -7,6 +7,7 @@ nav:
   - Home: index.md
   - Features: FEATURES.md
   - Examples: examples.md
+  - CLI reference: https://coilysiren.github.io/cli-guard/cli/
   - Contributing: CONTRIBUTING.md
   - Code of Conduct: CODE_OF_CONDUCT.md
   - Security: SECURITY.md

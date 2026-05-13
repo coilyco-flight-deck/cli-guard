@@ -13,8 +13,7 @@ import (
 	"path/filepath"
 
 	"github.com/coilysiren/cli-guard/audit"
-	"github.com/coilysiren/cli-guard/verb"
-	"github.com/urfave/cli/v3"
+	"github.com/coilysiren/cli-guard/examples/treebuilders"
 )
 
 func main() {
@@ -27,41 +26,7 @@ func main() {
 		os.Exit(1) //nolint:gocritic // intentional: failed preflight cannot proceed
 	}
 
-	app := &cli.Command{
-		Name:    "demo",
-		Usage:   "tiny cli-guard demo app",
-		Version: "v0.0.0",
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:  verb.CommitScopeFlag,
-				Value: "auto",
-				Usage: "bind audit rows to a commit scope",
-			},
-		},
-		Commands: []*cli.Command{
-			{
-				Name:      "hello",
-				Usage:     "print a greeting",
-				ArgsUsage: "<name>",
-				Action: verb.Wrap(verb.Spec{
-					Name: "hello",
-					ArgsFunc: func(c *cli.Command) (map[string]string, []string) {
-						return nil, c.Args().Slice()
-					},
-					Action: func(_ context.Context, c *cli.Command) error {
-						name := c.Args().First()
-						if name == "" {
-							name = "world"
-						}
-						fmt.Printf("hello, %s\n", name)
-						return nil
-					},
-				}, writer),
-			},
-		},
-	}
-
-	if err := app.Run(context.Background(), os.Args); err != nil {
+	if err := treebuilders.Audit(writer).Run(context.Background(), os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, "cli-guard-demo:", err)
 		_ = writer.Close()
 		os.Exit(1) //nolint:gocritic // intentional: defer handled above

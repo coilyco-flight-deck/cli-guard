@@ -20,6 +20,9 @@ commands:
   docs:
     run: make docs
     description: Build the mkdocs site into ./site.
+  docs-cli:
+    run: make docs-cli
+    description: Overlay the per-example CLI reference under site/cli/ via cli-web-docs.
   docs-serve:
     run: make docs-serve
     description: Serve mkdocs locally with live reload on 127.0.0.1:8000.

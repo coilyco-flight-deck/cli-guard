@@ -25,11 +25,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"strings"
 
+	"github.com/coilysiren/cli-guard/examples/treebuilders"
 	"github.com/coilysiren/cli-guard/repocfg"
-	"github.com/urfave/cli/v3"
 )
 
 func main() {
@@ -43,45 +41,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	app := &cli.Command{
-		Name:    "repocfg-demo",
-		Usage:   "show per-repo command allowlist loading",
-		Version: "v0.0.0",
-		Commands: []*cli.Command{
-			{
-				Name:  "list",
-				Usage: "print the verbs declared in coily.yaml",
-				Action: func(_ context.Context, _ *cli.Command) error {
-					for _, v := range cfg.Commands {
-						fmt.Printf("%s: %s\n", v.Name, strings.Join(v.Argv, " "))
-					}
-					return nil
-				},
-			},
-			{
-				Name:      "run",
-				Usage:     "execute a declared verb by name",
-				ArgsUsage: "<verb>",
-				Action: func(ctx context.Context, c *cli.Command) error {
-					name := c.Args().First()
-					if name == "" {
-						return errors.New("usage: run <verb>")
-					}
-					for _, v := range cfg.Commands {
-						if v.Name == name {
-							cmd := exec.CommandContext(ctx, v.Argv[0], v.Argv[1:]...) //nolint:gosec // tokens validated at load time
-							cmd.Stdout = os.Stdout
-							cmd.Stderr = os.Stderr
-							return cmd.Run()
-						}
-					}
-					return fmt.Errorf("no such verb: %s", name)
-				},
-			},
-		},
-	}
-
-	if err := app.Run(context.Background(), os.Args); err != nil {
+	if err := treebuilders.Repocfg(cfg).Run(context.Background(), os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

@@ -21,34 +21,15 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 
+	"github.com/coilysiren/cli-guard/examples/treebuilders"
 	"github.com/coilysiren/cli-guard/exitcode"
-	"github.com/urfave/cli/v3"
 )
 
 func main() {
-	app := &cli.Command{
-		Name:    "exitcode-demo",
-		Usage:   "show the public exit-code taxonomy",
-		Version: "v0.0.0",
-		Commands: []*cli.Command{
-			{Name: "success", Action: func(_ context.Context, _ *cli.Command) error { return nil }},
-			{Name: "policy", Action: func(_ context.Context, _ *cli.Command) error {
-				return exitcode.New(exitcode.PolicyDenied, "policy", errors.New("argv rejected"), "fix the input")
-			}},
-			{Name: "upstream", Action: func(_ context.Context, _ *cli.Command) error {
-				return exitcode.New(exitcode.UpstreamFailed, "upstream_failed", errors.New("wrapped tool exited 7"), "check the tool")
-			}},
-			{Name: "internal", Action: func(_ context.Context, _ *cli.Command) error {
-				return exitcode.New(exitcode.Internal, "internal", errors.New("config load failed"), "report a bug")
-			}},
-		},
-	}
-
-	if err := app.Run(context.Background(), os.Args); err != nil {
+	if err := treebuilders.Exitcode().Run(context.Background(), os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		if coded := exitcode.From(err); coded != nil {
 			os.Exit(coded.Code())

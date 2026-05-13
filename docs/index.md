@@ -18,6 +18,7 @@ It provides:
 
 - **[Features](FEATURES.md)** - feature inventory.
 - **[Examples](examples.md)** - one runnable demo per primitive.
+- **[CLI reference](cli/index.html)** - rendered command tree for every example.
 - **[Source on GitHub](https://github.com/coilysiren/cli-guard)** - issues, releases, code.
 
 cli-guard is part of the cli-* family: [cli-mcp](https://github.com/coilysiren/cli-mcp), [cli-web-docs](https://github.com/coilysiren/cli-web-docs), [cli-web-ops](https://github.com/coilysiren/cli-web-ops).

@@ -28,10 +28,18 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: mkdocs-requirements.txt
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            scripts/gen-webdocs/go.sum
       - name: install mkdocs deps
         run: pip install -r mkdocs-requirements.txt
       - name: mkdocs build (strict)
         run: mkdocs build --strict
+      - name: render CLI reference
+        run: make docs-cli
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

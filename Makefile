@@ -1,4 +1,4 @@
-.PHONY: build test vet lint tidy cover docs docs-serve godoc-update
+.PHONY: build test vet lint tidy cover docs docs-cli docs-serve godoc-update
 
 build: ## Build all packages.
 	go build ./...
@@ -20,6 +20,9 @@ cover: ## Unit tests with a coverage profile.
 
 docs: ## Build the mkdocs site into ./site.
 	mkdocs build --strict
+
+docs-cli: ## Overlay the per-example CLI reference under site/cli/ via cli-web-docs.
+	cd scripts/gen-webdocs && go run .
 
 docs-serve: ## Serve mkdocs locally with live reload on 127.0.0.1:8000.
 	mkdocs serve
