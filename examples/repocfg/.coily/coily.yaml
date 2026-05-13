@@ -1,0 +1,7 @@
+commands:
+  build:
+    run: go build ./...
+    description: Build all packages in this module.
+  greet:
+    run: echo hello world
+    description: Smoke test the run path.
