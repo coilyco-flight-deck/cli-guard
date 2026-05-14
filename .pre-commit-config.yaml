@@ -47,12 +47,12 @@ repos:
         types: [go]
         pass_filenames: false
 
-      - id: coily-lint
-        name: coily lint .coily/coily.yaml
-        description: Enforce that every commands.<verb> in .coily/coily.yaml maps to `make <verb>` with a matching Makefile target and `## desc` auto-help string.
-        entry: coily lint
+      - id: agent-guard-lint
+        name: agent-guard lint .agent-guard/agent-guard.yaml
+        description: Enforce that every commands.<verb> in .agent-guard/agent-guard.yaml maps to `make <verb>` with a matching Makefile target and `## desc` auto-help string.
+        entry: agent-guard lint
         language: system
-        files: '^(\.coily/coily\.yaml|Makefile)$'
+        files: '^(\.agent-guard/agent-guard\.yaml|Makefile)$'
         pass_filenames: false
 
       - id: trufflehog
@@ -67,7 +67,7 @@ repos:
   - repo: local
     hooks:
       - id: catalog-block-present
-        name: .coily/coily.yaml catalog block present
+        name: .agent-guard/agent-guard.yaml catalog block present
         description: Assert this repo declares its catalog metadata. See coilysiren/coilyco-ai#420.
         entry: python3 scripts/check-catalog-block.py
         language: system

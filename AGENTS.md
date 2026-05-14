@@ -8,7 +8,7 @@ A security-boundary framework for urfave/cli v3 applications. Extracted from [co
 
 ## Dev verbs
 
-Route through [agent-guard](https://github.com/coilysiren/agent-guard), not bare go. agent-guard is the generic-purpose cli-guard consumer; external contributors install it via `brew install coilysiren/tap/agent-guard`. The `.coily/coily.yaml` ↔ `Makefile` contract is checked on every CI run via `agent-guard lint`:
+Route through [agent-guard](https://github.com/coilysiren/agent-guard), not bare go. agent-guard is the generic-purpose cli-guard consumer; external contributors install it via `brew install coilysiren/tap/agent-guard`. The `.agent-guard/agent-guard.yaml` ↔ `Makefile` contract is checked on every CI run via `agent-guard lint`:
 
 - `agent-guard exec build` - compile every package.
 - `agent-guard exec test` - run the unit test suite.
@@ -17,7 +17,7 @@ Route through [agent-guard](https://github.com/coilysiren/agent-guard), not bare
 - `agent-guard exec tidy` - `go mod tidy`.
 - `agent-guard exec cover` - tests with a coverage profile.
 
-Kai's own machines also accept the equivalent `coily exec ...` forms; both wrappers read the same `.coily/coily.yaml` allowlist.
+cli-guard itself doesn't care which filename: any consumer that wraps the repocfg primitive can pick its own (`.agent-guard/agent-guard.yaml` here, `.coily/coily.yaml` in Kai-internal repos, etc.).
 
 ## No coily-types in pkg-shaped code
 

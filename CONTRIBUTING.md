@@ -17,7 +17,7 @@ This project is run on volunteer time, so please have patience.
    agent-guard exec lint
    ```
 
-   The `.coily/coily.yaml` ↔ Makefile contract is checked by `agent-guard lint` and by CI on every push. (The file is named `.coily/coily.yaml` for historical reasons. agent-guard reads the same format. New repos may also use `.agent-guard/agent-guard.yaml`.)
+   The `.agent-guard/agent-guard.yaml` ↔ Makefile contract is checked by `agent-guard lint` and by CI on every push.
 
 4. **Update `godoc-current.txt` if you touch the public API.** Run `agent-guard exec godoc-update` and commit the diff in the same PR. CI fails if the snapshot is out of sync.
 

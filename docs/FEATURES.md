@@ -23,7 +23,7 @@ Inventory of what cli-guard does today. Scope changes should land in the same co
 
 ## Repo development
 
-- `.coily/coily.yaml` declares local dev verbs (`coily exec build`, `test`, `vet`, `lint`, `tidy`, `cover`).
+- `.agent-guard/agent-guard.yaml` declares local dev verbs (`agent-guard exec build`, `test`, `vet`, `lint`, `tidy`, `cover`).
 - `Makefile` is the source of truth for what each verb actually runs.
 - `coily lint` checks the yaml/Makefile contract on every CI run.
 - `.golangci.yaml` mirrors urfave/cli's minimal config.
