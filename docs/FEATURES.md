@@ -19,6 +19,7 @@ Inventory of what cli-guard does today. Scope changes should land in the same co
 - **skillgen** - Render an urfave/cli command tree into a deterministic markdown lookup table or yaml document. Pairs with the verb package: every wrapped Action is reachable by name from the rendered output, so the rendered file is a machine-checkable mirror of the invocation surface.
 - **config** - Three-layer YAML config loader: Go-literal defaults overlaid by `~/.coily/config.yaml` overlaid by `./.coily/config.yaml`, with per-key precedence and `~/` expansion. Audit log path defaults to `~/.coily/audit/<repo-slug>.jsonl`, slug derived from `git remote get-url origin`. `COILY_AUDIT_LOG` env var wins over all layers.
 - **profiles** - Per-host lockdown profile registry. Loads `~/.coily/coily.yaml`, validates each declared profile against the cli-guard/profile axis vocabulary, and resolves a name to a Coordinate. Missing file or unknown name falls back to `profile.Strictest()` deny-everything.
+- **decision** - Per-call profile-aware evaluator. Resolves a session profile through the profiles registry and returns an `audit.ProfileDecision` ready to attach to an audit row. Plug in via `verb.Spec.OnEvaluate`. Also ships a default `audit.RedactPolicy` covering common secret-flag names and identifier patterns (AWS account ids, email addresses).
 
 ## Repo development
 
