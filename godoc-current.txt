@@ -1256,6 +1256,54 @@ func (r *Runner) ExecIn(ctx context.Context, dir, bin string, argv ...string) er
     at a real directory.
 
 
+## github.com/coilysiren/cli-guard/sudo
+
+package sudo // import "github.com/coilysiren/cli-guard/sudo"
+
+Package sudo is policy-free plumbing for driving an interactive sudo over an
+ssh transport without either (a) carrying a password at rest or (b) leaking it
+through argv or the audit log.
+
+The hot path on a configured server is `sudo -n` against a NOPASSWD sudoers
+entry, which never reaches this package. ReadPassword runs only when -n is
+denied and an interactive fallback is required.
+
+VARIABLES
+
+var ErrNoTTY = errors.New("sudo: no controlling tty; cannot prompt for password")
+    ErrNoTTY is returned by ReadPassword when /dev/tty cannot be opened. CI and
+    headless invocations should fail fast on this rather than hang waiting for
+    input that will never come.
+
+
+FUNCTIONS
+
+func PasswordRequired(stderr string) bool
+    PasswordRequired returns true when stderr from a `sudo -n` attempt indicates
+    the failure was "password needed" rather than a genuine command error.
+    The strings are stable across modern sudo (1.8+) and localized only when
+    LC_ALL/LANG is set on the remote. The ssh transports used with this helper
+    conventionally do not forward locale, so the C-locale strings apply.
+
+func ReadPassword(prompt string) ([]byte, error)
+    ReadPassword prompts on /dev/tty (NOT stdin, which the caller will reuse
+    to pipe the password into the remote sudo) and returns the typed bytes.
+    Callers MUST zero the returned slice once consumed:
+
+        pw, err := sudo.ReadPassword("[sudo] password: ")
+        if err != nil { ... }
+        defer sudo.Zero(pw)
+
+    Returning a []byte rather than a string is deliberate: strings are immutable
+    and cannot be wiped from memory, which defeats the whole point of careful
+    password handling.
+
+func Zero(b []byte)
+    Zero overwrites b in place. Use with `defer` after a successful ReadPassword
+    to keep the password-bearing buffer alive only as long as it is actually
+    needed.
+
+
 ## github.com/coilysiren/cli-guard/ttlcache
 
 package ttlcache // import "github.com/coilysiren/cli-guard/ttlcache"
