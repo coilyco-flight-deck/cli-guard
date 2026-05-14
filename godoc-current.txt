@@ -422,6 +422,171 @@ func (s *State) FormatRefusal(verbName string) string
     wrapping into an exitcode.New so the process exit reflects the gate.
 
 
+## github.com/coilysiren/cli-guard/lockdown
+
+package lockdown // import "github.com/coilysiren/cli-guard/lockdown"
+
+Package lockdown writes a per-repo Claude Code settings file that enforces an
+allowlist-inversion for the wrapper binary supplied by a Driver. Defaults are
+embedded at build time. cli-guard ships one Driver out of the box (ClaudeCode);
+future drivers can plug into the same surface to gate other AI tool runtimes.
+
+The shape of the Claude Code output is:
+
+    {
+      "permissions": { "allow": [...], "deny": [...] }
+    }
+
+MCP server allowlisting is intentionally out of scope. The Bash deny list gates
+shell-level blast radius (cluster mutations, secret reads, package installs).
+MCP-server gating is a different threat model - "is this MCP server trustworthy"
+- and the answer is per-user / per-machine, not per-repo. Baking it into a
+repo-scoped settings.json puts the decision in the wrong place. Drop it; let the
+user manage MCP allowlisting at the user-settings level.
+
+Behavior model:
+
+  - Bare `<host CLI> lockdown` prints the plan and exits. No write.
+  - `<host CLI> lockdown --apply` writes a fresh file only if
+    .claude/settings.json does not already exist.
+  - `<host CLI> lockdown --apply --replace` overwrites an existing file
+    wholesale.
+
+BuildPlan always returns the canonical defaults regardless of what is on disk.
+Any hand-edited allow/deny entries are dropped on --replace.
+
+FUNCTIONS
+
+func EnsureUserHook(homeDir string, drv *Driver) (hookPath string, settingsChanged bool, err error)
+    EnsureUserHook writes the user-level PreToolUse Bash hook script under
+    homeDir/<SettingsRelPath>/<driver.UserHookFilename> and patches the
+    user settings.json (same dir) so a PreToolUse Bash matcher invokes it.
+    Idempotent: re-runs overwrite the script and leave the settings entry alone
+    if the driver's marker is already present. Returns the resolved hook path
+    and a flag for whether settings.json was changed.
+
+func HookPath(settingsPath string, drv *Driver) string
+    HookPath returns the absolute path of the generated PreToolUse hook script.
+    It sits next to settings.json under the driver's settings directory.
+
+func MergeDenyInto(targetPath string, d *Defaults) (bool, error)
+    MergeDenyInto reasserts the canonical deny list at an ancestor settings
+    file. Returns (mutated, error) where mutated is true iff the file's
+    effective content changed.
+
+func TargetPath(dir string, local bool) string
+    TargetPath returns the settings file path under dir. If local is true,
+    uses settings.local.json. Otherwise settings.json.
+
+func Write(plan *Plan) error
+    Write applies the plan to disk. Caller should have shown the plan first and
+    confirmed.
+
+func WriteHook(settingsPath string, d *Defaults, drv *Driver) (string, bool, error)
+    WriteHook renders and writes the PreToolUse hook script with 0755 perms.
+    Validates the generated script with `sh -n` before writing - a syntax error
+    would silently neutralize the deny gate on Desktop.
+
+
+TYPES
+
+type Defaults struct {
+	Allow []string `yaml:"allow" json:"-"`
+	Deny  []string `yaml:"deny" json:"-"`
+}
+    Defaults is the parsed allow / deny list pair that BuildPlan writes into
+    the target settings file. Loaded from defaults.yaml via LoadDefaults.
+    Caller-supplied Defaults are also accepted.
+
+func LoadDefaults() (*Defaults, error)
+    LoadDefaults parses the embedded canonical allow/deny lists.
+
+type Driver struct {
+	BinaryName         string
+	BinaryAllowedPaths []string
+	WrapperRecovery    map[string]string
+	HookFilename       string
+	UserHookFilename   string
+	UserHookMarkerKey  string
+	SettingsRelPath    string
+
+	BuildSettings        func(existing []byte, d *Defaults, drv *Driver) ([]byte, error)
+	RenderHookScript     func(d *Defaults, drv *Driver) (string, error)
+	RenderUserHookScript func(drv *Driver) string
+}
+    Driver describes the binary and runtime that lockdown should write
+    settings/hooks for. Callers either construct a Driver directly or use the
+    ClaudeCode constructor for the default coily-style behavior.
+
+    The struct decouples lockdown from any particular CLI host:
+
+      - Binary fields name the wrapper binary (today: coily) and the install
+        paths it must resolve to; the hook rejects invocations resolving
+        anywhere else.
+      - WrapperRecovery maps a denied bare binary (e.g. "gh") to the audited
+        wrapper Kai should reach for instead ("coily ops gh"). Surfaced in deny
+        messages so opaque errors stay phone-dictatable.
+      - HookFilename / UserHookFilename / UserHookMarkerKey name the per-repo +
+        user-wide hook files and the JSON marker used to recognize our own entry
+        in shared settings.
+      - SettingsRelPath is the project-relative dir containing settings
+        ('.claude' for Claude Code).
+      - BuildSettings / RenderHookScript / RenderUserHookScript are the
+        runtime-specific producers; the ClaudeCode constructor wires the
+        defaults. A future Driver for a different AI tool runtime can swap these
+        without touching the rest of the package.
+
+func ClaudeCode(binary string, allowedPaths []string, recovery map[string]string) *Driver
+    ClaudeCode returns a Driver pre-wired for Claude Code's settings.json shape
+    and PreToolUse Bash hook contract. Callers supply the binary name (typically
+    "coily"), the closed set of filesystem paths that binary is permitted to
+    resolve to, and a wrapperRecovery map that turns denied bare-binary tokens
+    into the audited wrappers Kai should dictate instead.
+
+    Filenames default to the coily-style ('lockdown-deny.sh' and
+    '<binary>-binary-gate.sh') and the user-hook marker matches the gate
+    filename minus the suffix. Override fields on the returned Driver before
+    passing it into the package functions if needed.
+
+func (d *Driver) HookSettingsPath() string
+    HookSettingsPath is the relative path baked into settings.json's hook entry.
+    The host CLI resolves it relative to the project root.
+
+func (d *Driver) Validate() error
+    Validate returns an error if the driver is missing fields the lockdown
+    package needs to operate. Callers should run this before passing the driver
+    into BuildPlan / Write / WriteHook / EnsureUserHook so misconfiguration
+    fails loudly at construction time rather than silently writing a half-formed
+    gate.
+
+type Permissions struct {
+	Allow []string `json:"allow,omitempty"`
+	Deny  []string `json:"deny,omitempty"`
+}
+    Permissions is the on-disk shape of the Claude Code settings permissions
+    block (allow / deny rule strings).
+
+type Plan struct {
+	TargetPath string          // the .claude/settings*.json path
+	Existed    bool            // did TargetPath exist before?
+	Before     json.RawMessage // original file contents, if any
+	After      json.RawMessage // file contents that would be (or were) written
+}
+    Plan describes what lockdown would (or did) write. Rendered as JSON for the
+    caller to display or persist.
+
+func BuildPlan(targetPath string, d *Defaults, drv *Driver) (*Plan, error)
+    BuildPlan computes what the target settings file should look like after
+    applying the defaults. Does not touch disk. Routes through the driver's
+    BuildSettings function so the canonical settings shape stays pluggable
+    across hosts.
+
+type Settings struct {
+	Permissions Permissions `json:"permissions"`
+}
+    Settings is the subset of Claude Code settings we manipulate directly.
+
+
 ## github.com/coilysiren/cli-guard/passthrough
 
 package passthrough // import "github.com/coilysiren/cli-guard/passthrough"

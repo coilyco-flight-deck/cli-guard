@@ -1,3 +1,15 @@
+# Schema: coilysiren/coilyco-ai#420 (tracker).
+catalog:
+  kind: Component
+  type: library
+  system: coily-platform
+  owner: kai
+  lifecycle: production
+  description: "Security-boundary framework for urfave/cli v3 apps. Argv validation, audit log, scope tokens, lockdown writer with driver pattern."
+  dependsOn: []
+  providesApis:
+    - cli-guard-go-pkg
+
 commands:
   build:
     run: make build
