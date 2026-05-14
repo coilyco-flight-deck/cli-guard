@@ -117,3 +117,58 @@ func TestRecord_TrailerLineEmptyWhenNoID(t *testing.T) {
 		t.Errorf("TrailerLine with empty ID = %q, want empty", r.TrailerLine())
 	}
 }
+
+func TestRecord_TrailerLine_DropsAtFirstFlag(t *testing.T) {
+	// Sensitive flag values (e.g. SSM parameter names that encode a GPG
+	// key id) must not land in commit history. Truncate at the first
+	// `-`-prefixed token. See cli-guard#60.
+	cases := []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{
+			name: "long-flag with sensitive value drops at flag",
+			argv: []string{
+				"/opt/homebrew/bin/coily", "ops", "aws", "ssm", "get-parameter",
+				"--name", "/coilysiren/gpg-passphrase/349CB0111F27988E",
+				"--with-decryption", "--query", "Parameter.Value",
+			},
+			want: " - coily ops aws ssm get-parameter",
+		},
+		{
+			name: "short-flag drops at flag",
+			argv: []string{"coily", "exec", "build", "-x", "value"},
+			want: " - coily exec build",
+		},
+		{
+			name: "no flags keeps full verb chain",
+			argv: []string{"coily", "ops", "aws", "sts", "get-caller-identity"},
+			want: " - coily ops aws sts get-caller-identity",
+		},
+		{
+			name: "argv just basename keeps it",
+			argv: []string{"coily"},
+			want: " - coily",
+		},
+		{
+			name: "leading flag drops everything; render bare URL",
+			argv: []string{"--config", "x"},
+			want: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := tempWriter(t)
+			if err := w.Append(audit.Record{Verb: "v", Timestamp: 1, Argv: tc.argv}); err != nil {
+				t.Fatalf("Append: %v", err)
+			}
+			rec := read(t, w.Path)[0]
+			got := rec.TrailerLine()
+			want := rec.Trailer() + tc.want
+			if got != want {
+				t.Errorf("TrailerLine = %q, want %q", got, want)
+			}
+		})
+	}
+}

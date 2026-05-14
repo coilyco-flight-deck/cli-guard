@@ -184,9 +184,13 @@ func (r Record) Trailer() string {
 
 // TrailerLine returns the full Audit-log trailer value rendered for a
 // commit: `coily://<unix-ts>/<short-id> - <argv summary>`. The argv summary
-// is the recorded argv joined by spaces, with argv[0] reduced to its
-// basename so absolute paths to the coily binary do not leak into commit
-// history. Empty if ID is unset (matches Trailer's behavior).
+// is argv[0] (basename) plus any subsequent positional tokens up to but
+// not including the first flag-shaped token (anything starting with `-`).
+// Flags and their values are dropped, because flag values can be sensitive
+// (e.g. an SSM parameter name encoding a GPG key id) and have no business
+// in commit history. The full argv is still in the per-scope JSONL audit
+// log on disk for forensic recovery; the commit message gets the verb chain
+// and nothing more. Empty if ID is unset (matches Trailer's behavior).
 func (r Record) TrailerLine() string {
 	url := r.Trailer()
 	if url == "" {
@@ -198,6 +202,17 @@ func (r Record) TrailerLine() string {
 	parts := make([]string, len(r.Argv))
 	copy(parts, r.Argv)
 	parts[0] = filepath.Base(parts[0])
+	end := len(parts)
+	for i, p := range parts {
+		if strings.HasPrefix(p, "-") {
+			end = i
+			break
+		}
+	}
+	parts = parts[:end]
+	if len(parts) == 0 {
+		return url
+	}
 	return url + " - " + strings.Join(parts, " ")
 }
 
