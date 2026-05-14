@@ -318,6 +318,175 @@ func (w *Writer) WrapHook(ctx context.Context, base Record, fn func() error, onC
     fires.
 
 
+## github.com/coilysiren/cli-guard/config
+
+package config // import "github.com/coilysiren/cli-guard/config"
+
+Package config loads a layered configuration: a Go-literal default baked into
+the binary, ~/.coily/config.yaml (the global overlay), and ./.coily/config.yaml
+(the per-repo local overlay). Local always wins on a per-key basis.
+
+The default layer guarantees the binary can boot with no on-disk state at all.
+The global layer holds host-wide defaults (audit rotation knobs, AWS profile
+name). The local layer lets a repo carry its own overrides into a fresh checkout
+without touching ~/.
+
+The .coily directory name is the convention shared by every cli-guard consumer
+today. Override paths via GlobalConfigPath / LocalConfigPath callers if a
+different directory is wanted.
+
+Path defaults and per-repo audit derivation. Globals live under ~/.coily so they
+outlive any individual repo. Locals live under ./.coily so a repo can carry its
+own allowlist into a fresh checkout.
+
+CONSTANTS
+
+const AuditLogEnvVar = "COILY_AUDIT_LOG"
+    AuditLogEnvVar is the environment variable that, when set, overrides
+    Audit.LogPath wholesale. Documented as the orchestrator-friendly path
+    override: an external runner can point a cli-guard consumer at its own log
+    dir without writing a config file.
+
+const AuditSubdir = "audit"
+    AuditSubdir is the subdirectory under the global dir where per-repo audit
+    logs live. One JSONL file per repo slug.
+
+const GlobalDirName = ".coily"
+    GlobalDirName is the single directory under $HOME that holds every coily
+    global - configs and the per-repo audit subtree.
+
+const LocalDirName = ".coily"
+    LocalDirName is the per-repo overlay directory. Lives at the root of the
+    checkout. Holds the local config overlay and the per-repo command allowlist.
+
+const SessionProfileFile = "profile"
+    SessionProfileFile is the basename of the per-session sentinel file
+    containing the active lockdown profile name. Plain text, one line.
+
+const SessionsSubdir = "sessions"
+    SessionsSubdir is the subdirectory under AuditSubdir where per-session
+    state lives. One directory per CLAUDE_CODE_SESSION_ID. Currently holds the
+    active-profile sentinel; future per-session artifacts (audit counters,
+    blocked-call rows) can land alongside.
+
+const UnrootedAuditName = "_unrooted"
+    UnrootedAuditName is the slug used when coily is invoked outside any git
+    repo (or inside one with no origin remote). All such invocations land in a
+    single shared file rather than scattering by cwd basename.
+
+
+FUNCTIONS
+
+func DefaultAuditPath() (string, error)
+    DefaultAuditPath returns ~/.coily/audit/<slug>.jsonl, where slug is derived
+    from the current git repo's origin remote. Falls back to _unrooted.jsonl
+    when no slug can be determined.
+
+func GlobalConfigPath() (string, error)
+    GlobalConfigPath returns ~/.coily/config.yaml.
+
+func GlobalDir() (string, error)
+    GlobalDir returns ~/.coily, expanded against $HOME. Returns an error only if
+    $HOME cannot be resolved.
+
+func LocalConfigPath() (string, error)
+    LocalConfigPath returns ./.coily/config.yaml relative to the current working
+    directory. The file may or may not exist.
+
+func RepoAuditSlug() string
+    RepoAuditSlug returns the audit slug for the current working directory.
+    Format: "<owner>-<repo>" lowercased and reduced to [a-z0-9-]. Returns
+    UnrootedAuditName when no git origin can be discovered. Cached after the
+    first call.
+
+func ResetRepoSlugCacheForTest()
+    ResetRepoSlugCacheForTest clears the cache. Test-only.
+
+func SanitizeSlug(s string) string
+    SanitizeSlug normalizes input to lowercase, replaces every non-[a-z0-9-]
+    run with a single dash, and trims leading and trailing dashes. Exported for
+    tests and for any caller that wants to reuse the same rule.
+
+func SessionDir(sessionID string) (string, error)
+    SessionDir returns ~/.coily/audit/sessions/<sessionID>. Caller is
+    responsible for MkdirAll. Returns an error if sessionID is empty or $HOME
+    cannot be resolved.
+
+func SessionProfilePath(sessionID string) (string, error)
+    SessionProfilePath returns the per-session profile sentinel file path for
+    sessionID. Errors propagate from SessionDir.
+
+
+TYPES
+
+type AWS struct {
+	Profile string `yaml:"profile"`
+}
+    AWS holds the named profile that an aws pass-through wrapper hands to the
+    underlying aws CLI. Empty falls back to the aws CLI's own resolution.
+
+type Audit struct {
+	LogPath    string `yaml:"log_path"`
+	MaxSizeMB  int    `yaml:"max_size_mb"`
+	MaxBackups int    `yaml:"max_backups"`
+	MaxAgeDays int    `yaml:"max_age_days"`
+	Compress   bool   `yaml:"compress"`
+}
+    Audit controls where the JSONL audit log lives and how lumberjack rotates
+    it. LogPath defaults to ~/.coily/audit/<slug>.jsonl when left blank.
+
+type Config struct {
+	KaiServer KaiServer `yaml:"kai_server"`
+	Audit     Audit     `yaml:"audit"`
+	AWS       AWS       `yaml:"aws"`
+	Eco       Eco       `yaml:"eco"`
+	Factorio  Factorio  `yaml:"factorio"`
+	Loaded    time.Time `yaml:"-"`
+}
+    Config is the merged result of the three layered config sources. Loaded
+    holds the moment Load returned, so callers can decide whether to refresh.
+
+    The schema is the union of every field any current consumer (coily and
+    its descendants) needs. Fields not used by a given consumer are zero and
+    harmless.
+
+func Load() (*Config, error)
+    Load returns the layered config. The Go-literal default is the base,
+    then ~/.coily/config.yaml is overlaid on top, then ./.coily/config.yaml.
+    Any missing layer is silently skipped. The audit log path default is filled
+    in from the homedir when the merged config left it blank, and any "~/"
+    prefix is expanded to an absolute path.
+
+type Eco struct {
+	ConfigsDir string `yaml:"configs_dir"`
+	ServerDir  string `yaml:"server_dir"`
+}
+    Eco is local-side + remote-side config for eco-server operator verbs.
+    configs_dir points at a local checkout of the eco-configs repo; server_dir
+    is the absolute path to the Eco dedicated server install on the host the
+    consumer drives.
+
+type Factorio struct {
+	ServerDir string `yaml:"server_dir"`
+}
+    Factorio is the remote-side config for factorio-server operator verbs.
+    server_dir is the absolute path to the dedicated server install (the
+    directory that contains saves/, mods/, bin/x64/factorio).
+
+type KaiServer struct {
+	TailscaleHost string `yaml:"tailscale_host"`
+	SSHUser       string `yaml:"ssh_user"`
+	// SSHKeyPath is an optional path to a PEM private key used for
+	// ssh/sftp auth. ~ is expanded. When empty, callers fall back to
+	// ssh-agent (SSH_AUTH_SOCK). On Windows the MSYS/cygwin agent is
+	// not reachable from a Windows-native binary, so an explicit key
+	// path is the working path there.
+	SSHKeyPath string `yaml:"ssh_key_path"`
+}
+    KaiServer is the connection config for the home server that ssh and the
+    gaming/eco/factorio verbs target.
+
+
 ## github.com/coilysiren/cli-guard/egress
 
 package egress // import "github.com/coilysiren/cli-guard/egress"

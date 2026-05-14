@@ -17,6 +17,7 @@ Inventory of what cli-guard does today. Scope changes should land in the same co
 - **sudo** - Policy-free plumbing for driving interactive sudo over ssh without carrying a password at rest or leaking it through argv. /dev/tty prompt, in-place buffer wipe, stderr sentinel match for `sudo -n` denial.
 - **respfmt** - JSON response renderer with optional JMESPath projection and five output formats (yaml, yaml-stream, json, text, table). Mirrors aws CLI's `--query` / `--output` surface so operator muscle memory transfers, with the default flipped to yaml for editor-friendly piped output.
 - **skillgen** - Render an urfave/cli command tree into a deterministic markdown lookup table or yaml document. Pairs with the verb package: every wrapped Action is reachable by name from the rendered output, so the rendered file is a machine-checkable mirror of the invocation surface.
+- **config** - Three-layer YAML config loader: Go-literal defaults overlaid by `~/.coily/config.yaml` overlaid by `./.coily/config.yaml`, with per-key precedence and `~/` expansion. Audit log path defaults to `~/.coily/audit/<repo-slug>.jsonl`, slug derived from `git remote get-url origin`. `COILY_AUDIT_LOG` env var wins over all layers.
 
 ## Repo development
 
@@ -30,4 +31,3 @@ Inventory of what cli-guard does today. Scope changes should land in the same co
 ## Deferred to v0.1
 
 - **lockdown** - Generic permission-file writer with a `Driver` interface (Claude Code driver as the default). Tracked at [#2](https://github.com/coilysiren/cli-guard/issues/2).
-- **config** - Default + global + local config layering. Currently kept in coily as it ships a domain-specific schema.
