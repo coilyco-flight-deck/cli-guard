@@ -423,12 +423,14 @@ type CodedError struct {
 	K    string
 	Err  error
 	Hint string
+	R    string
 }
     CodedError wraps an error with a code+kind. Unwrap-friendly so callers can
     still errors.Is / errors.As the underlying cause.
 
 func New(code int, kind string, err error, hint string) *CodedError
-    New tags an error with a code and kind.
+    New tags an error with a code and kind. Hint is the optional recovery line;
+    attach a reason after construction via WithReason if desired.
 
 func (e *CodedError) Code() int
     Code returns the numeric exit code coily should exit with.
@@ -444,8 +446,29 @@ func (e *CodedError) Kind() string
     Kind returns the lowercase stable token written into the yaml error
     envelope.
 
+func (e *CodedError) Reason() string
+    Reason returns the optional one-line statement of the threat or invariant
+    this rule preserves. Empty when no reason was attached. Distinct from
+    HintText: hint says what to do, reason says why the gate exists. Envelope
+    renderers surface both.
+
 func (e *CodedError) Unwrap() error
     Unwrap returns the underlying cause for errors.Is / errors.As.
+
+func (e *CodedError) WithReason(reason string) *CodedError
+    WithReason attaches a why-line to the error and returns the receiver so
+    callers can chain: `return exitcode.New(...).WithReason("...")`. Returns
+    the receiver unchanged when called on a nil pointer so chains compose with a
+    conditional New.
+
+type Reasoner interface {
+	Reason() string
+}
+    Reasoner is the optional interface a Coded error implements when it carries
+    a why-line: a one-sentence statement of the threat or invariant the gate
+    preserves, distinct from the recovery hint. Envelope renderers fetch it via
+    errors.As. CodedError satisfies this interface; the empty string means "no
+    reason attached."
 
 
 ## github.com/coilysiren/cli-guard/gittree

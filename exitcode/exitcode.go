@@ -55,6 +55,15 @@ type Coded interface {
 	Kind() string
 }
 
+// Reasoner is the optional interface a Coded error implements when it
+// carries a why-line: a one-sentence statement of the threat or
+// invariant the gate preserves, distinct from the recovery hint.
+// Envelope renderers fetch it via errors.As. CodedError satisfies
+// this interface; the empty string means "no reason attached."
+type Reasoner interface {
+	Reason() string
+}
+
 // CodedError wraps an error with a code+kind. Unwrap-friendly so callers
 // can still errors.Is / errors.As the underlying cause.
 type CodedError struct {
@@ -62,6 +71,7 @@ type CodedError struct {
 	K    string
 	Err  error
 	Hint string
+	R    string
 }
 
 // Error returns the wrapped error's message.
@@ -80,9 +90,28 @@ func (e *CodedError) Unwrap() error { return e.Err }
 // alongside the error envelope. Empty when no hint was attached.
 func (e *CodedError) HintText() string { return e.Hint }
 
-// New tags an error with a code and kind.
+// Reason returns the optional one-line statement of the threat or
+// invariant this rule preserves. Empty when no reason was attached.
+// Distinct from HintText: hint says what to do, reason says why the
+// gate exists. Envelope renderers surface both.
+func (e *CodedError) Reason() string { return e.R }
+
+// New tags an error with a code and kind. Hint is the optional recovery
+// line; attach a reason after construction via WithReason if desired.
 func New(code int, kind string, err error, hint string) *CodedError {
 	return &CodedError{C: code, K: kind, Err: err, Hint: hint}
+}
+
+// WithReason attaches a why-line to the error and returns the receiver
+// so callers can chain: `return exitcode.New(...).WithReason("...")`.
+// Returns the receiver unchanged when called on a nil pointer so
+// chains compose with a conditional New.
+func (e *CodedError) WithReason(reason string) *CodedError {
+	if e == nil {
+		return nil
+	}
+	e.R = reason
+	return e
 }
 
 // From returns the deepest Coded error in the chain, or nil if none.

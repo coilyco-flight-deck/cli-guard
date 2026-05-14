@@ -35,6 +35,38 @@ func TestFrom_FindsCodedDeepInChain(t *testing.T) {
 	}
 }
 
+// TestCodedError_WithReason pins coilysiren/cli-guard#40: Reason() is
+// the optional second-line companion to HintText() and is empty by
+// default so existing call sites stay source-compatible.
+func TestCodedError_WithReason(t *testing.T) {
+	c := exitcode.New(exitcode.PolicyDenied, "policy_denied", errors.New("x"), "do this")
+	if c.Reason() != "" {
+		t.Errorf("Reason() before WithReason = %q, want empty", c.Reason())
+	}
+	c.WithReason("because the gate exists for that reason")
+	if c.Reason() != "because the gate exists for that reason" {
+		t.Errorf("Reason() after WithReason = %q", c.Reason())
+	}
+
+	// Reasoner interface satisfied by *CodedError; consumers can errors.As.
+	var r exitcode.Reasoner
+	if !errors.As(error(c), &r) {
+		t.Fatal("errors.As against Reasoner failed; CodedError must satisfy the interface")
+	}
+	if r.Reason() != "because the gate exists for that reason" {
+		t.Errorf("Reasoner.Reason() = %q, want the attached value", r.Reason())
+	}
+}
+
+// TestCodedError_WithReason_NilReceiver guards the chain shape
+// `exitcode.New(...).WithReason(...)` against accidental nil chains.
+func TestCodedError_WithReason_NilReceiver(t *testing.T) {
+	var c *exitcode.CodedError
+	if got := c.WithReason("x"); got != nil {
+		t.Errorf("nil receiver should stay nil, got %+v", got)
+	}
+}
+
 func TestFrom_NilOnPlainError(t *testing.T) {
 	if got := exitcode.From(errors.New("plain")); got != nil {
 		t.Errorf("From(plain) = %v, want nil", got)
