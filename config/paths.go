@@ -108,10 +108,10 @@ func DefaultAuditPath() (string, error) {
 	return filepath.Join(dir, AuditSubdir, RepoAuditSlug()+".jsonl"), nil
 }
 
-// expandHome turns a leading "~/" or "~" into the user's home directory.
+// ExpandHome turns a leading "~/" or "~" into the user's home directory.
 // Returns the input unchanged if it doesn't start with "~" or if $HOME
 // cannot be resolved.
-func expandHome(p string) string {
+func ExpandHome(p string) string {
 	if p == "" || !strings.HasPrefix(p, "~") {
 		return p
 	}
