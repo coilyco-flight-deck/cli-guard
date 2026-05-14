@@ -49,6 +49,13 @@ const RedactedValue = "[REDACTED]"
     RedactedValue is the literal replacement token used everywhere redaction
     applies. Exported so consumers can grep for it in tests.
 
+const SessionIDEnv = "CLAUDE_SESSION_ID"
+    SessionIDEnv is the environment variable consulted as the fallback source
+    for Record.SessionID when no context value is present. Parent processes that
+    spawn coily (or any cli-guard consumer) inject this so subprocess flows can
+    join their audit rows to the originating Claude Code session. Long-lived
+    in-process servers should prefer WithSessionID instead.
+
 
 VARIABLES
 
@@ -77,6 +84,15 @@ func RedactIdentifiersInString(s string, tier string, p RedactPolicy) string
     RedactIdentifiersInString replaces every IdentifierPatterns match with
     [REDACTED]. Runs at "medium" and stricter. Empty input or empty policy is a
     no-op.
+
+func SessionIDFromContext(ctx context.Context) string
+    SessionIDFromContext returns the session id attached to ctx via
+    WithSessionID, or empty string if none is set. Nil-safe.
+
+func WithSessionID(ctx context.Context, id string) context.Context
+    WithSessionID returns a copy of ctx carrying id as the audit session id.
+    Empty id is a no-op (returns ctx unchanged) so callers can safely pass
+    through a possibly-unset value without polluting the context.
 
 
 TYPES
@@ -169,6 +185,13 @@ type Record struct {
 	// op was deliberately not bound to any commit and will not appear in
 	// any trailer.
 	CommitScope string `json:"commit_scope,omitempty"`
+	// SessionID joins this row to the Claude Code (or other agent harness)
+	// session that produced the invocation. Resolution order at write time:
+	// (1) context value via WithSessionID, (2) env var CLAUDE_SESSION_ID,
+	// (3) empty. Long-lived in-process servers should plumb ctx; spawn-shaped
+	// flows can inherit the env var from the parent. Empty when neither
+	// source carried a value.
+	SessionID string `json:"session_id,omitempty"`
 	// AuditOverride is set true when a repo verb ran with
 	// --audit-override-dirty: the clean+synced gate refused but the
 	// operator forced through. Companion field WorkingTreeStatus carries
@@ -287,7 +310,7 @@ func (w *Writer) Wrap(ctx context.Context, base Record, fn func() error) error
     is whatever fn returned, unmodified. Audit append failures are written to
     stderr so the operator notices, but they do not mask fn's error.
 
-func (w *Writer) WrapHook(_ context.Context, base Record, fn func() error, onComplete func(*Record)) error
+func (w *Writer) WrapHook(ctx context.Context, base Record, fn func() error, onComplete func(*Record)) error
     WrapHook is Wrap with an optional onComplete callback. The hook runs after
     fn returns and before the record is appended; it gets a pointer to the
     record so the caller can attach side-channel data (e.g. egress rows).

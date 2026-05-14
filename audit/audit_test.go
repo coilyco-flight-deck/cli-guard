@@ -397,6 +397,52 @@ func TestReadAll_DecodesMultipleRecords(t *testing.T) {
 	}
 }
 
+func TestWrap_SessionID_ContextWinsOverEnv(t *testing.T) {
+	w := tempWriter(t)
+	t.Setenv("CLAUDE_SESSION_ID", "from-env")
+	ctx := audit.WithSessionID(context.Background(), "from-ctx")
+	if err := w.Wrap(ctx, audit.Record{Verb: "test.verb"}, func() error { return nil }); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	records := read(t, w.Path)
+	if got := records[0].SessionID; got != "from-ctx" {
+		t.Errorf("session_id = %q, want %q (ctx must win over env)", got, "from-ctx")
+	}
+}
+
+func TestWrap_SessionID_EnvWinsWhenNoContext(t *testing.T) {
+	w := tempWriter(t)
+	t.Setenv("CLAUDE_SESSION_ID", "from-env")
+	if err := w.Wrap(context.Background(), audit.Record{Verb: "test.verb"}, func() error { return nil }); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	records := read(t, w.Path)
+	if got := records[0].SessionID; got != "from-env" {
+		t.Errorf("session_id = %q, want %q (env fallback)", got, "from-env")
+	}
+}
+
+func TestWrap_SessionID_EmptyWhenNeitherSet(t *testing.T) {
+	w := tempWriter(t)
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	if err := w.Wrap(context.Background(), audit.Record{Verb: "test.verb"}, func() error { return nil }); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	records := read(t, w.Path)
+	if got := records[0].SessionID; got != "" {
+		t.Errorf("session_id = %q, want empty", got)
+	}
+	// And the field must be omitted from the JSONL line when empty, so
+	// existing parsers and grep-based forensics don't see a noisy key.
+	body, err := os.ReadFile(w.Path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if strings.Contains(string(body), "session_id") {
+		t.Errorf("session_id key present when empty; line = %q", string(body))
+	}
+}
+
 func read(t *testing.T, path string) []audit.Record {
 	t.Helper()
 	b, err := os.ReadFile(path)

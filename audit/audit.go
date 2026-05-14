@@ -83,6 +83,13 @@ type Record struct {
 	// op was deliberately not bound to any commit and will not appear in
 	// any trailer.
 	CommitScope string `json:"commit_scope,omitempty"`
+	// SessionID joins this row to the Claude Code (or other agent harness)
+	// session that produced the invocation. Resolution order at write time:
+	// (1) context value via WithSessionID, (2) env var CLAUDE_SESSION_ID,
+	// (3) empty. Long-lived in-process servers should plumb ctx; spawn-shaped
+	// flows can inherit the env var from the parent. Empty when neither
+	// source carried a value.
+	SessionID string `json:"session_id,omitempty"`
 	// AuditOverride is set true when a repo verb ran with
 	// --audit-override-dirty: the clean+synced gate refused but the
 	// operator forced through. Companion field WorkingTreeStatus carries
@@ -385,10 +392,13 @@ func (w *Writer) Wrap(ctx context.Context, base Record, fn func() error) error {
 // to the record so the caller can attach side-channel data (e.g. egress
 // rows). Decision/ExitCode/DurationMS/Error are already populated when the
 // hook fires.
-func (w *Writer) WrapHook(_ context.Context, base Record, fn func() error, onComplete func(*Record)) error {
+func (w *Writer) WrapHook(ctx context.Context, base Record, fn func() error, onComplete func(*Record)) error {
 	start := w.now()
 	err := fn()
 	rec := base
+	if rec.SessionID == "" {
+		rec.SessionID = resolveSessionID(ctx)
+	}
 	rec.Decision = DecisionAccept
 	rec.ExitCode = 0
 	rec.DurationMS = w.now().Sub(start).Milliseconds()
