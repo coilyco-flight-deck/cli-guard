@@ -8,18 +8,18 @@ This project is run on volunteer time, so please have patience.
 
 1. **Open an issue first.** Every commit in this repo closes a same-repo issue (`closes #N` in the commit body). Discussion happens in the issue; the PR is the change itself. This applies even to trivial fixes - the issue gives the change a stable URL.
 2. **Stay close to scope.** The four cli-* repos are intentionally small. Features that pull this package out of its lane will get pushed back, even when well-intentioned. The [README](https://github.com/coilysiren/cli-guard#readme) and [docs/FEATURES.md](https://github.com/coilysiren/cli-guard/blob/main/docs/FEATURES.md) describe the surface; if your idea expands it, lead with an issue arguing for the expansion.
-3. **Run the dev verbs before pushing.** Local dev routes through [`coily`](https://github.com/coilysiren/coily):
+3. **Run the dev verbs before pushing.** Local dev routes through [`agent-guard`](https://github.com/coilysiren/agent-guard), a small policy-validated wrapper. Install it with `brew install coilysiren/tap/agent-guard`, then:
 
    ```
-   coily exec build
-   coily exec test
-   coily exec vet
-   coily exec lint
+   agent-guard exec build
+   agent-guard exec test
+   agent-guard exec vet
+   agent-guard exec lint
    ```
 
-   The `.coily/coily.yaml` ↔ Makefile contract is checked by `coily lint` and by CI on every push.
+   The `.coily/coily.yaml` ↔ Makefile contract is checked by `agent-guard lint` and by CI on every push. (The file is named `.coily/coily.yaml` for historical reasons. agent-guard reads the same format. New repos may also use `.agent-guard/agent-guard.yaml`.)
 
-4. **Update `godoc-current.txt` if you touch the public API.** Run `coily exec godoc-update` and commit the diff in the same PR. CI fails if the snapshot is out of sync.
+4. **Update `godoc-current.txt` if you touch the public API.** Run `agent-guard exec godoc-update` and commit the diff in the same PR. CI fails if the snapshot is out of sync.
 
 ## Code of Conduct
 

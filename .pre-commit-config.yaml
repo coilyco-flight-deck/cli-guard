@@ -62,6 +62,7 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-commit, pre-push]
+
   # BEGIN managed by coilyco-ai/scripts/apply-catalog-block-hook.py
   - repo: local
     hooks:
