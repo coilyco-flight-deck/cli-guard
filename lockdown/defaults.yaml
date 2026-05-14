@@ -33,6 +33,14 @@ allow:
   - Bash(find:*)
   - Bash(tree:*)
 
+  # Pure non-shell evaluators. Same safety class as grep/rg: argv is a
+  # query expression in the binary's own DSL, no shell-out, no user-
+  # controlled command execution. Allowed so external pipes off
+  # privileged-op wrappers (`gh api X | jq .title`) don't trip the
+  # per-invocation prompt.
+  - Bash(jq:*)
+  - Bash(yq:*)
+
   # git (read-only shapes). Write shapes (commit, push, reset, clean) require
   # an override in per-repo .claude/settings.local.json.
   - Bash(git status:*)

@@ -32,6 +32,19 @@ func TestLoadDefaults_AllowsCoilyBash(t *testing.T) {
 	}
 }
 
+// TestLoadDefaults_AllowsNonShellEvaluators pins coilysiren/cli-guard#39:
+// jq and yq are pure non-shell evaluators (same safety class as grep/rg)
+// and live on the canonical allow list so external pipes off privileged-
+// op wrappers don't trip a per-invocation prompt at the harness layer.
+func TestLoadDefaults_AllowsNonShellEvaluators(t *testing.T) {
+	d, _ := lockdown.LoadDefaults()
+	for _, want := range []string{"Bash(jq:*)", "Bash(yq:*)"} {
+		if !contains(d.Allow, want) {
+			t.Errorf("allow list missing %s. Got: %v", want, d.Allow)
+		}
+	}
+}
+
 func TestLoadDefaults_DeniesDangerousBase(t *testing.T) {
 	d, _ := lockdown.LoadDefaults()
 	mustDeny := []string{
