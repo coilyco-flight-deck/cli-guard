@@ -1296,6 +1296,57 @@ func (r *Runner) ExecIn(ctx context.Context, dir, bin string, argv ...string) er
     at a real directory.
 
 
+## github.com/coilysiren/cli-guard/skillgen
+
+package skillgen // import "github.com/coilysiren/cli-guard/skillgen"
+
+Package skillgen renders an urfave/cli v3 command tree into either a flat
+markdown lookup table or a structured yaml document. Pairs with the verb
+package: every Action wrapped through verb middleware is reachable by name from
+the rendered output, so the rendered file is a machine-checkable mirror of what
+consumers can actually invoke.
+
+Output is deterministic (depth-first by command name), so the rendered file fits
+naturally into a diff-checked CI artifact.
+
+The package emits body only - no yaml frontmatter, no markdown preamble. Callers
+prepend whatever framing their consumer requires (e.g. an Anthropic SKILL.md
+frontmatter, a doc-site header).
+
+FUNCTIONS
+
+func RenderMarkdown(commands []*cli.Command, root string) string
+    RenderMarkdown walks commands and emits a deterministic markdown lookup
+    table, one section per leaf verb:
+
+        ## `root aws ssm get-parameter`
+
+        One-line summary from the cli Usage field.
+
+        Flags: --name, --with-decryption, --query, --output
+
+    Order is depth-first by command name. The returned string ends in exactly
+    one trailing newline.
+
+func RenderYAML(commands []*cli.Command, root string) (string, error)
+    RenderYAML walks commands and emits a yaml document of Entry rows under a
+    top-level `commands:` key. Each path is prefixed with root so the rendered
+    output is invocation-ready. Order matches RenderMarkdown (depth-first by
+    command name) so the two outputs diff against each other.
+
+
+TYPES
+
+type Entry struct {
+	Path    []string `yaml:"path"`
+	Summary string   `yaml:"summary,omitempty"`
+	Flags   []string `yaml:"flags,omitempty"`
+}
+    Entry is one leaf verb in the structured (yaml) form of the command tree.
+    Programmatic consumers (an external orchestrator, a plan-time agent) read
+    this shape; humans read the markdown form.
+
+
 ## github.com/coilysiren/cli-guard/sudo
 
 package sudo // import "github.com/coilysiren/cli-guard/sudo"
