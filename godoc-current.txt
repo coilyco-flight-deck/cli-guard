@@ -1583,6 +1583,46 @@ type Entry struct {
     this shape; humans read the markdown form.
 
 
+## github.com/coilysiren/cli-guard/stscache
+
+package stscache // import "github.com/coilysiren/cli-guard/stscache"
+
+Package stscache caches `aws sts get-caller-identity` JSON for callers that
+re-resolve the active AWS identity on every coily invocation. STS identity is
+stable for hours and the rate-limit budget on STS is generous, so the value here
+is purely latency: skip a ~200ms subprocess when the answer is unchanged.
+
+Cache key is the active AWS profile so swapping AWS_PROFILE between runs never
+returns the wrong account. TTL is 1 hour, the high end of the stable-identity
+range. Failure mode matches ttlcache: a cache miss or corrupt entry falls
+through to the underlying fetch.
+
+See cli-guard#54 for the rollout that motivated this package.
+
+CONSTANTS
+
+const TTL = 1 * time.Hour
+    TTL is the freshness window for cached identity responses. Chosen at the
+    high end of "stable for hours" - role assumption sessions typically last 1h,
+    so anything longer risks returning an identity past its credential lifetime.
+
+
+FUNCTIONS
+
+func CallerIdentity(fetch func() ([]byte, error)) ([]byte, error)
+    CallerIdentity returns the JSON body of `aws sts get-caller-identity
+    --output json`, served from cache if a fresh entry exists for the active AWS
+    profile. On miss it invokes fetch and stores the result.
+
+    fetch is the caller's runner-bound closure; this package does not import
+    os/exec or any runner abstraction so cli-guard stays dependency-light.
+
+func Invalidate() error
+    Invalidate drops the cached entry for the active profile. Callers that know
+    they just rotated credentials or assumed a different role can use this to
+    force a refetch.
+
+
 ## github.com/coilysiren/cli-guard/sudo
 
 package sudo // import "github.com/coilysiren/cli-guard/sudo"
