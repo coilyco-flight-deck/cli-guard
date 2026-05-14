@@ -1137,6 +1137,46 @@ func LoadDefault() (*Config, error)
     validation failures and are surfaced as-is.
 
 
+## github.com/coilysiren/cli-guard/respfmt
+
+package respfmt // import "github.com/coilysiren/cli-guard/respfmt"
+
+Package respfmt renders a JSON response body through an optional JMESPath
+projection and one of five output formats: yaml (default), json, text, table,
+yaml-stream. The shape mirrors the aws CLI's `--query` / `--output` surface so
+an operator's existing muscle memory transfers, with the default flipped to yaml
+so a piped-to-file output reads cleanly in an editor.
+
+Pure helper: no cli wiring, no I/O. The caller decides where to write.
+
+CONSTANTS
+
+const (
+	OutputYAML       = "yaml"
+	OutputYAMLStream = "yaml-stream"
+	OutputJSON       = "json"
+	OutputText       = "text"
+	OutputTable      = "table"
+)
+    Output names mirror the aws CLI vocabulary verbatim.
+
+
+FUNCTIONS
+
+func Render(raw []byte, query, output string) ([]byte, error)
+    Render applies the optional JMESPath projection to raw and formats the
+    result per output. Empty raw returns empty bytes, no error. Empty query
+    passes the parsed value through unchanged. Empty output defaults to
+    OutputYAML.
+
+    Errors:
+      - raw is non-empty but not parseable JSON.
+      - query is non-empty but not a valid JMESPath expression.
+      - output is non-empty but not in validOutputs.
+      - the requested format cannot represent the projection (e.g. text on a
+        non-list-of-records value).
+
+
 ## github.com/coilysiren/cli-guard/scope
 
 package scope // import "github.com/coilysiren/cli-guard/scope"
