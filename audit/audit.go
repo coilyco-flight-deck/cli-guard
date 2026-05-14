@@ -279,8 +279,9 @@ type Writer struct {
 	// Compress gzips rotated files.
 	Compress bool
 
-	mu  sync.Mutex
-	log *lumberjack.Logger
+	mu     sync.Mutex
+	log    *lumberjack.Logger
+	redact RedactPolicy
 }
 
 // NewWriter returns a Writer with Now set to time.Now. Rotation fields
@@ -312,6 +313,8 @@ func (w *Writer) Append(r Record) error {
 		}
 		r.ID = id
 	}
+
+	w.applyRedaction(&r)
 
 	if err := os.MkdirAll(filepath.Dir(w.Path), 0o700); err != nil {
 		return fmt.Errorf("audit: mkdir %s: %w", filepath.Dir(w.Path), err)

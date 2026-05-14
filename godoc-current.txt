@@ -29,11 +29,25 @@ const (
 )
     Decision values for Record.Decision.
 
+const (
+	DataSecurityLow    = "low"
+	DataSecurityMedium = "medium"
+	DataSecurityHigh   = "high"
+	DataSecurityMax    = "max"
+)
+    Tier values for ProfileDecision.Coordinate.DataSecurity. Mirrored here so
+    the redactor does not import the profile package and can branch on plain
+    strings read off the wire.
+
 const MaxStderrTailBytes = 2048
     MaxStderrTailBytes caps Record.StderrTail so the audit row stays small even
     when a wrapped tool spews. 2 KiB is enough to carry the last few lines of a
     typical stderr (kubectl error, aws sdk error, gh API error) without bloating
     each line of the JSONL log.
+
+const RedactedValue = "[REDACTED]"
+    RedactedValue is the literal replacement token used everywhere redaction
+    applies. Exported so consumers can grep for it in tests.
 
 
 VARIABLES
@@ -50,6 +64,19 @@ func ParseTrailer(s string) (int64, string, bool)
     either the bare URL form (`coily://<ts>/<short>`) or the full TrailerLine
     form with an argv summary appended (`coily://<ts>/<short> - <argv...>`);
     the suffix after ` - ` is informational and is discarded.
+
+func RedactArgv(argv []string, tier string, p RedactPolicy) []string
+    RedactArgv applies the data-security tier to argv. Returns the argv to
+    persist. At "low" the argv is returned unchanged. At "medium" and "high" the
+    matching tokens get their value portion replaced with [REDACTED]. At "max"
+    the entire Argv is returned as nil whenever any token matches a pattern.
+    The function does not mutate the input; it returns a fresh slice when
+    changes happen.
+
+func RedactIdentifiersInString(s string, tier string, p RedactPolicy) string
+    RedactIdentifiersInString replaces every IdentifierPatterns match with
+    [REDACTED]. Runs at "medium" and stricter. Empty input or empty policy is a
+    no-op.
 
 
 TYPES
@@ -76,6 +103,13 @@ type EgressRow struct {
     Decision is "allow" or "deny"; deny rows are produced when the host fails
     the per-binary allowlist in enforce mode and the underlying CONNECT returned
     403 instead of being forwarded.
+
+func RedactEgressRows(rows []EgressRow, tier string) []EgressRow
+    RedactEgressRows applies the data_security tier to egress rows. At "high"
+    Host is stripped to the eTLD+1 best-effort (strip leading subdomain).
+    At "max" Host is replaced with [REDACTED] outright but byte counts are
+    preserved so budget tracking still works. DurationMS is zeroed at max since
+    timing is a side channel.
 
 type ProfileDecision struct {
 	Allowed    bool       `json:"allowed"`
@@ -174,6 +208,22 @@ func (r Record) TrailerLine() string
     absolute paths to the coily binary do not leak into commit history. Empty if
     ID is unset (matches Trailer's behavior).
 
+type RedactPolicy struct {
+	// SecretFlagPatterns is a list of flag-name prefixes (with leading
+	// dashes). Matching is "argv token starts with this prefix" so
+	// "--password" matches "--password=hunter2" and "--password" alone.
+	// When a bare-flag form matches, the next token in argv is treated
+	// as the value and redacted.
+	SecretFlagPatterns []string
+
+	// IdentifierPatterns is a list of compiled regexes. Any match in
+	// Error/StderrTail/Reason fields gets replaced with [REDACTED].
+	IdentifierPatterns []*regexp.Regexp
+}
+    RedactPolicy carries the patterns the consumer wants applied. cli-guard
+    supplies the mechanism; the consumer (today: coily) supplies the patterns.
+    The zero value is a no-op policy.
+
 type Writer struct {
 	// Path is the JSONL file. Must be set.
 	Path string
@@ -210,6 +260,12 @@ func (w *Writer) Preflight() error
     Preflight ensures the audit directory exists with 0700 perms and that
     the target path is writable. Call at startup so a broken config blows up
     immediately instead of dropping records silently across the session.
+
+func (w *Writer) SetRedactPolicy(p RedactPolicy)
+    SetRedactPolicy installs the consumer-supplied pattern list. Safe to call
+    once at Runner construction. Calls during a hot pipeline race on rule
+    changes but the field is only read inside applyRedaction under the same
+    mutex used by Append, so the swap is consistent per-record.
 
 func (w *Writer) Wrap(ctx context.Context, base Record, fn func() error) error
     Wrap records an invocation by running fn and logging the result. base
