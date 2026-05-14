@@ -121,6 +121,65 @@ func TestWrap_WritesAuditRecord(t *testing.T) {
 	}
 }
 
+// TestWrap_RecordsCWDFields pins coilysiren/cli-guard#41: every audit
+// row carries CWDSubprocess (always populated from os.Getwd at record
+// build time) and, when Spec.ResolveInvokeCWD is wired, the operator's
+// invoke-time cwd in CWDAtInvocation. Lets audit reviewers spot the
+// drift class surfaced in coilysiren/coily#109.
+func TestWrap_RecordsCWDFields(t *testing.T) {
+	w := newTestWriter(t)
+	spec := verb.Spec{
+		Name:             "test.cwd",
+		ResolveInvokeCWD: func() string { return "/some/operator/cwd" },
+		Action:           func(_ context.Context, _ *cli.Command) error { return nil },
+	}
+	if err := runWrapped(t, spec, w); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	b, err := os.ReadFile(w.Path)
+	if err != nil {
+		t.Fatalf("read audit: %v", err)
+	}
+	records, err := audit.ReadAll(bytes.NewReader(b))
+	if err != nil || len(records) != 1 {
+		t.Fatalf("parse: %d records, err=%v", len(records), err)
+	}
+	if records[0].CWDSubprocess == "" {
+		t.Error("CWDSubprocess is empty; should always be populated from os.Getwd")
+	}
+	if records[0].CWDAtInvocation != "/some/operator/cwd" {
+		t.Errorf("CWDAtInvocation = %q, want /some/operator/cwd", records[0].CWDAtInvocation)
+	}
+}
+
+// TestWrap_RecordsCWDFields_NoResolverLeavesInvocationEmpty confirms the
+// nil-resolver default: CWDSubprocess still populated, CWDAtInvocation
+// stays empty (omitempty hides the field).
+func TestWrap_RecordsCWDFields_NoResolverLeavesInvocationEmpty(t *testing.T) {
+	w := newTestWriter(t)
+	spec := verb.Spec{
+		Name:   "test.cwd-no-resolver",
+		Action: func(_ context.Context, _ *cli.Command) error { return nil },
+	}
+	if err := runWrapped(t, spec, w); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	b, err := os.ReadFile(w.Path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	records, err := audit.ReadAll(bytes.NewReader(b))
+	if err != nil || len(records) != 1 {
+		t.Fatalf("parse: %d records, err=%v", len(records), err)
+	}
+	if records[0].CWDSubprocess == "" {
+		t.Error("CWDSubprocess empty without resolver")
+	}
+	if records[0].CWDAtInvocation != "" {
+		t.Errorf("CWDAtInvocation = %q, want empty when ResolveInvokeCWD is nil", records[0].CWDAtInvocation)
+	}
+}
+
 func TestWrap_NilWriterStillRunsAction(t *testing.T) {
 	called := false
 	spec := verb.Spec{

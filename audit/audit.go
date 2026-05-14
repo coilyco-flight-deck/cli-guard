@@ -65,6 +65,19 @@ type Record struct {
 	// or empty if cwd was not inside a git repo. Forensic only: tells the
 	// reader where the operator actually was, independent of CommitScope.
 	RepoRoot string `json:"repo_root,omitempty"`
+	// CWDSubprocess is os.Getwd() captured by buildBaseRecord at the
+	// moment the subprocess saw the world. Differs from CWDAtInvocation
+	// when an agent did `cd <repo> && bin ...` to enter a target tree
+	// before invoking - the subprocess sees the post-cd path. Always
+	// populated.
+	CWDSubprocess string `json:"cwd_subprocess,omitempty"`
+	// CWDAtInvocation is the consumer-resolved operator cwd, populated
+	// from verb.Spec.ResolveInvokeCWD when set. Empty when the consumer
+	// has not wired the resolver. When non-empty AND it differs from
+	// CWDSubprocess, audit reviewers can flag the drift surfaced in
+	// coilysiren/coily#109. Env-var conventions ($COILY_INVOKE_CWD,
+	// $OLDPWD) live in the consumer; cli-guard only carries the value.
+	CWDAtInvocation string `json:"cwd_at_invocation,omitempty"`
 	// CommitScope binds this row to a commit-trailer query. Resolved from
 	// --commit-scope (default "auto" = cwd's git toplevel). Empty means the
 	// op was deliberately not bound to any commit and will not appear in

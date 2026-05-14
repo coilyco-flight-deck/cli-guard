@@ -96,6 +96,16 @@ type Spec struct {
 	// coilysiren/coily#150; no caller in cli-guard sets this. Phase 5
 	// fills in per-axis decision logic on the consumer side.
 	OnEvaluate func(ctx context.Context, cmd *cli.Command) (*audit.ProfileDecision, error)
+
+	// ResolveInvokeCWD, when set, returns the operator's invoke-time cwd
+	// (distinct from os.Getwd() which captures the post-cd subprocess
+	// cwd). The returned value lands in audit.Record.CWDAtInvocation so
+	// audit reviewers can flag drift between the two. cli-guard does not
+	// look at any environment variable itself; the consumer wires this
+	// callback to its own resolver (typically reading $OLDPWD or a
+	// consumer-specific override). Empty return = no value recorded.
+	// See coilysiren/coily#109.
+	ResolveInvokeCWD func() string
 }
 
 // Wrap returns a cli.ActionFunc that runs the full coily verb pipeline.
@@ -167,19 +177,27 @@ func Wrap(spec Spec, writer *audit.Writer) cli.ActionFunc {
 func buildBaseRecord(spec Spec, argv []string, cmd *cli.Command) (audit.Record, error) {
 	cwd := scope.CWD()
 	repoRoot, _ := scope.Resolve("auto", "", cwd) // forensic-only, ignore error
+	invokeCWD := ""
+	if spec.ResolveInvokeCWD != nil {
+		invokeCWD = spec.ResolveInvokeCWD()
+	}
 	if spec.SkipScope {
 		return audit.Record{
-			Verb:     spec.Name,
-			Argv:     argv,
-			RepoRoot: repoRoot,
+			Verb:            spec.Name,
+			Argv:            argv,
+			RepoRoot:        repoRoot,
+			CWDSubprocess:   cwd,
+			CWDAtInvocation: invokeCWD,
 		}, nil
 	}
 	if spec.CommitScopeOverride != "" {
 		return audit.Record{
-			Verb:        spec.Name,
-			Argv:        argv,
-			RepoRoot:    repoRoot,
-			CommitScope: spec.CommitScopeOverride,
+			Verb:            spec.Name,
+			Argv:            argv,
+			RepoRoot:        repoRoot,
+			CommitScope:     spec.CommitScopeOverride,
+			CWDSubprocess:   cwd,
+			CWDAtInvocation: invokeCWD,
 		}, nil
 	}
 	root := cmd
@@ -198,10 +216,12 @@ func buildBaseRecord(spec Spec, argv []string, cmd *cli.Command) (audit.Record, 
 		return audit.Record{}, err
 	}
 	return audit.Record{
-		Verb:        spec.Name,
-		Argv:        argv,
-		RepoRoot:    repoRoot,
-		CommitScope: commitScope,
+		Verb:            spec.Name,
+		Argv:            argv,
+		RepoRoot:        repoRoot,
+		CommitScope:     commitScope,
+		CWDSubprocess:   cwd,
+		CWDAtInvocation: invokeCWD,
 	}, nil
 }
 
