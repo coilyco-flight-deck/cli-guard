@@ -86,6 +86,38 @@ type Record struct {
 	// opens 200 connections to registry.npmjs.org produces one row, not 200.
 	// Empty when the verb did not run through the proxy.
 	Egress []EgressRow `json:"egress,omitempty"`
+	// ProfileDecision captures the per-session lockdown-profile evaluation
+	// for this verb, when a consumer has wired verb.Spec.OnEvaluate. Absent
+	// in default-off rows. Phase 4 plumbing for coilysiren/coily#150;
+	// phase 5 fills in real per-axis branching.
+	ProfileDecision *ProfileDecision `json:"profile_decision,omitempty"`
+}
+
+// ProfileDecision is the structured outcome of a per-session
+// lockdown-profile evaluation. Allowed=false plus a non-nil verb.Spec
+// OnEvaluate error short-circuits the action with PolicyDenied. Profile
+// names the active sentinel profile, Source matches the consumer's
+// resolver-status vocabulary (e.g. "override" / "missing_file" /
+// "unknown_profile" / "unset"), and Coordinate captures the resolved
+// tier-per-axis Coordinate so a forensic reader sees exactly which
+// tiers were in effect at decision time.
+type ProfileDecision struct {
+	Allowed    bool       `json:"allowed"`
+	Profile    string     `json:"profile,omitempty"`
+	Source     string     `json:"source,omitempty"`
+	Coordinate Coordinate `json:"coordinate"`
+	Reason     string     `json:"reason,omitempty"`
+}
+
+// Coordinate mirrors cli-guard/profile.Coordinate as a JSON-stable
+// snapshot. Duplicated here so audit.Record (the wire format) does not
+// take a hard dependency on the profile package, and so the JSON tag
+// shape is owned by the audit package.
+type Coordinate struct {
+	DataSecurity    string `json:"data_security,omitempty"`
+	BlastRadius     string `json:"blast_radius,omitempty"`
+	NetworkEgress   string `json:"network_egress,omitempty"`
+	FilesystemReach string `json:"filesystem_reach,omitempty"`
 }
 
 // EgressRow is one (parent-invocation, host) pair from the egress proxy.

@@ -86,6 +86,16 @@ type Spec struct {
 	// CommitScopeOverride and to any explicit flag/env value. Ignored when
 	// SkipScope is true.
 	CommitScopeArgvHint func(argv []string) string
+
+	// OnEvaluate, when set, runs after argv validation and before Action.
+	// Returning a non-nil *ProfileDecision attaches it to the audit row.
+	// Returning a non-nil error with Decision.Allowed=false short-circuits
+	// the Action call, exits with PolicyDenied, and tags the audit row as
+	// reject. Returning (nil, err) is treated as an evaluator internal
+	// failure (Generic exit code). Phase 4 plumbing for
+	// coilysiren/coily#150; no caller in cli-guard sets this. Phase 5
+	// fills in per-axis decision logic on the consumer side.
+	OnEvaluate func(ctx context.Context, cmd *cli.Command) (*audit.ProfileDecision, error)
 }
 
 // Wrap returns a cli.ActionFunc that runs the full coily verb pipeline.
@@ -122,12 +132,27 @@ func Wrap(spec Spec, writer *audit.Writer) cli.ActionFunc {
 			return coded
 		}
 
+		profileDecision, evalCoded := runOnEvaluate(ctx, cmd, spec, base, writer, argv)
+		if evalCoded != nil {
+			return evalCoded
+		}
+
 		if writer == nil {
 			return spec.Action(ctx, cmd)
 		}
+		onComplete := spec.OnComplete
+		if profileDecision != nil {
+			user := onComplete
+			onComplete = func(rec *audit.Record) {
+				rec.ProfileDecision = profileDecision
+				if user != nil {
+					user(rec)
+				}
+			}
+		}
 		return writer.WrapHook(ctx, base, func() error {
 			return spec.Action(ctx, cmd)
-		}, spec.OnComplete)
+		}, onComplete)
 	}
 }
 
@@ -178,6 +203,45 @@ func buildBaseRecord(spec Spec, argv []string, cmd *cli.Command) (audit.Record, 
 		RepoRoot:    repoRoot,
 		CommitScope: commitScope,
 	}, nil
+}
+
+// runOnEvaluate calls spec.OnEvaluate (if set) and returns the
+// attached decision plus an optional coded error that Wrap should
+// return immediately. Splits the deny path (decision attached, audit
+// row written, PolicyDenied) from the evaluator-internal-failure path
+// (Generic). Returns (nil, nil) when OnEvaluate is unset.
+func runOnEvaluate(ctx context.Context, cmd *cli.Command, spec Spec, base audit.Record, writer *audit.Writer, argv []string) (*audit.ProfileDecision, error) {
+	if spec.OnEvaluate == nil {
+		return nil, nil //nolint:nilnil // intentional: no decision, no error
+	}
+	pd, evalErr := spec.OnEvaluate(ctx, cmd)
+	if evalErr == nil {
+		return pd, nil
+	}
+	if pd != nil && !pd.Allowed {
+		coded := exitcode.New(exitcode.PolicyDenied, "policy_denied", evalErr,
+			"the active lockdown profile refuses this verb on the current axis")
+		writeDenyRecord(writer, base, pd, evalErr)
+		return pd, coded
+	}
+	coded := exitcode.New(exitcode.Generic, "evaluator_failed", evalErr,
+		"profile evaluator returned an internal error; check ~/.coily/coily.yaml is well-formed")
+	logReject(writer, spec.Name, argv, coded)
+	return pd, coded
+}
+
+func writeDenyRecord(writer *audit.Writer, base audit.Record, pd *audit.ProfileDecision, err error) {
+	if writer == nil {
+		return
+	}
+	rec := base
+	rec.Decision = audit.DecisionReject
+	rec.ExitCode = exitcode.PolicyDenied
+	rec.Error = err.Error()
+	rec.ProfileDecision = pd
+	if aerr := writer.Append(rec); aerr != nil {
+		fmt.Fprintf(os.Stderr, "audit: %v\n", aerr)
+	}
 }
 
 func logReject(writer *audit.Writer, verbName string, argv []string, err error) {

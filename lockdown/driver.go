@@ -3,6 +3,8 @@ package lockdown
 import (
 	"fmt"
 	"strings"
+
+	"github.com/coilysiren/cli-guard/profile"
 )
 
 // Driver describes the binary and runtime that lockdown should write
@@ -38,6 +40,13 @@ type Driver struct {
 	BuildSettings        func(existing []byte, d *Defaults, drv *Driver) ([]byte, error)
 	RenderHookScript     func(d *Defaults, drv *Driver) (string, error)
 	RenderUserHookScript func(drv *Driver) string
+
+	// Coordinate is the resolved per-session lockdown coordinate, when a
+	// consumer is profile-aware. Optional: BuildSettings consumers may
+	// branch on it to shape the settings.json plan. Phase 4 plumbing for
+	// coilysiren/coily#150; no BuildSettings in cli-guard yet branches on
+	// it. Phase 5 fills in real per-axis behavior.
+	Coordinate *profile.Coordinate
 }
 
 // HookSettingsPath is the relative path baked into settings.json's hook

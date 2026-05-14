@@ -54,6 +54,17 @@ func ParseTrailer(s string) (int64, string, bool)
 
 TYPES
 
+type Coordinate struct {
+	DataSecurity    string `json:"data_security,omitempty"`
+	BlastRadius     string `json:"blast_radius,omitempty"`
+	NetworkEgress   string `json:"network_egress,omitempty"`
+	FilesystemReach string `json:"filesystem_reach,omitempty"`
+}
+    Coordinate mirrors cli-guard/profile.Coordinate as a JSON-stable snapshot.
+    Duplicated here so audit.Record (the wire format) does not take a hard
+    dependency on the profile package, and so the JSON tag shape is owned by the
+    audit package.
+
 type EgressRow struct {
 	Host       string `json:"host"`
 	Decision   string `json:"decision"`
@@ -65,6 +76,21 @@ type EgressRow struct {
     Decision is "allow" or "deny"; deny rows are produced when the host fails
     the per-binary allowlist in enforce mode and the underlying CONNECT returned
     403 instead of being forwarded.
+
+type ProfileDecision struct {
+	Allowed    bool       `json:"allowed"`
+	Profile    string     `json:"profile,omitempty"`
+	Source     string     `json:"source,omitempty"`
+	Coordinate Coordinate `json:"coordinate"`
+	Reason     string     `json:"reason,omitempty"`
+}
+    ProfileDecision is the structured outcome of a per-session lockdown-profile
+    evaluation. Allowed=false plus a non-nil verb.Spec OnEvaluate error
+    short-circuits the action with PolicyDenied. Profile names the active
+    sentinel profile, Source matches the consumer's resolver-status vocabulary
+    (e.g. "override" / "missing_file" / "unknown_profile" / "unset"),
+    and Coordinate captures the resolved tier-per-axis Coordinate so a forensic
+    reader sees exactly which tiers were in effect at decision time.
 
 type Record struct {
 	// ID is a UUID v7 (time-ordered) populated on Append if unset. Used as
@@ -112,6 +138,11 @@ type Record struct {
 	// opens 200 connections to registry.npmjs.org produces one row, not 200.
 	// Empty when the verb did not run through the proxy.
 	Egress []EgressRow `json:"egress,omitempty"`
+	// ProfileDecision captures the per-session lockdown-profile evaluation
+	// for this verb, when a consumer has wired verb.Spec.OnEvaluate. Absent
+	// in default-off rows. Phase 4 plumbing for coilysiren/coily#150;
+	// phase 5 fills in real per-axis branching.
+	ProfileDecision *ProfileDecision `json:"profile_decision,omitempty"`
 }
     Record is one line in the audit log. Timestamp is unix seconds (int64),
     JSON-encoded as a number. Easier to sort and diff than RFC3339 strings.
@@ -513,6 +544,13 @@ type Driver struct {
 	BuildSettings        func(existing []byte, d *Defaults, drv *Driver) ([]byte, error)
 	RenderHookScript     func(d *Defaults, drv *Driver) (string, error)
 	RenderUserHookScript func(drv *Driver) string
+
+	// Coordinate is the resolved per-session lockdown coordinate, when a
+	// consumer is profile-aware. Optional: BuildSettings consumers may
+	// branch on it to shape the settings.json plan. Phase 4 plumbing for
+	// coilysiren/coily#150; no BuildSettings in cli-guard yet branches on
+	// it. Phase 5 fills in real per-axis behavior.
+	Coordinate *profile.Coordinate
 }
     Driver describes the binary and runtime that lockdown should write
     settings/hooks for. Callers either construct a Driver directly or use the
@@ -1253,6 +1291,16 @@ type Spec struct {
 	// CommitScopeOverride and to any explicit flag/env value. Ignored when
 	// SkipScope is true.
 	CommitScopeArgvHint func(argv []string) string
+
+	// OnEvaluate, when set, runs after argv validation and before Action.
+	// Returning a non-nil *ProfileDecision attaches it to the audit row.
+	// Returning a non-nil error with Decision.Allowed=false short-circuits
+	// the Action call, exits with PolicyDenied, and tags the audit row as
+	// reject. Returning (nil, err) is treated as an evaluator internal
+	// failure (Generic exit code). Phase 4 plumbing for
+	// coilysiren/coily#150; no caller in cli-guard sets this. Phase 5
+	// fills in per-axis decision logic on the consumer side.
+	OnEvaluate func(ctx context.Context, cmd *cli.Command) (*audit.ProfileDecision, error)
 }
     Spec describes a verb before it is wrapped into a cli.ActionFunc.
 
