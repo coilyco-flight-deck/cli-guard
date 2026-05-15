@@ -679,6 +679,57 @@ type Reasoner interface {
     reason attached."
 
 
+## github.com/coilysiren/cli-guard/ghidcache
+
+package ghidcache // import "github.com/coilysiren/cli-guard/ghidcache"
+
+Package ghidcache caches GitHub identity reads - `gh auth status` and `gh api
+user` - that re-resolve on every coily invocation but are stable for hours.
+Unlike sts, the value here is both latency (skip a ~300ms subprocess) and
+rate-limit budget: `gh api user` charges against the core REST quota every call,
+and coily ops whoami runs frequently enough that uncached repeat-calls are
+visible in the rate-limit headers.
+
+Cache key includes GH_HOST and a hash of the active token, so swapping tokens
+between runs never returns the wrong identity. The token itself is never written
+to disk - only sha256(token), truncated to 16 hex chars - so the cache dir is
+safe at rest even if exfiltrated. TTL is 1h, the high end of the stable-identity
+range, matching stscache.
+
+Failure mode matches ttlcache: a cache miss or corrupt entry falls through
+to the underlying fetch. See cli-guard#55 for the rollout that motivated this
+package.
+
+CONSTANTS
+
+const TTL = 1 * time.Hour
+    TTL is the freshness window for cached identity responses. 1h matches
+    stscache and sits at the high end of "stable for hours" - a token rotation
+    or scope change inside the window will be missed until expiry or an explicit
+    Invalidate call.
+
+
+FUNCTIONS
+
+func APIUser(fetch func() ([]byte, error)) ([]byte, error)
+    APIUser returns the JSON body of `gh api user`, served from cache if a fresh
+    entry exists for the active GH_HOST + token. On miss it invokes fetch and
+    stores the result.
+
+func AuthStatus(fetch func() ([]byte, error)) ([]byte, error)
+    AuthStatus returns the captured output of `gh auth status` (stderr, since gh
+    writes the human-readable host/scope readout there).
+
+    Separate subdir from APIUser so a write to one path never invalidates the
+    other - they cache different shapes (JSON vs human text) with different
+    consumers.
+
+func Invalidate() error
+    Invalidate drops every cached identity entry under both subdirs. Callers
+    that just rotated a token or switched GH_HOST can use this to force a
+    refetch on the next call.
+
+
 ## github.com/coilysiren/cli-guard/gittree
 
 package gittree // import "github.com/coilysiren/cli-guard/gittree"
