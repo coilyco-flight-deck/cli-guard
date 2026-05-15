@@ -261,6 +261,16 @@ func shortIDFromUUID(id string) string {
 	return shortB32.EncodeToString(raw)[:8]
 }
 
+// NewUUIDv7 returns a UUID v7 string (time-ordered) using crypto/rand.
+// Same generator that Append uses internally for unset Record.ID;
+// exported so callers can pre-allocate an id, embed it in a side
+// channel (e.g. --audit-parent on a child process), and then feed it
+// back as Spec.IDOverride for the local row. coilysiren/coily#187
+// phase 2.
+func NewUUIDv7() (string, error) {
+	return newUUIDv7(time.Now())
+}
+
 // newUUIDv7 returns a UUID v7 string (time-ordered) using crypto/rand.
 // 48-bit unix-millis prefix, version=7, variant=10, rest random.
 func newUUIDv7(now time.Time) (string, error) {

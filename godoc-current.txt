@@ -65,6 +65,13 @@ var ErrPathUnset = errors.New("audit: log path not configured")
 
 FUNCTIONS
 
+func NewUUIDv7() (string, error)
+    NewUUIDv7 returns a UUID v7 string (time-ordered) using crypto/rand.
+    Same generator that Append uses internally for unset Record.ID; exported
+    so callers can pre-allocate an id, embed it in a side channel (e.g.
+    --audit-parent on a child process), and then feed it back as Spec.IDOverride
+    for the local row. coilysiren/coily#187 phase 2.
+
 func ParseTrailer(s string) (int64, string, bool)
     ParseTrailer extracts the unix timestamp and short ID from a coily://
     trailer value. Returns (ts, short, true) on a well-formed input. Accepts
