@@ -213,6 +213,14 @@ type Record struct {
 	// in default-off rows. Phase 4 plumbing for coilysiren/coily#150;
 	// phase 5 fills in real per-axis branching.
 	ProfileDecision *ProfileDecision `json:"profile_decision,omitempty"`
+	// AuditParent is the audit-row ID of an enclosing invocation when this
+	// invocation was spawned by another coily process across a host boundary
+	// (typically `coily ssh <alias> -- <args>` shipping the local id to the
+	// remote via --audit-parent / COILY_AUDIT_PARENT). Forensic walking:
+	// forward = search any audit log for rows with audit_parent == <id>;
+	// backward = look up the row whose id == this audit_parent. Empty for
+	// the common single-host case. coilysiren/coily#187 phase 2.
+	AuditParent string `json:"audit_parent,omitempty"`
 }
     Record is one line in the audit log. Timestamp is unix seconds (int64),
     JSON-encoded as a number. Easier to sort and diff than RFC3339 strings.
@@ -1329,6 +1337,9 @@ type Config struct {
 	Path string
 	// Commands are sorted by Name. Safe to iterate directly for help output.
 	Commands []Command
+	// SSHTargets is the named ssh-passthrough target map keyed by alias.
+	// Nil/empty when the file has no `ssh:` block. coilysiren/coily#187.
+	SSHTargets map[string]SSHTarget
 }
     Config is the result of a successful Load.
 
@@ -1375,6 +1386,26 @@ func LoadDefault() (*Config, error)
     up from the current working directory, then parses it. Returns nil,
     ErrNoConfig when no config is found. All other errors are parsing or
     validation failures and are surfaced as-is.
+
+type SSHTarget struct {
+	// Name is the host alias, e.g. "kai-server". Matches the map key it
+	// was loaded under. Validated with the same rules as command names.
+	Name string
+	// User is the remote ssh user. Plain string; ssh handles the rest.
+	User string
+	// Host is the remote hostname (or hostname:port). Resolved by the
+	// caller's ssh client; repocfg does not DNS-validate.
+	Host string
+	// WorkingDir is the absolute path of the working directory the remote
+	// coily binds its --commit-scope to. Must be absolute (POSIX leading
+	// slash) so the remote audit row pins to a real repo.
+	WorkingDir string
+}
+    SSHTarget describes one named ssh destination for the `coily ssh <alias>
+    -- <args>` passthrough. All three fields are mandatory: the spec for
+    coilysiren/coily#187 phase 2 explicitly rules out implicit working_dir
+    resolution, since working_dir becomes the remote --commit-scope and audit
+    rows must bind to a real repo.
 
 
 ## github.com/coilysiren/cli-guard/respfmt
@@ -1850,6 +1881,19 @@ hand bypasses audit logging and argv validation. Don't do that.
 
 CONSTANTS
 
+const AuditParentEnvVar = "COILY_AUDIT_PARENT"
+    AuditParentEnvVar is the env-var alternative to --audit-parent.
+    Reads the same value into audit.Record.AuditParent. Useful when the parent
+    process can set the environment for a child but cannot intercept its argv.
+    coilysiren/coily#187 phase 2.
+
+const AuditParentFlag = "audit-parent"
+    AuditParentFlag is the canonical name of the global --audit-parent flag.
+    Set by a coily-on-host A invocation that ssh-passthroughs into host B,
+    so host B's audit row records the host-A row's id as its parent.
+    The host CLI declares the flag and verb.Wrap reads it via the same spelling.
+    Companion env var is COILY_AUDIT_PARENT. coilysiren/coily#187 phase 2.
+
 const CommitScopeFlag = "commit-scope"
     CommitScopeFlag is the canonical name of the global --commit-scope flag.
     Exported so the host CLI can declare the flag and verb.Wrap can read it
@@ -1933,6 +1977,15 @@ type Spec struct {
 	// coilysiren/coily#150; no caller in cli-guard sets this. Phase 5
 	// fills in per-axis decision logic on the consumer side.
 	OnEvaluate func(ctx context.Context, cmd *cli.Command) (*audit.ProfileDecision, error)
+
+	// IDOverride, when non-empty, is used as audit.Record.ID for this
+	// invocation in place of the default auto-generated UUID v7. Set by
+	// verbs that need to know their own audit row id before the row is
+	// written, so the id can be plumbed into a side channel that other
+	// processes will reference. Notably coily's ssh passthrough
+	// pre-allocates the local row id and ships it to the remote as
+	// --audit-parent. coilysiren/coily#187 phase 2.
+	IDOverride string
 
 	// ResolveInvokeCWD, when set, returns the operator's invoke-time cwd
 	// (distinct from os.Getwd() which captures the post-cd subprocess

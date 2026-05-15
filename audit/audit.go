@@ -111,6 +111,14 @@ type Record struct {
 	// in default-off rows. Phase 4 plumbing for coilysiren/coily#150;
 	// phase 5 fills in real per-axis branching.
 	ProfileDecision *ProfileDecision `json:"profile_decision,omitempty"`
+	// AuditParent is the audit-row ID of an enclosing invocation when this
+	// invocation was spawned by another coily process across a host boundary
+	// (typically `coily ssh <alias> -- <args>` shipping the local id to the
+	// remote via --audit-parent / COILY_AUDIT_PARENT). Forensic walking:
+	// forward = search any audit log for rows with audit_parent == <id>;
+	// backward = look up the row whose id == this audit_parent. Empty for
+	// the common single-host case. coilysiren/coily#187 phase 2.
+	AuditParent string `json:"audit_parent,omitempty"`
 }
 
 // ProfileDecision is the structured outcome of a per-session

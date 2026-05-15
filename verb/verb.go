@@ -28,6 +28,19 @@ import (
 // without disagreeing on spelling.
 const CommitScopeFlag = "commit-scope"
 
+// AuditParentFlag is the canonical name of the global --audit-parent flag.
+// Set by a coily-on-host A invocation that ssh-passthroughs into host B, so
+// host B's audit row records the host-A row's id as its parent. The host
+// CLI declares the flag and verb.Wrap reads it via the same spelling.
+// Companion env var is COILY_AUDIT_PARENT. coilysiren/coily#187 phase 2.
+const AuditParentFlag = "audit-parent"
+
+// AuditParentEnvVar is the env-var alternative to --audit-parent. Reads
+// the same value into audit.Record.AuditParent. Useful when the parent
+// process can set the environment for a child but cannot intercept its
+// argv. coilysiren/coily#187 phase 2.
+const AuditParentEnvVar = "COILY_AUDIT_PARENT"
+
 // Spec describes a verb before it is wrapped into a cli.ActionFunc.
 type Spec struct {
 	// Name is the dotted verb path used for audit logging, e.g.
@@ -96,6 +109,15 @@ type Spec struct {
 	// coilysiren/coily#150; no caller in cli-guard sets this. Phase 5
 	// fills in per-axis decision logic on the consumer side.
 	OnEvaluate func(ctx context.Context, cmd *cli.Command) (*audit.ProfileDecision, error)
+
+	// IDOverride, when non-empty, is used as audit.Record.ID for this
+	// invocation in place of the default auto-generated UUID v7. Set by
+	// verbs that need to know their own audit row id before the row is
+	// written, so the id can be plumbed into a side channel that other
+	// processes will reference. Notably coily's ssh passthrough
+	// pre-allocates the local row id and ships it to the remote as
+	// --audit-parent. coilysiren/coily#187 phase 2.
+	IDOverride string
 
 	// ResolveInvokeCWD, when set, returns the operator's invoke-time cwd
 	// (distinct from os.Getwd() which captures the post-cd subprocess
@@ -181,23 +203,28 @@ func buildBaseRecord(spec Spec, argv []string, cmd *cli.Command) (audit.Record, 
 	if spec.ResolveInvokeCWD != nil {
 		invokeCWD = spec.ResolveInvokeCWD()
 	}
+	auditParent := resolveAuditParent(cmd)
 	if spec.SkipScope {
 		return audit.Record{
+			ID:              spec.IDOverride,
 			Verb:            spec.Name,
 			Argv:            argv,
 			RepoRoot:        repoRoot,
 			CWDSubprocess:   cwd,
 			CWDAtInvocation: invokeCWD,
+			AuditParent:     auditParent,
 		}, nil
 	}
 	if spec.CommitScopeOverride != "" {
 		return audit.Record{
+			ID:              spec.IDOverride,
 			Verb:            spec.Name,
 			Argv:            argv,
 			RepoRoot:        repoRoot,
 			CommitScope:     spec.CommitScopeOverride,
 			CWDSubprocess:   cwd,
 			CWDAtInvocation: invokeCWD,
+			AuditParent:     auditParent,
 		}, nil
 	}
 	root := cmd
@@ -216,13 +243,29 @@ func buildBaseRecord(spec Spec, argv []string, cmd *cli.Command) (audit.Record, 
 		return audit.Record{}, err
 	}
 	return audit.Record{
+		ID:              spec.IDOverride,
 		Verb:            spec.Name,
 		Argv:            argv,
 		RepoRoot:        repoRoot,
 		CommitScope:     commitScope,
 		CWDSubprocess:   cwd,
 		CWDAtInvocation: invokeCWD,
+		AuditParent:     auditParent,
 	}, nil
+}
+
+// resolveAuditParent reads --audit-parent off the root command, then falls
+// back to $COILY_AUDIT_PARENT. Empty when neither is set (the common case;
+// only ssh-passthrough invocations carry a parent id today).
+func resolveAuditParent(cmd *cli.Command) string {
+	root := cmd
+	if r := cmd.Root(); r != nil {
+		root = r
+	}
+	if v := root.String(AuditParentFlag); v != "" {
+		return v
+	}
+	return os.Getenv(AuditParentEnvVar)
 }
 
 // runOnEvaluate calls spec.OnEvaluate (if set) and returns the

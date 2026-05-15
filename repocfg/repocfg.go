@@ -62,12 +62,35 @@ type Command struct {
 	Argv []string
 }
 
+// SSHTarget describes one named ssh destination for the
+// `coily ssh <alias> -- <args>` passthrough. All three fields are
+// mandatory: the spec for coilysiren/coily#187 phase 2 explicitly rules
+// out implicit working_dir resolution, since working_dir becomes the
+// remote --commit-scope and audit rows must bind to a real repo.
+type SSHTarget struct {
+	// Name is the host alias, e.g. "kai-server". Matches the map key it
+	// was loaded under. Validated with the same rules as command names.
+	Name string
+	// User is the remote ssh user. Plain string; ssh handles the rest.
+	User string
+	// Host is the remote hostname (or hostname:port). Resolved by the
+	// caller's ssh client; repocfg does not DNS-validate.
+	Host string
+	// WorkingDir is the absolute path of the working directory the remote
+	// coily binds its --commit-scope to. Must be absolute (POSIX leading
+	// slash) so the remote audit row pins to a real repo.
+	WorkingDir string
+}
+
 // Config is the result of a successful Load.
 type Config struct {
 	// Path is the absolute path to the coily.yaml that produced this Config.
 	Path string
 	// Commands are sorted by Name. Safe to iterate directly for help output.
 	Commands []Command
+	// SSHTargets is the named ssh-passthrough target map keyed by alias.
+	// Nil/empty when the file has no `ssh:` block. coilysiren/coily#187.
+	SSHTargets map[string]SSHTarget
 }
 
 // ErrNoConfig is returned by LoadDefault when no coily.yaml is found in the
@@ -263,6 +286,9 @@ func Load(path string) (*Config, error) {
 	}
 	var raw struct {
 		Commands map[string]yaml.Node `yaml:"commands"`
+		SSH      *struct {
+			Targets map[string]yaml.Node `yaml:"targets"`
+		} `yaml:"ssh"`
 	}
 	if err := yaml.Unmarshal(b, &raw); err != nil {
 		return nil, fmt.Errorf("repocfg: parse %s: %w", path, err)
@@ -279,7 +305,61 @@ func Load(path string) (*Config, error) {
 	sort.Slice(cfg.Commands, func(i, j int) bool {
 		return cfg.Commands[i].Name < cfg.Commands[j].Name
 	})
+
+	if raw.SSH != nil {
+		cfg.SSHTargets = map[string]SSHTarget{}
+		for name, node := range raw.SSH.Targets {
+			t, err := decodeSSHTarget(name, node)
+			if err != nil {
+				return nil, fmt.Errorf("repocfg: %s: ssh target %q: %w", path, name, err)
+			}
+			cfg.SSHTargets[name] = t
+		}
+	}
 	return cfg, nil
+}
+
+// decodeSSHTarget parses one entry from the `ssh.targets:` map. user, host,
+// and working_dir are all mandatory; working_dir must be absolute since it
+// becomes the remote --commit-scope. Every field is run through
+// policy.ValidateArg so a malicious yaml can't smuggle a shell
+// metacharacter into the eventual `ssh kai@host 'coily ...'` invocation.
+func decodeSSHTarget(name string, node yaml.Node) (SSHTarget, error) {
+	if err := validateName(name); err != nil {
+		return SSHTarget{}, err
+	}
+	if node.Kind != yaml.MappingNode {
+		return SSHTarget{}, errors.New("must be a {user, host, working_dir} mapping")
+	}
+	var obj struct {
+		User       string `yaml:"user"`
+		Host       string `yaml:"host"`
+		WorkingDir string `yaml:"working_dir"`
+	}
+	if err := node.Decode(&obj); err != nil {
+		return SSHTarget{}, fmt.Errorf("decode mapping: %w", err)
+	}
+	obj.User = strings.TrimSpace(obj.User)
+	obj.Host = strings.TrimSpace(obj.Host)
+	obj.WorkingDir = strings.TrimSpace(obj.WorkingDir)
+	if obj.User == "" {
+		return SSHTarget{}, errors.New("user is empty")
+	}
+	if obj.Host == "" {
+		return SSHTarget{}, errors.New("host is empty")
+	}
+	if obj.WorkingDir == "" {
+		return SSHTarget{}, errors.New("working_dir is empty")
+	}
+	if !strings.HasPrefix(obj.WorkingDir, "/") {
+		return SSHTarget{}, fmt.Errorf("working_dir %q must be absolute (start with /)", obj.WorkingDir)
+	}
+	for label, val := range map[string]string{"user": obj.User, "host": obj.Host, "working_dir": obj.WorkingDir} {
+		if err := policy.ValidateArg(label, val); err != nil {
+			return SSHTarget{}, err
+		}
+	}
+	return SSHTarget{Name: name, User: obj.User, Host: obj.Host, WorkingDir: obj.WorkingDir}, nil
 }
 
 func decodeCommand(name string, node yaml.Node) (Command, error) {

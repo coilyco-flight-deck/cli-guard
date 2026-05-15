@@ -323,6 +323,58 @@ func TestWrap_CommitScopeArgvHintLosesToEnv(t *testing.T) {
 	}
 }
 
+// TestWrap_IDOverridePinsAuditRowID proves Spec.IDOverride wins over the
+// audit writer's auto-generated UUID v7. Used by coily's ssh passthrough
+// to pre-allocate the local row id and ship it to the remote as
+// --audit-parent (coilysiren/coily#187 phase 2).
+func TestWrap_IDOverridePinsAuditRowID(t *testing.T) {
+	w := newTestWriter(t)
+	const pinned = "01234567-89ab-7def-0123-456789abcdef"
+	spec := verb.Spec{
+		Name:       "test.ro",
+		SkipScope:  true,
+		IDOverride: pinned,
+		Action:     func(_ context.Context, _ *cli.Command) error { return nil },
+	}
+	if err := runWrapped(t, spec, w); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	b, _ := os.ReadFile(w.Path)
+	records, _ := audit.ReadAll(bytes.NewReader(b))
+	if len(records) != 1 {
+		t.Fatalf("got %d records, want 1", len(records))
+	}
+	if records[0].ID != pinned {
+		t.Errorf("ID = %q, want %q", records[0].ID, pinned)
+	}
+}
+
+// TestWrap_AuditParentFromEnv proves the row picks up
+// $COILY_AUDIT_PARENT when no --audit-parent flag is set. Models the
+// remote-coily side of an ssh passthrough where the local coily set the
+// env var on the remote invocation. coilysiren/coily#187 phase 2.
+func TestWrap_AuditParentFromEnv(t *testing.T) {
+	const parent = "11111111-2222-7333-4444-555555555555"
+	t.Setenv("COILY_AUDIT_PARENT", parent)
+	w := newTestWriter(t)
+	spec := verb.Spec{
+		Name:      "test.ro",
+		SkipScope: true,
+		Action:    func(_ context.Context, _ *cli.Command) error { return nil },
+	}
+	if err := runWrapped(t, spec, w); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	b, _ := os.ReadFile(w.Path)
+	records, _ := audit.ReadAll(bytes.NewReader(b))
+	if len(records) != 1 {
+		t.Fatalf("got %d records, want 1", len(records))
+	}
+	if records[0].AuditParent != parent {
+		t.Errorf("audit_parent = %q, want %q", records[0].AuditParent, parent)
+	}
+}
+
 // runWrapped invokes the wrapped action in a way that mimics urfave/cli's
 // real invocation shape. We pass an empty *cli.Command because Spec.ArgsFunc
 // is the only code path that reads from it, and test specs set ArgsFunc
