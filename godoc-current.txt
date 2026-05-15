@@ -679,6 +679,65 @@ type Reasoner interface {
     reason attached."
 
 
+## github.com/coilysiren/cli-guard/ghcache
+
+package ghcache // import "github.com/coilysiren/cli-guard/ghcache"
+
+Package ghcache caches GitHub REST `GET` responses keyed by method, path, body,
+and token fingerprint, with method-aware write-through invalidation. Drives the
+high-volume coily dispatch path: a burst of `coily dispatch coilysiren/X#N`
+against the same issue collapses to one `gh api /repos/X/issues/N` call plus
+cache hits, instead of one subprocess per dispatch.
+
+Tiered TTLs reflect how stable each surface is. Issue/PR bodies move on human
+timescales (minutes); labels and topics move on weeks; lists and search results
+turn over with every comment, so they get the shortest TTL. Tier classification
+lives in this package so the choice is declarative and reviewable.
+
+Write-through invalidation: when a caller issues a `POST`, `PATCH`, or `DELETE`
+to a path, the matching `GET` entry is dropped before the next read. Comment
+writes also drop the parent issue/PR entry, since the `comments` count on the
+issue body changes. The cache is not load-bearing for correctness - on a missed
+invalidation, the next read returns slightly stale data for at most the tier's
+TTL window.
+
+Failure mode matches ttlcache: cache miss or corrupt entry falls through to the
+underlying fetch. See cli-guard#56 for the rollout.
+
+CONSTANTS
+
+const (
+	TTLIssueOrPR  = 120 * time.Second // Tier-3: issue/PR body
+	TTLRepoMeta   = 15 * time.Minute  // Tier-2: repo description, topics
+	TTLRepoLabels = 1 * time.Hour     // Tier-2: label list
+	TTLListSearch = 60 * time.Second  // Tier-4: issues list, search
+)
+    Default TTLs by tier. Exported so callers and tests can reference the same
+    constants the path-classifier uses internally.
+
+
+FUNCTIONS
+
+func GetJSON(path string, fetch func() ([]byte, error)) ([]byte, error)
+    GetJSON fetches the response body for a `GET <path>` GitHub REST call,
+    served from cache if a fresh entry exists. On miss it invokes fetch and
+    stores the result under a TTL derived from the path tier.
+
+    The path is the gh-api-style request path - either `/repos/O/R/issues/N`
+    or `repos/O/R/issues/N` (leading slash is normalized). Query strings are
+    included for cache-key purposes so paginated reads of the same endpoint
+    produce distinct entries.
+
+func Invalidate(method, path string)
+    Invalidate drops cache entries that a `method <path>` write would affect.
+    Idempotent and safe to call on paths that have no cached entry. Comment
+    writes also invalidate the parent issue/PR so the `comments` count stays
+    consistent.
+
+    Method is normalized to upper-case. method == "GET" is a no-op (reads don't
+    invalidate anything).
+
+
 ## github.com/coilysiren/cli-guard/ghidcache
 
 package ghidcache // import "github.com/coilysiren/cli-guard/ghidcache"
@@ -728,6 +787,72 @@ func Invalidate() error
     Invalidate drops every cached identity entry under both subdirs. Callers
     that just rotated a token or switched GH_HOST can use this to force a
     refetch on the next call.
+
+
+## github.com/coilysiren/cli-guard/ghratelimit
+
+package ghratelimit // import "github.com/coilysiren/cli-guard/ghratelimit"
+
+Package ghratelimit retries gh-CLI calls that fail with a GitHub rate-limit
+error. v1 of cli-guard#66: pattern-match the failure mode in gh's exit error
+(stderr text and HTTP status), back off, retry. Header-aware budget tracking is
+deferred to a follow-up since `gh api` does not surface response headers without
+`--include`, which then poisons JSON parsing for every caller.
+
+Retry policy:
+
+  - Primary rate limit (403 with "API rate limit exceeded"): exponential backoff
+    2s -> 8s -> 32s, capped at 60s, up to 3 retries.
+  - Secondary / abuse-detection limit (403 with "secondary rate limit" or "abuse
+    detection"): same backoff. These are usually short.
+  - HTTP 429: same backoff.
+  - Any other error: returned immediately, no retry.
+
+Failure mode: if all retries fail, the original error is returned with retry
+context wrapped around it. The caller can pair this with ghcache to fall through
+to a stale entry rather than hard-fail.
+
+Sleep is via the package-level Sleeper var so tests can swap it for a no-op.
+Real callers do not touch it.
+
+CONSTANTS
+
+const MaxRetries = 3
+    MaxRetries is the cap on retry attempts after the initial call. Three
+    retries plus the initial call = up to four total attempts.
+
+
+VARIABLES
+
+var ErrGaveUp = errors.New("ghratelimit: retries exhausted")
+    ErrGaveUp is returned (wrapped) when retries are exhausted. Exposed so
+    callers can errors.Is against it without string-matching.
+
+var Sleeper = time.Sleep
+    Sleeper is the function used between retries. Swappable in tests so the
+    retry loop runs at wall-clock zero. Real callers leave this alone.
+
+
+FUNCTIONS
+
+func LastFailure() (time.Time, error)
+    LastFailure returns the most recent rate-limit error observed in this
+    process and the time it occurred. (time-zero, nil) when no failure has been
+    recorded. Exposed for ghcache so it can fall through to a stale entry on the
+    next call after a rate-limit hit.
+
+func Reset()
+    Reset clears the failure state. Test-only; real callers leave the state
+    alone so LastFailure carries across calls within a process.
+
+func Retry(fetch func() ([]byte, error)) ([]byte, error)
+    Retry runs fetch up to MaxRetries+1 times, backing off between attempts on
+    recognized rate-limit failures. fetch's first return is passed through on
+    success.
+
+    On final failure, Retry returns an error that wraps the most recent fetch
+    error and contains the attempt count in its message. The wrapped error is
+    reachable via errors.Unwrap so callers can still inspect it.
 
 
 ## github.com/coilysiren/cli-guard/gittree
