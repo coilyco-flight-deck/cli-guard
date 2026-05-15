@@ -1556,8 +1556,8 @@ func DiscoverChildren(parentDir string) ([]*Config, error)
     Used by `coily exec` when no ancestor coily.yaml is found: instead of
     refusing to run, the verb collects child configs so the operator can invoke
     a command declared in a sibling repo (e.g. `coily exec daily-social` from
-    one directory above coilyco-ai). The legacy repo-root coily.yaml form is
-    intentionally ignored here; child discovery is opt-in via the .coily/
+    one directory above agentic-os-kai). The legacy repo-root coily.yaml form
+    is intentionally ignored here; child discovery is opt-in via the .coily/
     overlay.
 
 func Load(path string) (*Config, error)

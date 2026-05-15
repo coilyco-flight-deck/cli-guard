@@ -1,6 +1,6 @@
 # Agent instructions
 
-Workspace-level conventions (git workflow, test/lint autonomy, readonly ops, writing voice, deploy knowledge) are loaded globally via `~/.claude/CLAUDE.md` → `coilyco-ai/AGENTS.md`. This file covers only what's specific to this repo.
+Workspace-level conventions (git workflow, test/lint autonomy, readonly ops, writing voice, deploy knowledge) are loaded globally via `~/.claude/CLAUDE.md` → `agentic-os-kai/AGENTS.md`. This file covers only what's specific to this repo.
 
 ## What cli-guard is
 
@@ -33,4 +33,4 @@ The Claude Code lockdown writer in `coily/pkg/lockdown` did not come over. Gener
 
 ## Filing issues
 
-One issue per discrete additive change, per [the workspace rule](https://github.com/coilysiren/coilyco-ai/blob/main/AGENTS.md). Every commit closes a same-repo issue with `closes #N`.
+One issue per discrete additive change, per [the workspace rule](https://github.com/coilysiren/agentic-os-kai/blob/main/AGENTS.md). Every commit closes a same-repo issue with `closes #N`.
