@@ -34,3 +34,11 @@ The Claude Code lockdown writer in `coily/pkg/lockdown` did not come over. Gener
 ## Filing issues
 
 One issue per discrete additive change, per [the workspace rule](https://github.com/coilysiren/agentic-os-kai/blob/main/AGENTS.md). Every commit closes a same-repo issue with `closes #N`.
+
+## See also
+
+- [README.md](README.md) - human-facing intro.
+- [docs/FEATURES.md](docs/FEATURES.md) - inventory of what ships today.
+- [.agent-guard/agent-guard.yaml](.agent-guard/agent-guard.yaml) - allowlisted commands.
+
+Cross-reference convention from [coilysiren/agentic-os#59](https://github.com/coilysiren/agentic-os/issues/59).

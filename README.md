@@ -41,3 +41,11 @@ See [`LICENSE`](./LICENSE).
 [cli-mcp]: https://github.com/coilysiren/cli-mcp
 [cli-web-docs]: https://github.com/coilysiren/cli-web-docs
 [cli-web-ops]: https://github.com/coilysiren/cli-web-ops
+
+## See also
+
+- [AGENTS.md](AGENTS.md) - agent-facing operating rules.
+- [docs/FEATURES.md](docs/FEATURES.md) - inventory of what ships today.
+- [.agent-guard/agent-guard.yaml](.agent-guard/agent-guard.yaml) - allowlisted commands.
+
+Cross-reference convention from [coilysiren/agentic-os#59](https://github.com/coilysiren/agentic-os/issues/59).
