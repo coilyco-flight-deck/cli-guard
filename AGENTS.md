@@ -4,7 +4,7 @@ Workspace-level conventions (git workflow, test/lint autonomy, readonly ops, wri
 
 ## What cli-guard is
 
-A security-boundary framework for urfave/cli v3 applications. Extracted from [coilysiren/coily](https://github.com/coilysiren/coily)'s `pkg/` tree; treat the framework primitives here as the load-bearing core that coily and any future consumer depend on. Inventory: [`docs/FEATURES.md`](docs/FEATURES.md). Per-feature demos: [`examples/`](examples/).
+A security-boundary framework for urfave/cli v3 applications. Treat the framework primitives here as the load-bearing core that [coilysiren/coily](https://github.com/coilysiren/coily) and any future consumer depend on. Inventory: [`docs/FEATURES.md`](docs/FEATURES.md). Per-feature demos: [`examples/`](examples/).
 
 ## Dev verbs
 
@@ -21,7 +21,7 @@ cli-guard itself doesn't care which filename: any consumer that wraps the repocf
 
 ## No coily-types in pkg-shaped code
 
-Carry forward the rule from coily's `pkg/README.md`: every package here must be importable from a different binary without coily-specific types or defaults leaking in. If a helper needs a coily-shaped argument, define the type in cli-guard and have the consumer adapt to it, not the other way around. This is the property that makes the future "coily imports cli-guard" migration mechanical rather than archaeological.
+Every package here must be importable from a different binary without coily-specific types or defaults leaking in. If a helper needs a coily-shaped argument, define the type in cli-guard and have the consumer adapt to it, not the other way around.
 
 ## v0 API discipline
 
