@@ -75,6 +75,9 @@ func TestCheckClean_dirtyTracked(t *testing.T) {
 	if !strings.Contains(st.Status, "README") {
 		t.Errorf("Status missing README: %q", st.Status)
 	}
+	if len(st.DirtyPaths) != 1 || st.DirtyPaths[0] != "README" {
+		t.Errorf("DirtyPaths = %v, want [README]", st.DirtyPaths)
+	}
 }
 
 func TestCheckClean_untracked(t *testing.T) {
@@ -91,6 +94,27 @@ func TestCheckClean_untracked(t *testing.T) {
 	}
 	if !strings.Contains(st.Status, "??") {
 		t.Errorf("Status missing untracked marker: %q", st.Status)
+	}
+	if len(st.DirtyPaths) != 1 || st.DirtyPaths[0] != "new.txt" {
+		t.Errorf("DirtyPaths = %v, want [new.txt]", st.DirtyPaths)
+	}
+}
+
+func TestParseDirtyPaths_renamesAndMixed(t *testing.T) {
+	// Synthetic porcelain v1 input: one modified, one untracked, one rename.
+	in := " M README\n?? new.txt\nR  old.txt -> renamed.txt\n"
+	got := parseDirtyPaths(in)
+	want := []string{"README", "new.txt", "old.txt", "renamed.txt"}
+	if len(got) != len(want) {
+		t.Fatalf("parseDirtyPaths len = %d (%v), want %d (%v)", len(got), got, len(want), want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("parseDirtyPaths[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if parseDirtyPaths("") != nil {
+		t.Errorf("parseDirtyPaths(\"\") = %v, want nil", parseDirtyPaths(""))
 	}
 }
 

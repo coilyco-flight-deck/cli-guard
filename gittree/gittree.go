@@ -25,10 +25,16 @@ type State struct {
 	Reason   string
 	Recovery string
 	Status   string
-	Branch   string
-	Upstream string
-	Ahead    int
-	Behind   int
+	// DirtyPaths is every working-tree path that git porcelain v1 reported
+	// as dirty (modified, added, deleted, untracked, renamed - both halves
+	// of a rename). Paths are repo-root-relative POSIX strings, parsed from
+	// the untruncated porcelain output so a caller can do an authoritative
+	// membership check even when Status was truncated for display.
+	DirtyPaths []string
+	Branch     string
+	Upstream   string
+	Ahead      int
+	Behind     int
 }
 
 // MaxStatusBytes caps Status so a sprawling untracked tree does not bloat
@@ -62,7 +68,11 @@ func CheckClean(repoRoot string) (*State, error) {
 		return nil, fmt.Errorf("gittree: git rev-parse HEAD: %w", err)
 	}
 
-	st := &State{Status: truncate(status, MaxStatusBytes), Branch: strings.TrimSpace(branch)}
+	st := &State{
+		Status:     truncate(status, MaxStatusBytes),
+		DirtyPaths: parseDirtyPaths(status),
+		Branch:     strings.TrimSpace(branch),
+	}
 	if checkLocalState(st, status) {
 		return st, nil
 	}
@@ -154,6 +164,41 @@ func (s *State) FormatRefusal(verbName string) string {
 	b.WriteString("The audit row is tagged audit_override=true and captures the working\n")
 	b.WriteString("tree status so the run can still be reconstructed after the fact.")
 	return b.String()
+}
+
+// parseDirtyPaths extracts the working-tree paths from git porcelain v1
+// output. Each non-empty line is "XY <path>" or "XY <orig> -> <new>" for
+// renames; both halves of a rename are returned. The untruncated status
+// is parsed so the result is authoritative even when State.Status was
+// later truncated for display.
+func parseDirtyPaths(porcelain string) []string {
+	if porcelain == "" {
+		return nil
+	}
+	var paths []string
+	for _, line := range strings.Split(porcelain, "\n") {
+		if len(line) < 4 {
+			continue
+		}
+		rest := line[3:]
+		if arrow := strings.Index(rest, " -> "); arrow >= 0 {
+			paths = append(paths, unquoteStatusPath(rest[:arrow]), unquoteStatusPath(rest[arrow+4:]))
+			continue
+		}
+		paths = append(paths, unquoteStatusPath(rest))
+	}
+	return paths
+}
+
+// unquoteStatusPath strips the optional surrounding quotes that git's
+// porcelain output uses for paths containing special characters. The
+// inner escape sequences are left as-is - callers do path-equality
+// against repo-relative POSIX paths in the common case.
+func unquoteStatusPath(p string) string {
+	if len(p) >= 2 && p[0] == '"' && p[len(p)-1] == '"' {
+		return p[1 : len(p)-1]
+	}
+	return p
 }
 
 func recoveryDirty(status string) string {

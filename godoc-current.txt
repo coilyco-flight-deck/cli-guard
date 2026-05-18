@@ -891,10 +891,16 @@ type State struct {
 	Reason   string
 	Recovery string
 	Status   string
-	Branch   string
-	Upstream string
-	Ahead    int
-	Behind   int
+	// DirtyPaths is every working-tree path that git porcelain v1 reported
+	// as dirty (modified, added, deleted, untracked, renamed - both halves
+	// of a rename). Paths are repo-root-relative POSIX strings, parsed from
+	// the untruncated porcelain output so a caller can do an authoritative
+	// membership check even when Status was truncated for display.
+	DirtyPaths []string
+	Branch     string
+	Upstream   string
+	Ahead      int
+	Behind     int
 }
     State is the outcome of CheckClean. Clean is true when every gate property
     holds. When false, Reason names the first failure in human-readable form
