@@ -922,6 +922,120 @@ func (s *State) FormatRefusal(verbName string) string
     wrapping into an exitcode.New so the process exit reflects the gate.
 
 
+## github.com/coilysiren/cli-guard/hook
+
+package hook // import "github.com/coilysiren/cli-guard/hook"
+
+Package hook implements the Claude Code PreToolUse hook engine in the shared
+substrate. Each cli-guard consumer (coily, agent-guard, future guards) ships its
+own integrity rules and routing-hint table through this interface; no consumer
+names another in source.
+
+Boundary: cli-guard knows about hook payloads, segment parsing, binary-path
+integrity, and the Decision shape Claude Code expects. It does not know about
+coily verbs or agent-guard verbs - those are strings in the consumer's Route
+table. The consumer wires its own `<binary> hook pre-tool-use` subcommand that
+calls PreToolUse with its tables, and renders its per-repo lockdown-deny.sh to
+exec its own binary.
+
+Architecture context: coilysiren/cli-guard#74, coilysiren/coily#248.
+
+FUNCTIONS
+
+func CheckBinaryPath(token string, allowed []string, lookup LookPath, source string) string
+    CheckBinaryPath resolves token via lookup and returns a non-empty
+    hijack-warning string when the resolved path is outside allowed. ENOENT
+    (binary not on PATH) returns "" - bash will surface the command-not-found
+    error naturally.
+
+    Resolution uses lookup directly without canonicalizing symlinks (e.g. brew's
+    /opt/homebrew/bin/<binary> symlink, not the Cellar realpath). Matching
+    the symlink is the documented contract from coily's original shell-gate;
+    preserved here.
+
+func LeadingToken(seg string) string
+    LeadingToken returns the first whitespace-delimited token of seg. "gh issue
+    view" -> "gh", "" -> "".
+
+func SplitSegments(cmd string) []string
+    SplitSegments breaks a bash command into the leading-token segments the
+    engine classifies. Splits on $( ) || && | ; & boundaries. Imperfect (not a
+    full shell parser), but tight enough for the routing-hint surface.
+
+func StripEnvPrefix(seg string) string
+    StripEnvPrefix peels leading `env VAR=val ...` and `sudo` tokens so `env
+    FOO=bar gh issue view` classifies the same as bare `gh issue view`. Strips
+    iteratively in case both are present.
+
+
+TYPES
+
+type Decision struct {
+	Block   bool
+	Message string
+}
+    Decision is what PreToolUse returns. Block=true means the caller should
+    emit Message to stderr and exit with the host's hook-block exit code (Claude
+    Code's PreToolUse contract is exit 2). Block= false is the pass-through case
+    (no route matched, no integrity rule fired).
+
+func PreToolUse(payload Payload, source string, rules []IntegrityRule, routes []Route, lookup LookPath) Decision
+    PreToolUse evaluates a payload against integrity rules and routes.
+    Returns Decision{Block: false} on no match (best-effort hint surface;
+    hard denial belongs to the harness's permissions.deny, not this hook).
+    source is the consumer name prefixed onto Block messages.
+
+    Failure modes (non-Bash tool, empty command, malformed segments) pass
+    through silently. The hook is signaling, not policing.
+
+type IntegrityRule struct {
+	Binary       string
+	AllowedPaths []string
+}
+    IntegrityRule names a binary and the canonical absolute paths it is
+    allowed to resolve to. A bare invocation of Binary that resolves outside
+    AllowedPaths is rejected with a path-hijack message before any Route lookup
+    fires. Consumers register their own integrity rules for their own binaries;
+    cli-guard does not know which binaries any given consumer wraps.
+
+type LookPath func(name string) (string, error)
+    LookPath mirrors exec.LookPath. Injected for tests.
+
+type Payload struct {
+	ToolName  string                 `json:"tool_name"`
+	ToolInput map[string]interface{} `json:"tool_input"`
+	CWD       string                 `json:"cwd"`
+}
+    Payload is the subset of Claude Code's PreToolUse hook payload the engine
+    consumes. Other fields are ignored.
+
+func ReadPayload(r io.Reader) Payload
+    ReadPayload decodes a PreToolUse payload from r. Empty stream or unparseable
+    JSON returns an empty Payload (not an error); the engine is best-effort and
+    a malformed payload passes through.
+
+type Route struct {
+	// Token is the bare leading-token to match, e.g. "gh", "brew".
+	Token string
+
+	// Hint is the human-readable recovery message. The engine
+	// prefixes "<source> hook: blocked bare `<token>`. Recovery: "
+	// to the hint so the origin and the matched token are visible.
+	Hint string
+
+	// Extra, when non-nil, is consulted for token-specific suffixes
+	// after a match. Receives the matched segment so the consumer
+	// can append sub-verb-specific notes (e.g. the GraphQL-trap
+	// warning some consumers attach to `gh issue view`). Empty
+	// return means no suffix.
+	Extra func(segment string) string
+}
+    Route maps a bare leading-token in argv to a recovery hint string the
+    consumer wants surfaced when the harness denies that token. Consumers
+    register their own at compile time; the engine renders the matching hint
+    when the PreToolUse payload's command segment starts with that token.
+
+
 ## github.com/coilysiren/cli-guard/lockdown
 
 package lockdown // import "github.com/coilysiren/cli-guard/lockdown"
