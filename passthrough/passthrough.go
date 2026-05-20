@@ -30,6 +30,7 @@
 package passthrough
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -37,10 +38,16 @@ import (
 
 	"github.com/coilysiren/cli-guard/audit"
 	"github.com/coilysiren/cli-guard/egress"
+	"github.com/coilysiren/cli-guard/ghcache"
 	"github.com/coilysiren/cli-guard/shell"
 	"github.com/coilysiren/cli-guard/verb"
 	"github.com/urfave/cli/v3"
 )
+
+// ReadCacheClassifier inspects the post-WithArgvRewriter argv and
+// returns the gh-api-style path the call would read, plus ok=true, or
+// ("", false) to decline. See WithReadCache.
+type ReadCacheClassifier func(argv []string) (path string, ok bool)
 
 // Option configures a pass-through Command. Use the With* helpers below
 // rather than setting fields directly.
@@ -54,6 +61,7 @@ type config struct {
 	verbName      string
 	scopeArgvHint func(argv []string) string
 	argvRewriter  func(argv []string) []string
+	readCache     ReadCacheClassifier
 }
 
 // WithSkipPolicy disables the shell-metacharacter check for this binary.
@@ -109,6 +117,28 @@ func WithArgvRewriter(fn func(argv []string) []string) Option {
 	}
 }
 
+// WithReadCache wires the pass-through into ghcache so reads matching
+// the supplied classifier are served from cache without exec, and
+// successful exec results are stored back. The classifier sees the
+// argv after WithArgvRewriter has run, so callers can apply their own
+// rewrite (e.g. gh's GraphQL-to-REST translation) before classifying.
+//
+// On hit: cached bytes are written to base.Stdout and the action
+// returns nil with no subprocess and no audit row body. On miss: the
+// subprocess runs with stdout tee'd into a capture buffer; on exit 0
+// the captured bytes are stored under the classified path with the
+// TTL ghcache derives from the path tier. On non-zero exit, nothing
+// is cached.
+//
+// Designed for the `coily ops gh` use case (cli-guard#76): a watch
+// loop across many repos collapses to one subprocess + cache hits
+// instead of one subprocess per tick per repo.
+func WithReadCache(classifier ReadCacheClassifier) Option {
+	return func(c *config) {
+		c.readCache = classifier
+	}
+}
+
 // WithScopeArgvHint installs a fallback --commit-scope resolver that runs
 // only when the operator did not set --commit-scope (or COILY_COMMIT_SCOPE)
 // explicitly. The hook receives the verb's argv and returns an absolute
@@ -144,9 +174,9 @@ func Command(bin string, r *shell.Runner, w *audit.Writer, opts ...Option) *cli.
 		CommitScopeArgvHint: cfg.scopeArgvHint,
 	}
 	if cfg.egressOn {
-		spec.Action, spec.OnComplete = withEgressAction(bin, r, cfg.egressList, cfg.egressMode, cfg.argvRewriter)
+		spec.Action, spec.OnComplete = withEgressAction(bin, r, cfg.egressList, cfg.egressMode, cfg.argvRewriter, cfg.readCache)
 	} else {
-		spec.Action, spec.OnComplete = withStderrTail(bin, r, cfg.argvRewriter)
+		spec.Action, spec.OnComplete = withStderrTail(bin, r, cfg.argvRewriter, cfg.readCache)
 	}
 	return &cli.Command{
 		Name:            bin,
@@ -162,9 +192,17 @@ func Command(bin string, r *shell.Runner, w *audit.Writer, opts ...Option) *cli.
 // this, kubectl/aws/gh failures in the audit log collapse to bare
 // "exit status 1" and the operator/forensic reader can't tell what
 // actually went wrong.
-func withStderrTail(bin string, base *shell.Runner, rewriter func([]string) []string) (cli.ActionFunc, func(*audit.Record)) {
+func withStderrTail(bin string, base *shell.Runner, rewriter func([]string) []string, readCache ReadCacheClassifier) (cli.ActionFunc, func(*audit.Record)) {
 	tail := newTailBuffer(audit.MaxStderrTailBytes)
 	action := func(ctx context.Context, c *cli.Command) error {
+		argv := c.Args().Slice()
+		if rewriter != nil {
+			argv = rewriter(argv)
+		}
+		plan, hit := readCachePlan(base.Stdout, readCache, argv)
+		if hit {
+			return nil
+		}
 		shadow := *base
 		// Tee stderr through the tail buffer while still streaming to the
 		// caller's terminal. Falls back to just the tail buffer when the
@@ -174,11 +212,10 @@ func withStderrTail(bin string, base *shell.Runner, rewriter func([]string) []st
 		} else {
 			shadow.Stderr = tail
 		}
-		argv := c.Args().Slice()
-		if rewriter != nil {
-			argv = rewriter(argv)
-		}
-		return shadow.Exec(ctx, bin, argv...)
+		plan.installStdoutTee(&shadow)
+		err := shadow.Exec(ctx, bin, argv...)
+		plan.storeIfSuccess(err)
+		return err
 	}
 	hook := func(rec *audit.Record) {
 		if rec.ExitCode == 0 {
@@ -195,16 +232,27 @@ func withStderrTail(bin string, base *shell.Runner, rewriter func([]string) []st
 // proxy, inject HTTPS_PROXY/HTTP_PROXY into a per-call shadow Runner so
 // concurrent commands stay independent, and surface the collected rows
 // through OnComplete.
-func withEgressAction(bin string, base *shell.Runner, allowlist []string, mode egress.Mode, rewriter func([]string) []string) (cli.ActionFunc, func(*audit.Record)) {
+func withEgressAction(bin string, base *shell.Runner, allowlist []string, mode egress.Mode, rewriter func([]string) []string, readCache ReadCacheClassifier) (cli.ActionFunc, func(*audit.Record)) {
 	var rows []audit.EgressRow
 	tail := newTailBuffer(audit.MaxStderrTailBytes)
 	action := func(ctx context.Context, c *cli.Command) error {
+		argv := c.Args().Slice()
+		if rewriter != nil {
+			argv = rewriter(argv)
+		}
+		// Pre-exec read-cache check. On hit, skip the proxy and the
+		// subprocess - the cached body is already correct and the
+		// egress allowlist's job is preventing unintended network
+		// reach, which a cache hit by definition doesn't make.
+		plan, hit := readCachePlan(base.Stdout, readCache, argv)
+		if hit {
+			return nil
+		}
 		p := egress.New(allowlist, mode)
 		proxyURL, err := p.Start(ctx)
 		if err != nil {
 			return fmt.Errorf("egress: start proxy: %w", err)
 		}
-		// Shadow the Runner so we don't mutate the shared base state.
 		shadow := *base
 		shadow.Env = append([]string(nil), base.Env...)
 		shadow.Env = append(shadow.Env,
@@ -218,12 +266,10 @@ func withEgressAction(bin string, base *shell.Runner, allowlist []string, mode e
 		} else {
 			shadow.Stderr = tail
 		}
-		argv := c.Args().Slice()
-		if rewriter != nil {
-			argv = rewriter(argv)
-		}
+		plan.installStdoutTee(&shadow)
 		execErr := shadow.Exec(ctx, bin, argv...)
 		rows = p.Stop()
+		plan.storeIfSuccess(execErr)
 		return execErr
 	}
 	hook := func(rec *audit.Record) {
@@ -269,4 +315,63 @@ func (t *tailBuffer) Write(p []byte) (int, error) {
 
 func (t *tailBuffer) String() string {
 	return string(t.buf)
+}
+
+// readCachePlan is the per-invocation state produced by inspecting argv
+// against a ReadCacheClassifier. On hit, cached bytes are already
+// written to baseStdout and the caller should return nil. On miss with
+// classifier ok, plan.path is set and plan.capture is the tee target;
+// callers should installStdoutTee(shadow) before Exec and call
+// storeIfSuccess(err) after. With no classifier or a declined argv,
+// installStdoutTee and storeIfSuccess are no-ops.
+type readCachePlanState struct {
+	path    string
+	capture *bytes.Buffer
+}
+
+// readCachePlan runs the classifier (if any) and acts on the result.
+// Hit: writes cached bytes to baseStdout, returns (_, true).
+// Miss with classifier ok: returns a plan with capture allocated.
+// Classifier declines or nil: returns a zero plan.
+func readCachePlan(baseStdout io.Writer, classifier ReadCacheClassifier, argv []string) (readCachePlanState, bool) {
+	if classifier == nil {
+		return readCachePlanState{}, false
+	}
+	path, ok := classifier(argv)
+	if !ok {
+		return readCachePlanState{}, false
+	}
+	if data, hit := ghcache.MaybeServe(path); hit {
+		if baseStdout != nil {
+			_, _ = baseStdout.Write(data)
+		}
+		return readCachePlanState{}, true
+	}
+	return readCachePlanState{path: path, capture: &bytes.Buffer{}}, false
+}
+
+// installStdoutTee wires the plan's capture buffer into shadow.Stdout
+// so subprocess stdout is mirrored to both the operator's terminal
+// and the capture buffer. No-op if the plan has no capture (no
+// classifier or classifier declined).
+func (p readCachePlanState) installStdoutTee(shadow *shell.Runner) {
+	if p.capture == nil {
+		return
+	}
+	if shadow.Stdout != nil {
+		shadow.Stdout = io.MultiWriter(shadow.Stdout, p.capture)
+	} else {
+		shadow.Stdout = p.capture
+	}
+}
+
+// storeIfSuccess writes the captured bytes back to ghcache iff the
+// subprocess exited successfully. A non-zero exit leaves the cache
+// untouched - we never cache an error body. No-op if the plan has no
+// capture.
+func (p readCachePlanState) storeIfSuccess(execErr error) {
+	if p.capture == nil || execErr != nil {
+		return
+	}
+	_ = ghcache.Store(p.path, p.capture.Bytes())
 }

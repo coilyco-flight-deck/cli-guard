@@ -97,6 +97,33 @@ func GetJSON(path string, fetch func() ([]byte, error)) ([]byte, error) {
 	return get().GetOrSet(cacheKey("GET", path, nil), ttl, fetch)
 }
 
+// MaybeServe is the lookup-only half of the cache. Returns (cached
+// bytes, true) on a fresh hit, (nil, false) on miss or unclassified
+// path. Designed for callers that run their own fetch (e.g. a
+// subprocess passthrough that needs to tee stdout while still serving
+// cache hits without exec); pair with Store on a successful fetch.
+func MaybeServe(path string) ([]byte, bool) {
+	if classify(path) == 0 {
+		return nil, false
+	}
+	return get().Get(cacheKey("GET", path, nil))
+}
+
+// Store puts data under path using the TTL derived from the path's
+// tier. Returns false if the path is unclassified (caller should be
+// checking too, but this is the safe-by-default guard). I/O errors on
+// the underlying ttlcache write are swallowed: a missed store falls
+// through to "next read refetches", same failure mode as the rest of
+// the cache.
+func Store(path string, data []byte) bool {
+	ttl := classify(path)
+	if ttl == 0 {
+		return false
+	}
+	_ = get().Set(cacheKey("GET", path, nil), data, ttl)
+	return true
+}
+
 // Invalidate drops cache entries that a `method <path>` write would
 // affect. Idempotent and safe to call on paths that have no cached
 // entry. Beyond the direct path, also drops:
@@ -219,6 +246,10 @@ func classify(path string) time.Duration {
 // different orders still alias. body is nil for GET, the raw request body
 // otherwise (POST/PATCH bodies are not cached today but the signature
 // reserves the slot for symmetry with cli-guard#56's spec).
+//
+// write-body-cache shape called out in the cli-guard#56 spec.
+//
+//nolint:unparam // method is always "GET" today; slot reserved for the
 func cacheKey(method, path string, body []byte) string {
 	method = strings.ToUpper(method)
 	p, q := splitQuery(normalizePath(path))

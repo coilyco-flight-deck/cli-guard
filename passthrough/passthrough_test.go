@@ -21,6 +21,166 @@ import (
 // swallowing flags meant for the underlying tool. Uses /bin/echo as the
 // stand-in so the test does not require aws / kubectl / gh / etc. to be
 // installed.
+// withReadCacheTestHarness runs `coily <bin>` argv repeatedly through a
+// passthrough configured with WithReadCache, counting subprocess
+// invocations and recording captured stdout. Used by all the
+// WithReadCache tests below.
+type rcHarness struct {
+	cmd    *cli.Command
+	stdout *bytes.Buffer
+	calls  *int
+}
+
+func newRCHarness(t *testing.T, classifier passthrough.ReadCacheClassifier, payload string, exitNonZero bool) rcHarness {
+	t.Helper()
+	t.Setenv("COILY_CACHE_DIR", t.TempDir())
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+
+	dir := t.TempDir()
+	w := audit.NewWriter(filepath.Join(dir, "audit.jsonl"))
+	if err := w.Preflight(); err != nil {
+		t.Fatalf("audit preflight: %v", err)
+	}
+
+	calls := 0
+	stdout := &bytes.Buffer{}
+	// Resolve to a tiny shell script that writes payload to stdout and
+	// either exits 0 or 1. Each invocation bumps calls so the test can
+	// assert "burst collapsed to one subprocess".
+	stub := filepath.Join(dir, "stub.sh")
+	exit := "0"
+	if exitNonZero {
+		exit = "1"
+	}
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\nprintf '%s' '"+payload+"'\nexit "+exit+"\n"), 0o755); err != nil { //nolint:gosec
+		t.Fatalf("write stub: %v", err)
+	}
+	r := &shell.Runner{
+		Stdout: stdout,
+		Stderr: os.Stderr,
+		Resolve: func(_ string) (string, error) {
+			calls++
+			return stub, nil
+		},
+	}
+	cmd := passthrough.Command("gh", r, w, passthrough.WithReadCache(classifier))
+	// Silence urfave/cli's default os.Exit on non-zero subprocess exit
+	// so the non-zero-exit test can assert behavior without killing the
+	// test binary.
+	cmd.ExitErrHandler = func(_ context.Context, _ *cli.Command, _ error) {}
+	return rcHarness{cmd: cmd, stdout: stdout, calls: &calls}
+}
+
+func TestWithReadCache_BurstHitsCollapseToOneSubprocess(t *testing.T) {
+	h := newRCHarness(t,
+		func(argv []string) (string, bool) {
+			// Recognize `api /repos/o/r/issues/1`.
+			if len(argv) >= 2 && argv[0] == "api" {
+				return argv[1], true
+			}
+			return "", false
+		},
+		`{"number":1}`, false)
+	for i := 0; i < 50; i++ {
+		h.stdout.Reset()
+		if err := h.cmd.Run(context.Background(), []string{"gh", "api", "/repos/o/r/issues/1"}); err != nil {
+			t.Fatalf("run %d: %v", i, err)
+		}
+		if got := h.stdout.String(); got != `{"number":1}` {
+			t.Errorf("run %d: stdout=%q want %q", i, got, `{"number":1}`)
+		}
+	}
+	if *h.calls != 1 {
+		t.Errorf("subprocess invocations = %d, want 1 (first miss, rest hits)", *h.calls)
+	}
+}
+
+func TestWithReadCache_NonClassifyingAlwaysExecs(t *testing.T) {
+	h := newRCHarness(t,
+		func(_ []string) (string, bool) {
+			// Classifier never matches: ok=false on every argv.
+			return "", false
+		},
+		`{}`, false)
+	for i := 0; i < 5; i++ {
+		if err := h.cmd.Run(context.Background(), []string{"gh", "api", "/repos/o/r/issues/1"}); err != nil {
+			t.Fatalf("run %d: %v", i, err)
+		}
+	}
+	if *h.calls != 5 {
+		t.Errorf("non-classifying argv: calls=%d want 5", *h.calls)
+	}
+}
+
+func TestWithReadCache_UnclassifiedPathSkips(t *testing.T) {
+	// Classifier returns ok=true for a path ghcache does not classify
+	// (e.g. /rate_limit). MaybeServe will report a miss and Store will
+	// return false, so the burst should run the subprocess every time.
+	h := newRCHarness(t,
+		func(_ []string) (string, bool) {
+			return "/rate_limit", true
+		},
+		`{}`, false)
+	for i := 0; i < 3; i++ {
+		if err := h.cmd.Run(context.Background(), []string{"gh", "api", "/rate_limit"}); err != nil {
+			t.Fatalf("run %d: %v", i, err)
+		}
+	}
+	if *h.calls != 3 {
+		t.Errorf("unclassified path: calls=%d want 3 (no cache, every run execs)", *h.calls)
+	}
+}
+
+func TestWithReadCache_NonZeroExitDoesNotPolluteCache(t *testing.T) {
+	h := newRCHarness(t,
+		func(argv []string) (string, bool) {
+			if len(argv) >= 2 && argv[0] == "api" {
+				return argv[1], true
+			}
+			return "", false
+		},
+		`error-body`, true)
+	// First run fails non-zero.
+	if err := h.cmd.Run(context.Background(), []string{"gh", "api", "/repos/o/r/issues/1"}); err == nil {
+		t.Fatalf("expected non-zero exit error")
+	}
+	if *h.calls != 1 {
+		t.Errorf("calls after first failure: %d want 1", *h.calls)
+	}
+	// Second run must also exec; the previous error body was not cached.
+	_ = h.cmd.Run(context.Background(), []string{"gh", "api", "/repos/o/r/issues/1"})
+	if *h.calls != 2 {
+		t.Errorf("calls after second run: %d want 2 (cache must not hold error body)", *h.calls)
+	}
+}
+
+func TestWithReadCache_NilClassifierBehavesLikeNoOption(t *testing.T) {
+	// Smoke-check that WithReadCache(nil) doesn't crash and behaves
+	// identically to omitting the option.
+	t.Setenv("COILY_CACHE_DIR", t.TempDir())
+	dir := t.TempDir()
+	w := audit.NewWriter(filepath.Join(dir, "audit.jsonl"))
+	if err := w.Preflight(); err != nil {
+		t.Fatalf("audit preflight: %v", err)
+	}
+	var stdout bytes.Buffer
+	r := &shell.Runner{
+		Stdout: &stdout,
+		Stderr: os.Stderr,
+		Resolve: func(_ string) (string, error) {
+			return "/bin/echo", nil
+		},
+	}
+	cmd := passthrough.Command("gh", r, w, passthrough.WithReadCache(nil))
+	if err := cmd.Run(context.Background(), []string{"gh", "api", "user"}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := strings.TrimSpace(stdout.String()); got != "api user" {
+		t.Errorf("stdout=%q want %q", got, "api user")
+	}
+}
+
 func TestCommand_ForwardsArgvVerbatim_AllBinaries(t *testing.T) {
 	cases := []struct {
 		bin  string

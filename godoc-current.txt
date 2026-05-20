@@ -763,6 +763,20 @@ func Invalidate(method, path string)
     Method is normalized to upper-case. method == "GET" is a no-op (reads don't
     invalidate anything).
 
+func MaybeServe(path string) ([]byte, bool)
+    MaybeServe is the lookup-only half of the cache. Returns (cached bytes,
+    true) on a fresh hit, (nil, false) on miss or unclassified path. Designed
+    for callers that run their own fetch (e.g. a subprocess passthrough that
+    needs to tee stdout while still serving cache hits without exec); pair with
+    Store on a successful fetch.
+
+func Store(path string, data []byte) bool
+    Store puts data under path using the TTL derived from the path's tier.
+    Returns false if the path is unclassified (caller should be checking too,
+    but this is the safe-by-default guard). I/O errors on the underlying
+    ttlcache write are swallowed: a missed store falls through to "next read
+    refetches", same failure mode as the rest of the cache.
+
 
 ## github.com/coilysiren/cli-guard/ghidcache
 
@@ -1299,6 +1313,23 @@ func WithEgress(allowlist []string, mode egress.Mode) Option
     every host is forwarded and logged; the allowlist is ignored. See pkg/egress
     and issue #35.
 
+func WithReadCache(classifier ReadCacheClassifier) Option
+    WithReadCache wires the pass-through into ghcache so reads matching the
+    supplied classifier are served from cache without exec, and successful exec
+    results are stored back. The classifier sees the argv after WithArgvRewriter
+    has run, so callers can apply their own rewrite (e.g. gh's GraphQL-to-REST
+    translation) before classifying.
+
+    On hit: cached bytes are written to base.Stdout and the action returns nil
+    with no subprocess and no audit row body. On miss: the subprocess runs with
+    stdout tee'd into a capture buffer; on exit 0 the captured bytes are stored
+    under the classified path with the TTL ghcache derives from the path tier.
+    On non-zero exit, nothing is cached.
+
+    Designed for the `coily ops gh` use case (cli-guard#76): a watch loop
+    across many repos collapses to one subprocess + cache hits instead of one
+    subprocess per tick per repo.
+
 func WithScopeArgvHint(fn func(argv []string) string) Option
     WithScopeArgvHint installs a fallback --commit-scope resolver that runs
     only when the operator did not set --commit-scope (or COILY_COMMIT_SCOPE)
@@ -1325,6 +1356,11 @@ func WithVerbName(name string) Option
     as bin; only the audit verb path changes. Used to namespace pass-throughs
     that are mounted under a parent group, e.g. `coily ops aws` logs as verb
     "ops.aws" while still exec'ing the aws binary.
+
+type ReadCacheClassifier func(argv []string) (path string, ok bool)
+    ReadCacheClassifier inspects the post-WithArgvRewriter argv and returns
+    the gh-api-style path the call would read, plus ok=true, or ("", false) to
+    decline. See WithReadCache.
 
 
 ## github.com/coilysiren/cli-guard/policy
