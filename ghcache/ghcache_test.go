@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/coilysiren/cli-guard/ghcache"
 )
@@ -70,12 +71,184 @@ func TestGetJSON_UnclassifiedPathBypassesCache(t *testing.T) {
 		calls++
 		return []byte(`{}`), nil
 	}
-	// /user is a real gh-api path but not in any tier - the package
-	// declines to cache rather than guess a TTL.
-	_, _ = ghcache.GetJSON("/user", fetch)
-	_, _ = ghcache.GetJSON("/user", fetch)
+	// /notifications is a real gh-api path but not in any tier - the
+	// package declines to cache rather than guess a TTL on a path
+	// whose write semantics are unclear.
+	_, _ = ghcache.GetJSON("/notifications", fetch)
+	_, _ = ghcache.GetJSON("/notifications", fetch)
 	if calls != 2 {
 		t.Errorf("unclassified path should bypass cache, got calls=%d", calls)
+	}
+}
+
+func TestGetJSON_RateLimitNotCached(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`{}`), nil
+	}
+	// /rate_limit is deliberately unclassified - callers hit it to get
+	// ground truth, so caching it would defeat the purpose.
+	_, _ = ghcache.GetJSON("/rate_limit", fetch)
+	_, _ = ghcache.GetJSON("/rate_limit", fetch)
+	if calls != 2 {
+		t.Errorf("/rate_limit should bypass cache, got calls=%d", calls)
+	}
+}
+
+func TestClassify_Tiers(t *testing.T) {
+	// One representative path per regex per tier. The exported TTL
+	// constants are the source of truth.
+	cases := []struct {
+		path string
+		ttl  time.Duration
+	}{
+		// Tier 1 - 1 minute.
+		{"/repos/o/r/issues", ghcache.TTL1Min},
+		{"/repos/o/r/issues/1", ghcache.TTL1Min},
+		{"/repos/o/r/issues/1/comments", ghcache.TTL1Min},
+		{"/repos/o/r/issues/1/events", ghcache.TTL1Min},
+		{"/repos/o/r/pulls", ghcache.TTL1Min},
+		{"/repos/o/r/pulls/2", ghcache.TTL1Min},
+		{"/repos/o/r/pulls/2/reviews", ghcache.TTL1Min},
+		{"/repos/o/r/pulls/2/comments", ghcache.TTL1Min},
+		{"/repos/o/r/pulls/2/files", ghcache.TTL1Min},
+		{"/repos/o/r/commits/abc123/status", ghcache.TTL1Min},
+		{"/repos/o/r/commits/abc123/check-runs", ghcache.TTL1Min},
+		{"/repos/o/r/actions/runs", ghcache.TTL1Min},
+		{"/repos/o/r/actions/runs/77", ghcache.TTL1Min},
+		{"/repos/o/r/actions/runs/77/jobs", ghcache.TTL1Min},
+
+		// Tier 2 - 10 minutes.
+		{"/repos/o/r/commits", ghcache.TTL10Min},
+		{"/repos/o/r/commits/abc123", ghcache.TTL10Min},
+		{"/repos/o/r/compare/main...feature", ghcache.TTL10Min},
+		{"/repos/o/r/branches", ghcache.TTL10Min},
+		{"/repos/o/r/branches/main", ghcache.TTL10Min},
+		{"/repos/o/r/git/refs", ghcache.TTL10Min},
+		{"/repos/o/r/git/refs/heads/main", ghcache.TTL10Min},
+		{"/repos/o/r/git/trees/abc123", ghcache.TTL10Min},
+		{"/repos/o/r/contents/README.md", ghcache.TTL10Min},
+		{"/search/issues", ghcache.TTL10Min},
+		{"/search/code", ghcache.TTL10Min},
+		{"/search/repositories", ghcache.TTL10Min},
+
+		// Tier 3 - 1 hour.
+		{"/repos/o/r", ghcache.TTL1Hour},
+		{"/repos/o/r/labels", ghcache.TTL1Hour},
+		{"/repos/o/r/labels/bug", ghcache.TTL1Hour},
+		{"/repos/o/r/milestones", ghcache.TTL1Hour},
+		{"/repos/o/r/topics", ghcache.TTL1Hour},
+		{"/repos/o/r/languages", ghcache.TTL1Hour},
+		{"/repos/o/r/contributors", ghcache.TTL1Hour},
+		{"/repos/o/r/collaborators", ghcache.TTL1Hour},
+		{"/repos/o/r/tags", ghcache.TTL1Hour},
+		{"/repos/o/r/releases", ghcache.TTL1Hour},
+		{"/repos/o/r/releases/42", ghcache.TTL1Hour},
+		{"/repos/o/r/releases/latest", ghcache.TTL1Hour},
+		{"/repos/o/r/releases/tags/v1.2.3", ghcache.TTL1Hour},
+
+		// Tier 4 - 25 hours.
+		{"/user", ghcache.TTL25Hour},
+		{"/users/coilysiren", ghcache.TTL25Hour},
+		{"/orgs/coilysiren", ghcache.TTL25Hour},
+		{"/orgs/coilysiren/members", ghcache.TTL25Hour},
+		{"/orgs/coilysiren/teams", ghcache.TTL25Hour},
+		{"/orgs/coilysiren/teams/eng", ghcache.TTL25Hour},
+		{"/orgs/coilysiren/teams/eng/members", ghcache.TTL25Hour},
+		{"/search/users", ghcache.TTL25Hour},
+	}
+	for _, tc := range cases {
+		t.Run(tc.path, func(t *testing.T) {
+			reset(t)
+			calls := 0
+			fetch := func() ([]byte, error) {
+				calls++
+				return []byte(`{}`), nil
+			}
+			// Two consecutive GETs of a classified path must collapse
+			// to one fetch.
+			_, _ = ghcache.GetJSON(tc.path, fetch)
+			_, _ = ghcache.GetJSON(tc.path, fetch)
+			if calls != 1 {
+				t.Errorf("%s: expected cache hit (tier=%s), got calls=%d", tc.path, tc.ttl, calls)
+			}
+		})
+	}
+}
+
+func TestInvalidate_IssueBodyDropsList(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`[]`), nil
+	}
+	_, _ = ghcache.GetJSON("/repos/o/r/issues", fetch)
+	// PATCHing an individual issue changes its updated_at, which
+	// reorders the list. Drop the list key.
+	ghcache.Invalidate("PATCH", "/repos/o/r/issues/1")
+	_, _ = ghcache.GetJSON("/repos/o/r/issues", fetch)
+	if calls != 2 {
+		t.Errorf("issue PATCH should drop list: calls=%d, want 2", calls)
+	}
+}
+
+func TestInvalidate_PRReviewDropsParent(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`{}`), nil
+	}
+	_, _ = ghcache.GetJSON("/repos/o/r/pulls/2", fetch)
+	// POSTing a review changes the PR's review-state aggregate.
+	ghcache.Invalidate("POST", "/repos/o/r/pulls/2/reviews")
+	_, _ = ghcache.GetJSON("/repos/o/r/pulls/2", fetch)
+	if calls != 2 {
+		t.Errorf("PR review write should drop parent PR: calls=%d, want 2", calls)
+	}
+}
+
+func TestInvalidate_LabelEditDropsLabelsList(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`[]`), nil
+	}
+	_, _ = ghcache.GetJSON("/repos/o/r/labels", fetch)
+	ghcache.Invalidate("PATCH", "/repos/o/r/labels/bug")
+	_, _ = ghcache.GetJSON("/repos/o/r/labels", fetch)
+	if calls != 2 {
+		t.Errorf("label edit should drop labels list: calls=%d, want 2", calls)
+	}
+}
+
+func TestInvalidate_ReleaseEditDropsListAndLatest(t *testing.T) {
+	reset(t)
+	listCalls := 0
+	latestCalls := 0
+	_, _ = ghcache.GetJSON("/repos/o/r/releases", func() ([]byte, error) {
+		listCalls++
+		return []byte(`[]`), nil
+	})
+	_, _ = ghcache.GetJSON("/repos/o/r/releases/latest", func() ([]byte, error) {
+		latestCalls++
+		return []byte(`{}`), nil
+	})
+	ghcache.Invalidate("PATCH", "/repos/o/r/releases/42")
+	_, _ = ghcache.GetJSON("/repos/o/r/releases", func() ([]byte, error) {
+		listCalls++
+		return []byte(`[]`), nil
+	})
+	_, _ = ghcache.GetJSON("/repos/o/r/releases/latest", func() ([]byte, error) {
+		latestCalls++
+		return []byte(`{}`), nil
+	})
+	if listCalls != 2 || latestCalls != 2 {
+		t.Errorf("release edit should drop list + latest: list=%d latest=%d", listCalls, latestCalls)
 	}
 }
 

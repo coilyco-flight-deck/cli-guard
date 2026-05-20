@@ -684,33 +684,51 @@ type Reasoner interface {
 package ghcache // import "github.com/coilysiren/cli-guard/ghcache"
 
 Package ghcache caches GitHub REST `GET` responses keyed by method, path, body,
-and token fingerprint, with method-aware write-through invalidation. Drives the
-high-volume coily dispatch path: a burst of `coily dispatch coilysiren/X#N`
-against the same issue collapses to one `gh api /repos/X/issues/N` call plus
-cache hits, instead of one subprocess per dispatch.
+and token fingerprint, with method-aware write-through invalidation. Drives both
+`coily dispatch` (a burst of dispatches against the same issue collapses to one
+`gh api` call plus hits) and the `watch coily ops gh ...` pattern across ~10
+repos at 2-second intervals without burning the 5000/hr REST budget.
 
-Tiered TTLs reflect how stable each surface is. Issue/PR bodies move on human
-timescales (minutes); labels and topics move on weeks; lists and search results
-turn over with every comment, so they get the shortest TTL. Tier classification
-lives in this package so the choice is declarative and reviewable.
+Tiered TTLs reflect how stable each surface is. The four tiers are declarative:
+1 minute for fast-moving issue/PR/CI surfaces (the `watch` use case),
+10 minutes for head-of-branch reads and search, 1 hour for repo-level metadata,
+25 hours for the identity surface (user/org/teams). Tier classification lives in
+this package so the choice is reviewable in one place.
 
-Write-through invalidation: when a caller issues a `POST`, `PATCH`, or `DELETE`
-to a path, the matching `GET` entry is dropped before the next read. Comment
-writes also drop the parent issue/PR entry, since the `comments` count on the
-issue body changes. The cache is not load-bearing for correctness - on a missed
-invalidation, the next read returns slightly stale data for at most the tier's
-TTL window.
+Write-through invalidation: when a caller issues a `POST`, `PATCH`, or `DELETE`,
+the matching `GET` entry plus its semantic parent (e.g. the issue body when a
+comment is posted, the issue list when an issue is mutated, the labels list when
+a label is touched) are dropped. The cache is not load-bearing for correctness;
+on a missed invalidation, the next read returns slightly stale data for at most
+the tier's TTL.
 
-Failure mode matches ttlcache: cache miss or corrupt entry falls through to the
-underlying fetch. See cli-guard#56 for the rollout.
+Failure mode matches ttlcache: cache miss or corrupt entry falls through to
+the underlying fetch. See cli-guard#56 (initial) and cli-guard#75 (four-tier
+expansion).
 
 CONSTANTS
 
 const (
-	TTLIssueOrPR  = 120 * time.Second // Tier-3: issue/PR body
-	TTLRepoMeta   = 15 * time.Minute  // Tier-2: repo description, topics
-	TTLRepoLabels = 1 * time.Hour     // Tier-2: label list
-	TTLListSearch = 60 * time.Second  // Tier-4: issues list, search
+	// TTL1Min covers fast-moving issue/PR/CI surfaces. Sized to absorb a
+	// `watch -n 2` loop across ~10 repos (~10 calls/min, well under the
+	// 5000/hr authenticated REST budget) while still surfacing new
+	// issues/comments within a minute of being filed.
+	TTL1Min = 1 * time.Minute
+
+	// TTL10Min covers head-of-branch reads, ref/tree/content lookups,
+	// and search. Slower turnover than issues; long enough to collapse
+	// most repeated reads, short enough that a push is visible quickly.
+	TTL10Min = 10 * time.Minute
+
+	// TTL1Hour covers repo-level metadata: the repo body, labels,
+	// milestones, releases, tags, topics, languages, contributors,
+	// collaborators. These move on human-edit timescales (weeks).
+	TTL1Hour = 1 * time.Hour
+
+	// TTL25Hour covers the identity surface: user, org, teams. Picked
+	// at 25 (not 24) hours so a daily cron always sees a miss across
+	// clock skew. ghidcache keeps its own shorter TTL for `/user`.
+	TTL25Hour = 25 * time.Hour
 )
     Default TTLs by tier. Exported so callers and tests can reference the same
     constants the path-classifier uses internally.
@@ -730,9 +748,17 @@ func GetJSON(path string, fetch func() ([]byte, error)) ([]byte, error)
 
 func Invalidate(method, path string)
     Invalidate drops cache entries that a `method <path>` write would affect.
-    Idempotent and safe to call on paths that have no cached entry. Comment
-    writes also invalidate the parent issue/PR so the `comments` count stays
-    consistent.
+    Idempotent and safe to call on paths that have no cached entry. Beyond the
+    direct path, also drops:
+
+      - Comment writes drop the parent issue/PR (the `comments` count changes on
+        the parent body).
+      - Issue/PR body writes drop the corresponding list endpoint.
+      - Label writes drop the labels list and (for named-label edits) the label
+        entry.
+      - Release writes drop the releases list and the latest-release entry.
+      - Milestone writes drop the milestones list.
+      - PR review writes drop the parent PR and its reviews list.
 
     Method is normalized to upper-case. method == "GET" is a no-op (reads don't
     invalidate anything).
