@@ -13,6 +13,7 @@ Inventory of what cli-guard does today. Scope changes should land in the same co
 - **passthrough** - Thin wrapper that embeds an existing binary (aws, gh, kubectl, ...) as an audited urfave subcommand.
 - **repocfg** - Per-repo command allowlist loaded from a configurable YAML file.
 - **egress** - Per-invocation CONNECT proxy with consumer-supplied allowlist. Enforce / observe modes.
+- **mcporter** - Pre-exec preflight for the mcporter tool. Scans `~/.mcporter/mcporter.json` for `${VAR}` references and resolves them via a consumer-supplied `SecretResolver`, injecting the values as env vars on the child process only. Backend-agnostic; `WithTTLCache` provides on-disk caching mechanics with a consumer-owned persist path. Wired into the passthrough via `WithSecretResolver`.
 - **shell**, **ttlcache**, **workdir** - Supporting utilities.
 - **sudo** - Policy-free plumbing for driving interactive sudo over ssh without carrying a password at rest or leaking it through argv. /dev/tty prompt, in-place buffer wipe, stderr sentinel match for `sudo -n` denial.
 - **respfmt** - JSON response renderer with optional JMESPath projection and five output formats (yaml, yaml-stream, json, text, table). Mirrors aws CLI's `--query` / `--output` surface so operator muscle memory transfers, with the default flipped to yaml for editor-friendly piped output.

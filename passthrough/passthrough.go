@@ -39,6 +39,7 @@ import (
 	"github.com/coilysiren/cli-guard/audit"
 	"github.com/coilysiren/cli-guard/egress"
 	"github.com/coilysiren/cli-guard/ghcache"
+	"github.com/coilysiren/cli-guard/mcporter"
 	"github.com/coilysiren/cli-guard/shell"
 	"github.com/coilysiren/cli-guard/verb"
 	"github.com/urfave/cli/v3"
@@ -54,14 +55,15 @@ type ReadCacheClassifier func(argv []string) (path string, ok bool)
 type Option func(*config)
 
 type config struct {
-	skipPolicy    bool
-	egressOn      bool
-	egressList    []string
-	egressMode    egress.Mode
-	verbName      string
-	scopeArgvHint func(argv []string) string
-	argvRewriter  func(argv []string) []string
-	readCache     ReadCacheClassifier
+	skipPolicy     bool
+	egressOn       bool
+	egressList     []string
+	egressMode     egress.Mode
+	verbName       string
+	scopeArgvHint  func(argv []string) string
+	argvRewriter   func(argv []string) []string
+	readCache      ReadCacheClassifier
+	secretResolver mcporter.SecretResolver
 }
 
 // WithSkipPolicy disables the shell-metacharacter check for this binary.
@@ -139,6 +141,21 @@ func WithReadCache(classifier ReadCacheClassifier) Option {
 	}
 }
 
+// WithSecretResolver installs a mcporter-shaped pre-exec preflight: scan
+// the mcporter config file for `${VAR}` references, resolve each via r,
+// and inject the resolved values as env vars on the child process only.
+// The parent process env is never touched. A resolver error short-circuits
+// with a clean message naming the failing variable; no partial-env exec.
+// A missing mcporter config scans to an empty name list and the preflight
+// is a no-op. Designed for `coily ops mcporter` (coilysiren/coily#269);
+// any future consumer that wraps mcporter against any secret backend gets
+// the same behavior by passing a different resolver.
+func WithSecretResolver(r mcporter.SecretResolver) Option {
+	return func(c *config) {
+		c.secretResolver = r
+	}
+}
+
 // WithScopeArgvHint installs a fallback --commit-scope resolver that runs
 // only when the operator did not set --commit-scope (or COILY_COMMIT_SCOPE)
 // explicitly. The hook receives the verb's argv and returns an absolute
@@ -174,9 +191,9 @@ func Command(bin string, r *shell.Runner, w *audit.Writer, opts ...Option) *cli.
 		CommitScopeArgvHint: cfg.scopeArgvHint,
 	}
 	if cfg.egressOn {
-		spec.Action, spec.OnComplete = withEgressAction(bin, r, cfg.egressList, cfg.egressMode, cfg.argvRewriter, cfg.readCache)
+		spec.Action, spec.OnComplete = withEgressAction(bin, r, cfg.egressList, cfg.egressMode, cfg.argvRewriter, cfg.readCache, cfg.secretResolver)
 	} else {
-		spec.Action, spec.OnComplete = withStderrTail(bin, r, cfg.argvRewriter, cfg.readCache)
+		spec.Action, spec.OnComplete = withStderrTail(bin, r, cfg.argvRewriter, cfg.readCache, cfg.secretResolver)
 	}
 	return &cli.Command{
 		Name:            bin,
@@ -192,7 +209,7 @@ func Command(bin string, r *shell.Runner, w *audit.Writer, opts ...Option) *cli.
 // this, kubectl/aws/gh failures in the audit log collapse to bare
 // "exit status 1" and the operator/forensic reader can't tell what
 // actually went wrong.
-func withStderrTail(bin string, base *shell.Runner, rewriter func([]string) []string, readCache ReadCacheClassifier) (cli.ActionFunc, func(*audit.Record)) {
+func withStderrTail(bin string, base *shell.Runner, rewriter func([]string) []string, readCache ReadCacheClassifier, resolver mcporter.SecretResolver) (cli.ActionFunc, func(*audit.Record)) {
 	tail := newTailBuffer(audit.MaxStderrTailBytes)
 	action := func(ctx context.Context, c *cli.Command) error {
 		argv := c.Args().Slice()
@@ -204,6 +221,9 @@ func withStderrTail(bin string, base *shell.Runner, rewriter func([]string) []st
 			return nil
 		}
 		shadow := *base
+		if err := applySecretResolver(&shadow, resolver); err != nil {
+			return err
+		}
 		// Tee stderr through the tail buffer while still streaming to the
 		// caller's terminal. Falls back to just the tail buffer when the
 		// runner has no stderr writer (test contexts).
@@ -232,7 +252,7 @@ func withStderrTail(bin string, base *shell.Runner, rewriter func([]string) []st
 // proxy, inject HTTPS_PROXY/HTTP_PROXY into a per-call shadow Runner so
 // concurrent commands stay independent, and surface the collected rows
 // through OnComplete.
-func withEgressAction(bin string, base *shell.Runner, allowlist []string, mode egress.Mode, rewriter func([]string) []string, readCache ReadCacheClassifier) (cli.ActionFunc, func(*audit.Record)) {
+func withEgressAction(bin string, base *shell.Runner, allowlist []string, mode egress.Mode, rewriter func([]string) []string, readCache ReadCacheClassifier, resolver mcporter.SecretResolver) (cli.ActionFunc, func(*audit.Record)) {
 	var rows []audit.EgressRow
 	tail := newTailBuffer(audit.MaxStderrTailBytes)
 	action := func(ctx context.Context, c *cli.Command) error {
@@ -261,6 +281,9 @@ func withEgressAction(bin string, base *shell.Runner, allowlist []string, mode e
 			"https_proxy="+proxyURL,
 			"http_proxy="+proxyURL,
 		)
+		if err := applySecretResolver(&shadow, resolver); err != nil {
+			return err
+		}
 		if base.Stderr != nil {
 			shadow.Stderr = io.MultiWriter(base.Stderr, tail)
 		} else {
@@ -283,6 +306,41 @@ func withEgressAction(bin string, base *shell.Runner, allowlist []string, mode e
 		}
 	}
 	return action, hook
+}
+
+// applySecretResolver runs the mcporter preflight: scan the mcporter
+// config for `${VAR}` references, resolve each via r, and merge the
+// resolved values into shadow.Env. shadow.Env is always cloned before
+// append so base.Env's backing array is never mutated (the egress path
+// already clones too; double-cloning is cheap and keeps callers from
+// having to track which path they're in).
+//
+// No-op when r is nil or the config has no references.
+func applySecretResolver(shadow *shell.Runner, r mcporter.SecretResolver) error {
+	if r == nil {
+		return nil
+	}
+	path, err := mcporter.ConfigPath()
+	if err != nil {
+		return err
+	}
+	names, err := mcporter.ScanConfig(path)
+	if err != nil {
+		return err
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	resolved, err := mcporter.ResolveAll(r, names)
+	if err != nil {
+		return err
+	}
+	cloned := append([]string(nil), shadow.Env...)
+	for k, v := range resolved {
+		cloned = append(cloned, k+"="+v)
+	}
+	shadow.Env = cloned
+	return nil
 }
 
 // tailBuffer is a fixed-size last-N-bytes ring. Writes never block and never
