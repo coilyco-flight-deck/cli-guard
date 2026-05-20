@@ -109,6 +109,26 @@ func MaybeServe(path string) ([]byte, bool) {
 	return get().Get(cacheKey("GET", path, nil))
 }
 
+// MaybeServeMaxAge is the per-call-freshness variant of MaybeServe.
+// Returns (cached bytes, true) only when a cached entry exists AND its
+// age is <= max. max == 0 always returns (nil, false), letting a caller
+// force a bypass with no special-case. max < 0 disables the extra cap
+// and behaves identically to MaybeServe.
+//
+// The underlying entry's tier TTL still applies as the upper bound: an
+// entry that has expired under its tier is a miss regardless of max.
+// Store TTL is unaffected by max - that stays the path-tier value, so
+// the next read still sees the full TTL window unless the next caller
+// also passes a tighter max.
+//
+// Designed for `coily ops gh --max-age=<dur>` (coilysiren/coily#267).
+func MaybeServeMaxAge(path string, maxAge time.Duration) ([]byte, bool) {
+	if classify(path) == 0 {
+		return nil, false
+	}
+	return get().GetMaxAge(cacheKey("GET", path, nil), maxAge)
+}
+
 // Store puts data under path using the TTL derived from the path's
 // tier. Returns false if the path is unclassified (caller should be
 // checking too, but this is the safe-by-default guard). I/O errors on

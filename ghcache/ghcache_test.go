@@ -430,3 +430,45 @@ func TestGetJSON_LabelsCached(t *testing.T) {
 		t.Errorf("labels should cache: calls=%d", calls)
 	}
 }
+
+func TestMaybeServeMaxAge_ZeroAlwaysMisses(t *testing.T) {
+	reset(t)
+	if !ghcache.Store("/repos/o/r/issues/1", []byte(`{"n":1}`)) {
+		t.Fatalf("Store: declined")
+	}
+	if data, ok := ghcache.MaybeServeMaxAge("/repos/o/r/issues/1", 0); ok {
+		t.Errorf("max=0 must miss; got data=%q ok=true", data)
+	}
+}
+
+func TestMaybeServeMaxAge_NegativeBehavesLikeMaybeServe(t *testing.T) {
+	reset(t)
+	if !ghcache.Store("/repos/o/r/issues/1", []byte(`{"n":1}`)) {
+		t.Fatalf("Store: declined")
+	}
+	data, ok := ghcache.MaybeServeMaxAge("/repos/o/r/issues/1", -1)
+	if !ok || string(data) != `{"n":1}` {
+		t.Errorf("max<0 should serve full TTL; got data=%q ok=%v", data, ok)
+	}
+}
+
+func TestMaybeServeMaxAge_PositiveCapEnforced(t *testing.T) {
+	reset(t)
+	if !ghcache.Store("/repos/o/r/issues/1", []byte(`{"n":1}`)) {
+		t.Fatalf("Store: declined")
+	}
+	time.Sleep(5 * time.Millisecond)
+	if _, ok := ghcache.MaybeServeMaxAge("/repos/o/r/issues/1", time.Millisecond); ok {
+		t.Errorf("max=1ms after 5ms sleep should miss")
+	}
+	if _, ok := ghcache.MaybeServeMaxAge("/repos/o/r/issues/1", time.Hour); !ok {
+		t.Errorf("max=1h should hit")
+	}
+}
+
+func TestMaybeServeMaxAge_UnclassifiedPathMisses(t *testing.T) {
+	reset(t)
+	if _, ok := ghcache.MaybeServeMaxAge("/notifications", time.Hour); ok {
+		t.Errorf("unclassified path: ok must be false")
+	}
+}

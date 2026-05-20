@@ -778,6 +778,20 @@ func MaybeServe(path string) ([]byte, bool)
     needs to tee stdout while still serving cache hits without exec); pair with
     Store on a successful fetch.
 
+func MaybeServeMaxAge(path string, maxAge time.Duration) ([]byte, bool)
+    MaybeServeMaxAge is the per-call-freshness variant of MaybeServe. Returns
+    (cached bytes, true) only when a cached entry exists AND its age is <= max.
+    max == 0 always returns (nil, false), letting a caller force a bypass with
+    no special-case. max < 0 disables the extra cap and behaves identically to
+    MaybeServe.
+
+    The underlying entry's tier TTL still applies as the upper bound: an entry
+    that has expired under its tier is a miss regardless of max. Store TTL is
+    unaffected by max - that stays the path-tier value, so the next read still
+    sees the full TTL window unless the next caller also passes a tighter max.
+
+    Designed for `coily ops gh --max-age=<dur>` (coilysiren/coily#267).
+
 func Store(path string, data []byte) bool
     Store puts data under path using the TTL derived from the path's tier.
     Returns false if the path is unclassified (caller should be checking too,
@@ -1454,10 +1468,19 @@ func WithVerbName(name string) Option
     that are mounted under a parent group, e.g. `coily ops aws` logs as verb
     "ops.aws" while still exec'ing the aws binary.
 
-type ReadCacheClassifier func(argv []string) (path string, ok bool)
+type ReadCacheClassifier func(argv []string) (path string, maxAge time.Duration, ok bool)
     ReadCacheClassifier inspects the post-WithArgvRewriter argv and returns
-    the gh-api-style path the call would read, plus ok=true, or ("", false) to
+    the gh-api-style path the call would read, a per-call max-age cap (see
+    ghcache.MaybeServeMaxAge for semantics), and ok=true; or ("", 0, false) to
     decline. See WithReadCache.
+
+    max-age semantics:
+      - max < 0: no per-call cap; serve up to the entry's tier TTL (the
+        pre-cli-guard#77 behavior).
+      - max == 0: always miss; the classifier's path is still used as the
+        store key on a successful subprocess exit, so the next call without
+        --max-age=0 can still serve from cache.
+      - max > 0: serve only if the cached entry is at most max old.
 
 
 ## github.com/coilysiren/cli-guard/policy
@@ -2322,6 +2345,16 @@ func (c *Cache) Get(key string) ([]byte, bool)
     entry. Any read / unmarshal / TTL failure is reported as a miss rather than
     an error - the contract is "you got a value or you didn't," and callers
     should fall through to the underlying fetch on miss.
+
+func (c *Cache) GetMaxAge(key string, maxAge time.Duration) ([]byte, bool)
+    GetMaxAge returns the cached value for key only if a fresh entry exists
+    and its age is within max. Age is measured against the entry's stored_at
+    timestamp. ok=true only when both the entry's own TTL and the max cap are
+    satisfied.
+
+    max == 0 always reports a miss (callers requesting "no cache" via a zero
+    ceiling). max < 0 disables the extra cap and behaves identically to Get.
+    Designed for per-call freshness overrides (cli-guard#77).
 
 func (c *Cache) GetOrSet(key string, ttl time.Duration, fetch func() ([]byte, error)) ([]byte, error)
     GetOrSet returns the cached value for key, or calls fetch() and stores the

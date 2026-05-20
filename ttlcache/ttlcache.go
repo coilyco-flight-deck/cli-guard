@@ -74,6 +74,36 @@ func (c *Cache) Get(key string) ([]byte, bool) {
 	return e.Value, true
 }
 
+// GetMaxAge returns the cached value for key only if a fresh entry
+// exists and its age is within max. Age is measured against the entry's
+// stored_at timestamp. ok=true only when both the entry's own TTL and
+// the max cap are satisfied.
+//
+// max == 0 always reports a miss (callers requesting "no cache" via a
+// zero ceiling). max < 0 disables the extra cap and behaves identically
+// to Get. Designed for per-call freshness overrides (cli-guard#77).
+func (c *Cache) GetMaxAge(key string, maxAge time.Duration) ([]byte, bool) {
+	if maxAge == 0 {
+		return nil, false
+	}
+	data, err := os.ReadFile(c.keyToPath(key))
+	if err != nil {
+		return nil, false
+	}
+	var e entry
+	if err := json.Unmarshal(data, &e); err != nil {
+		return nil, false
+	}
+	age := time.Since(e.StoredAt)
+	if age > time.Duration(e.TTLSeconds)*time.Second {
+		return nil, false
+	}
+	if maxAge > 0 && age > maxAge {
+		return nil, false
+	}
+	return e.Value, true
+}
+
 // Set writes value under key with the given TTL. Returns the underlying
 // filesystem error if the write fails; callers can ignore it (the next
 // Get will simply miss).

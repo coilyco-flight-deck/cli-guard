@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/coilysiren/cli-guard/audit"
 	"github.com/coilysiren/cli-guard/passthrough"
@@ -74,12 +75,12 @@ func newRCHarness(t *testing.T, classifier passthrough.ReadCacheClassifier, payl
 
 func TestWithReadCache_BurstHitsCollapseToOneSubprocess(t *testing.T) {
 	h := newRCHarness(t,
-		func(argv []string) (string, bool) {
+		func(argv []string) (string, time.Duration, bool) {
 			// Recognize `api /repos/o/r/issues/1`.
 			if len(argv) >= 2 && argv[0] == "api" {
-				return argv[1], true
+				return argv[1], -1, true
 			}
-			return "", false
+			return "", 0, false
 		},
 		`{"number":1}`, false)
 	for i := 0; i < 50; i++ {
@@ -98,9 +99,9 @@ func TestWithReadCache_BurstHitsCollapseToOneSubprocess(t *testing.T) {
 
 func TestWithReadCache_NonClassifyingAlwaysExecs(t *testing.T) {
 	h := newRCHarness(t,
-		func(_ []string) (string, bool) {
+		func(_ []string) (string, time.Duration, bool) {
 			// Classifier never matches: ok=false on every argv.
-			return "", false
+			return "", 0, false
 		},
 		`{}`, false)
 	for i := 0; i < 5; i++ {
@@ -118,8 +119,8 @@ func TestWithReadCache_UnclassifiedPathSkips(t *testing.T) {
 	// (e.g. /rate_limit). MaybeServe will report a miss and Store will
 	// return false, so the burst should run the subprocess every time.
 	h := newRCHarness(t,
-		func(_ []string) (string, bool) {
-			return "/rate_limit", true
+		func(_ []string) (string, time.Duration, bool) {
+			return "/rate_limit", -1, true
 		},
 		`{}`, false)
 	for i := 0; i < 3; i++ {
@@ -134,11 +135,11 @@ func TestWithReadCache_UnclassifiedPathSkips(t *testing.T) {
 
 func TestWithReadCache_NonZeroExitDoesNotPolluteCache(t *testing.T) {
 	h := newRCHarness(t,
-		func(argv []string) (string, bool) {
+		func(argv []string) (string, time.Duration, bool) {
 			if len(argv) >= 2 && argv[0] == "api" {
-				return argv[1], true
+				return argv[1], -1, true
 			}
-			return "", false
+			return "", 0, false
 		},
 		`error-body`, true)
 	// First run fails non-zero.
@@ -152,6 +153,70 @@ func TestWithReadCache_NonZeroExitDoesNotPolluteCache(t *testing.T) {
 	_ = h.cmd.Run(context.Background(), []string{"gh", "api", "/repos/o/r/issues/1"})
 	if *h.calls != 2 {
 		t.Errorf("calls after second run: %d want 2 (cache must not hold error body)", *h.calls)
+	}
+}
+
+func TestWithReadCache_MaxAgeZeroBypassesAndRePopulates(t *testing.T) {
+	// Classifier returns max=0 on the first call (forced bypass), then
+	// max=-1 (no cap) on subsequent calls. The first call must exec, the
+	// store happens on success, and subsequent unconstrained calls hit.
+	mode := 0
+	h := newRCHarness(t,
+		func(argv []string) (string, time.Duration, bool) {
+			if len(argv) >= 2 && argv[0] == "api" {
+				if mode == 0 {
+					return argv[1], 0, true
+				}
+				return argv[1], -1, true
+			}
+			return "", 0, false
+		},
+		`{"n":1}`, false)
+	if err := h.cmd.Run(context.Background(), []string{"gh", "api", "/repos/o/r/issues/1"}); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	if *h.calls != 1 {
+		t.Errorf("after first (forced bypass) call: calls=%d want 1", *h.calls)
+	}
+	mode = 1
+	for i := 0; i < 3; i++ {
+		if err := h.cmd.Run(context.Background(), []string{"gh", "api", "/repos/o/r/issues/1"}); err != nil {
+			t.Fatalf("subsequent run %d: %v", i, err)
+		}
+	}
+	if *h.calls != 1 {
+		t.Errorf("after unconstrained follow-ups: calls=%d want 1 (max=0 still stores; later max=-1 hits)", *h.calls)
+	}
+}
+
+func TestWithReadCache_MaxAgePositiveCapEvictsOlderEntries(t *testing.T) {
+	// First call primes the cache with max=-1 (no cap). Second call with
+	// max=1ns must miss because the stored entry is older than 1ns by the
+	// time MaybeServeMaxAge runs.
+	mode := 0
+	h := newRCHarness(t,
+		func(argv []string) (string, time.Duration, bool) {
+			if len(argv) >= 2 && argv[0] == "api" {
+				if mode == 0 {
+					return argv[1], -1, true
+				}
+				return argv[1], time.Nanosecond, true
+			}
+			return "", 0, false
+		},
+		`{"n":1}`, false)
+	if err := h.cmd.Run(context.Background(), []string{"gh", "api", "/repos/o/r/issues/1"}); err != nil {
+		t.Fatalf("prime run: %v", err)
+	}
+	if *h.calls != 1 {
+		t.Fatalf("prime call count: %d want 1", *h.calls)
+	}
+	mode = 1
+	if err := h.cmd.Run(context.Background(), []string{"gh", "api", "/repos/o/r/issues/1"}); err != nil {
+		t.Fatalf("tight-cap run: %v", err)
+	}
+	if *h.calls != 2 {
+		t.Errorf("tight max-age cap: calls=%d want 2 (entry too old, must refetch)", *h.calls)
 	}
 }
 

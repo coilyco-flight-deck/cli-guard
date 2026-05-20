@@ -35,6 +35,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/coilysiren/cli-guard/audit"
 	"github.com/coilysiren/cli-guard/egress"
@@ -46,9 +47,18 @@ import (
 )
 
 // ReadCacheClassifier inspects the post-WithArgvRewriter argv and
-// returns the gh-api-style path the call would read, plus ok=true, or
-// ("", false) to decline. See WithReadCache.
-type ReadCacheClassifier func(argv []string) (path string, ok bool)
+// returns the gh-api-style path the call would read, a per-call max-age
+// cap (see ghcache.MaybeServeMaxAge for semantics), and ok=true; or
+// ("", 0, false) to decline. See WithReadCache.
+//
+// max-age semantics:
+//   - max < 0: no per-call cap; serve up to the entry's tier TTL (the
+//     pre-cli-guard#77 behavior).
+//   - max == 0: always miss; the classifier's path is still used as
+//     the store key on a successful subprocess exit, so the next call
+//     without --max-age=0 can still serve from cache.
+//   - max > 0: serve only if the cached entry is at most max old.
+type ReadCacheClassifier func(argv []string) (path string, maxAge time.Duration, ok bool)
 
 // Option configures a pass-through Command. Use the With* helpers below
 // rather than setting fields directly.
@@ -395,11 +405,11 @@ func readCachePlan(baseStdout io.Writer, classifier ReadCacheClassifier, argv []
 	if classifier == nil {
 		return readCachePlanState{}, false
 	}
-	path, ok := classifier(argv)
+	path, maxAge, ok := classifier(argv)
 	if !ok {
 		return readCachePlanState{}, false
 	}
-	if data, hit := ghcache.MaybeServe(path); hit {
+	if data, hit := ghcache.MaybeServeMaxAge(path, maxAge); hit {
 		if baseStdout != nil {
 			_, _ = baseStdout.Write(data)
 		}
