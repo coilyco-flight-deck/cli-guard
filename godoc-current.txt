@@ -1791,6 +1791,13 @@ type Command struct {
 	// resolved via $PATH at exec time. Every token has been run through
 	// policy.ValidateArg unless AllowMetacharacters is true.
 	Argv []string
+	// Egress, when true, opts the command into the per-invocation CONNECT
+	// proxy that consumers (coily) wire around exec. The audit row picks up
+	// the same `egress` array that passthrough verbs already emit. Default
+	// false preserves the historical "argv + exit code only" shape. Set in
+	// the YAML mapping form via `audit.egress: true`. See
+	// coilysiren/coily#281.
+	Egress bool
 	// AllowMetacharacters opts this command out of the shell-metacharacter
 	// validator for both the YAML-declared argv tokens (skipped at load)
 	// and the user-supplied extras appended at invocation time (consumer

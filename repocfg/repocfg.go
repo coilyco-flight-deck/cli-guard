@@ -60,6 +60,13 @@ type Command struct {
 	// resolved via $PATH at exec time. Every token has been run through
 	// policy.ValidateArg unless AllowMetacharacters is true.
 	Argv []string
+	// Egress, when true, opts the command into the per-invocation CONNECT
+	// proxy that consumers (coily) wire around exec. The audit row picks up
+	// the same `egress` array that passthrough verbs already emit. Default
+	// false preserves the historical "argv + exit code only" shape. Set in
+	// the YAML mapping form via `audit.egress: true`. See
+	// coilysiren/coily#281.
+	Egress bool
 	// AllowMetacharacters opts this command out of the shell-metacharacter
 	// validator for both the YAML-declared argv tokens (skipped at load)
 	// and the user-supplied extras appended at invocation time (consumer
@@ -378,6 +385,7 @@ func decodeCommand(name string, node yaml.Node) (Command, error) {
 	var (
 		runStr, desc        string
 		allowMetacharacters bool
+		egress              bool
 	)
 	switch node.Kind {
 	case yaml.ScalarNode:
@@ -389,6 +397,9 @@ func decodeCommand(name string, node yaml.Node) (Command, error) {
 			Run                 string `yaml:"run"`
 			Description         string `yaml:"description"`
 			AllowMetacharacters bool   `yaml:"allow_metacharacters"`
+			Audit               struct {
+				Egress bool `yaml:"egress"`
+			} `yaml:"audit"`
 		}
 		if err := node.Decode(&obj); err != nil {
 			return Command{}, fmt.Errorf("decode mapping: %w", err)
@@ -396,10 +407,11 @@ func decodeCommand(name string, node yaml.Node) (Command, error) {
 		runStr = obj.Run
 		desc = obj.Description
 		allowMetacharacters = obj.AllowMetacharacters
+		egress = obj.Audit.Egress
 	case yaml.DocumentNode, yaml.SequenceNode, yaml.AliasNode:
-		return Command{}, fmt.Errorf("must be a string or a {run, description, allow_metacharacters} mapping")
+		return Command{}, fmt.Errorf("must be a string or a {run, description, allow_metacharacters, audit} mapping")
 	default:
-		return Command{}, fmt.Errorf("must be a string or a {run, description, allow_metacharacters} mapping")
+		return Command{}, fmt.Errorf("must be a string or a {run, description, allow_metacharacters, audit} mapping")
 	}
 	runStr = strings.TrimSpace(runStr)
 	if runStr == "" {
@@ -412,7 +424,7 @@ func decodeCommand(name string, node yaml.Node) (Command, error) {
 	if err := validateArgvTokens(argv, allowMetacharacters); err != nil {
 		return Command{}, err
 	}
-	return Command{Name: name, Description: desc, Argv: argv, AllowMetacharacters: allowMetacharacters}, nil
+	return Command{Name: name, Description: desc, Argv: argv, AllowMetacharacters: allowMetacharacters, Egress: egress}, nil
 }
 
 // validateArgvTokens runs policy.ValidateArg over each declared argv token

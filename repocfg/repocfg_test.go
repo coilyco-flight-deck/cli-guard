@@ -69,6 +69,37 @@ commands:
 	}
 }
 
+func TestLoad_AuditEgress(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, `
+commands:
+  play:
+    run: uv run python bot.py
+    audit:
+      egress: true
+  test: go test ./...
+`)
+	cfg, err := repocfg.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	var play, test repocfg.Command
+	for _, c := range cfg.Commands {
+		switch c.Name {
+		case "play":
+			play = c
+		case "test":
+			test = c
+		}
+	}
+	if !play.Egress {
+		t.Errorf("play.Egress = false, want true")
+	}
+	if test.Egress {
+		t.Errorf("test.Egress = true, want false (default for scalar form)")
+	}
+}
+
 func TestLoad_RejectsShellMetacharacter(t *testing.T) {
 	dir := t.TempDir()
 	path := writeConfig(t, dir, `
