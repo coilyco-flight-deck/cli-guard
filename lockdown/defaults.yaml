@@ -144,6 +144,7 @@ deny:
   - Bash(kubectl:*)
   - Bash(gh:*)
   - Bash(flyctl:*)
+  - Bash(gcloud:*)
 
   # docker. No image builds or container execs from the agent layer.
   - Bash(docker:*)
@@ -157,10 +158,9 @@ deny:
   - Bash(rsync:*)
   - Bash(sshfs:*)
 
-  # helm, terraform, gcloud. Not in v1 scope for coily, so out entirely.
+  # helm, terraform. Not in v1 scope for coily, so out entirely.
   - Bash(helm:*)
   - Bash(terraform:*)
-  - Bash(gcloud:*)
   - Bash(tflint:*)
   - Bash(tfsec:*)
 
