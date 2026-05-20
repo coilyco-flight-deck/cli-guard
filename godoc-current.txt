@@ -138,7 +138,7 @@ type ProfileDecision struct {
 	Allowed    bool       `json:"allowed"`
 	Profile    string     `json:"profile,omitempty"`
 	Source     string     `json:"source,omitempty"`
-	Coordinate Coordinate `json:"coordinate"`
+	Coordinate Coordinate `json:"declared_coordinate"`
 	Reason     string     `json:"reason,omitempty"`
 }
     ProfileDecision is the structured outcome of a per-session lockdown-profile
@@ -146,8 +146,14 @@ type ProfileDecision struct {
     short-circuits the action with PolicyDenied. Profile names the active
     sentinel profile, Source matches the consumer's resolver-status vocabulary
     (e.g. "override" / "missing_file" / "unknown_profile" / "unset"),
-    and Coordinate captures the resolved tier-per-axis Coordinate so a forensic
-    reader sees exactly which tiers were in effect at decision time.
+    and Coordinate captures the resolved tier-per-axis Coordinate so a
+    forensic reader sees exactly which tiers were in effect at decision time.
+    The JSON key is declared_coordinate to make clear this is the static profile
+    coordinate, not observed runtime behavior.
+
+func (p *ProfileDecision) UnmarshalJSON(data []byte) error
+    UnmarshalJSON accepts old audit rows that used "coordinate" before the
+    static-label field was renamed to "declared_coordinate".
 
 type Record struct {
 	// ID is a UUID v7 (time-ordered) populated on Append if unset. Used as

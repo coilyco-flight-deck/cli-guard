@@ -174,11 +174,28 @@ func TestProfileDecision_RoundTripsJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
+	if !strings.Contains(string(b), `"declared_coordinate"`) {
+		t.Fatalf("marshal missing declared_coordinate: %s", b)
+	}
+	if strings.Contains(string(b), `"coordinate"`) {
+		t.Fatalf("marshal should not emit legacy coordinate key: %s", b)
+	}
 	var got audit.ProfileDecision
 	if err := json.Unmarshal(b, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if got != pd {
 		t.Errorf("round-trip mismatch: %+v vs %+v", got, pd)
+	}
+}
+
+func TestProfileDecision_ReadsLegacyCoordinateJSON(t *testing.T) {
+	input := []byte(`{"allowed":true,"profile":"mobile","source":"override","coordinate":{"data_security":"high","blast_radius":"medium","network_egress":"allowlisted","filesystem_reach":"repo-plus-home"},"reason":"ok"}`)
+	var got audit.ProfileDecision
+	if err := json.Unmarshal(input, &got); err != nil {
+		t.Fatalf("unmarshal legacy coordinate: %v", err)
+	}
+	if got.Coordinate.NetworkEgress != "allowlisted" {
+		t.Errorf("legacy coordinate not loaded: %+v", got.Coordinate)
 	}
 }
