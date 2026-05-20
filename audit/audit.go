@@ -111,6 +111,14 @@ type Record struct {
 	// in default-off rows. Phase 4 plumbing for coilysiren/coily#150;
 	// phase 5 fills in real per-axis branching.
 	ProfileDecision *ProfileDecision `json:"profile_decision,omitempty"`
+	// PolicySkipped is true when the shell-metacharacter validator was
+	// bypassed for this invocation. Set by consumers whose verb wiring
+	// runs with verb.Spec.SkipPolicy = true for a non-paranoid reason
+	// (notably a repocfg.Command opted in via allow_metacharacters: true
+	// in the committed .coily/coily.yaml). Forensics can still see that
+	// the row ran under the relaxed policy even though the argv was
+	// accepted. cli-guard#81.
+	PolicySkipped bool `json:"policy_skipped,omitempty"`
 	// AuditParent is the audit-row ID of an enclosing invocation when this
 	// invocation was spawned by another coily process across a host boundary
 	// (typically `coily ssh <alias> -- <args>` shipping the local id to the

@@ -57,9 +57,18 @@ type Command struct {
 	// Description is the optional human-readable blurb shown in help/--list.
 	Description string
 	// Argv is the command split into tokens. argv[0] is the binary name as
-	// resolved via $PATH at exec time. Every token has already been run
-	// through policy.ValidateArg.
+	// resolved via $PATH at exec time. Every token has been run through
+	// policy.ValidateArg unless AllowMetacharacters is true.
 	Argv []string
+	// AllowMetacharacters opts this command out of the shell-metacharacter
+	// validator for both the YAML-declared argv tokens (skipped at load)
+	// and the user-supplied extras appended at invocation time (consumer
+	// wires verb.Spec.SkipPolicy from this flag). The opt-in is declarative
+	// in the committed coily.yaml and per-verb, so a reviewer sees in diff
+	// which verbs are relaxed. Consumers should stamp the audit row's
+	// PolicySkipped field so forensics still see the relaxed policy on
+	// every invocation. cli-guard#81.
+	AllowMetacharacters bool
 }
 
 // SSHTarget describes one named ssh destination for the
@@ -366,7 +375,10 @@ func decodeCommand(name string, node yaml.Node) (Command, error) {
 	if err := validateName(name); err != nil {
 		return Command{}, err
 	}
-	var runStr, desc string
+	var (
+		runStr, desc        string
+		allowMetacharacters bool
+	)
 	switch node.Kind {
 	case yaml.ScalarNode:
 		if err := node.Decode(&runStr); err != nil {
@@ -374,18 +386,20 @@ func decodeCommand(name string, node yaml.Node) (Command, error) {
 		}
 	case yaml.MappingNode:
 		var obj struct {
-			Run         string `yaml:"run"`
-			Description string `yaml:"description"`
+			Run                 string `yaml:"run"`
+			Description         string `yaml:"description"`
+			AllowMetacharacters bool   `yaml:"allow_metacharacters"`
 		}
 		if err := node.Decode(&obj); err != nil {
 			return Command{}, fmt.Errorf("decode mapping: %w", err)
 		}
 		runStr = obj.Run
 		desc = obj.Description
+		allowMetacharacters = obj.AllowMetacharacters
 	case yaml.DocumentNode, yaml.SequenceNode, yaml.AliasNode:
-		return Command{}, fmt.Errorf("must be a string or a {run, description} mapping")
+		return Command{}, fmt.Errorf("must be a string or a {run, description, allow_metacharacters} mapping")
 	default:
-		return Command{}, fmt.Errorf("must be a string or a {run, description} mapping")
+		return Command{}, fmt.Errorf("must be a string or a {run, description, allow_metacharacters} mapping")
 	}
 	runStr = strings.TrimSpace(runStr)
 	if runStr == "" {
@@ -395,12 +409,25 @@ func decodeCommand(name string, node yaml.Node) (Command, error) {
 	if len(argv) == 0 {
 		return Command{}, errors.New("run parsed to zero tokens")
 	}
+	if err := validateArgvTokens(argv, allowMetacharacters); err != nil {
+		return Command{}, err
+	}
+	return Command{Name: name, Description: desc, Argv: argv, AllowMetacharacters: allowMetacharacters}, nil
+}
+
+// validateArgvTokens runs policy.ValidateArg over each declared argv token
+// unless the command opted in to allow_metacharacters: true. Split out of
+// decodeCommand to keep that function under the cyclomatic-complexity cap.
+func validateArgvTokens(argv []string, allowMetacharacters bool) error {
+	if allowMetacharacters {
+		return nil
+	}
 	for i, tok := range argv {
 		if err := policy.ValidateArg(fmt.Sprintf("argv[%d]", i), tok); err != nil {
-			return Command{}, err
+			return err
 		}
 	}
-	return Command{Name: name, Description: desc, Argv: argv}, nil
+	return nil
 }
 
 // validateName rejects command names that would confuse cli parsing or help

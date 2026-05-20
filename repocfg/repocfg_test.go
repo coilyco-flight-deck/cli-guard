@@ -80,6 +80,53 @@ commands:
 	}
 }
 
+func TestLoad_AllowMetacharactersOptIn(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, `
+commands:
+  play:
+    run: python bot.py --strategy={hunt:true}
+    description: Drive the bot with a JSON-shaped strategy flag.
+    allow_metacharacters: true
+`)
+	cfg, err := repocfg.Load(path)
+	if err != nil {
+		t.Fatalf("Load with allow_metacharacters=true: %v", err)
+	}
+	if len(cfg.Commands) != 1 {
+		t.Fatalf("got %d commands, want 1", len(cfg.Commands))
+	}
+	c := cfg.Commands[0]
+	if !c.AllowMetacharacters {
+		t.Errorf("AllowMetacharacters = false, want true")
+	}
+	want := []string{"python", "bot.py", "--strategy={hunt:true}"}
+	if len(c.Argv) != len(want) {
+		t.Fatalf("argv = %v, want %v", c.Argv, want)
+	}
+	for i := range want {
+		if c.Argv[i] != want[i] {
+			t.Errorf("argv[%d] = %q, want %q", i, c.Argv[i], want[i])
+		}
+	}
+}
+
+func TestLoad_AllowMetacharactersDefaultsFalse(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, `
+commands:
+  test:
+    run: go test ./...
+`)
+	cfg, err := repocfg.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Commands[0].AllowMetacharacters {
+		t.Error("AllowMetacharacters = true on a mapping with no opt-in, want false")
+	}
+}
+
 func TestLoad_RejectsPipeRedirect(t *testing.T) {
 	dir := t.TempDir()
 	path := writeConfig(t, dir, `
