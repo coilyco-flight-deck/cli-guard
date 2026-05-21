@@ -78,13 +78,26 @@ type Payload struct {
 // LookPath mirrors exec.LookPath. Injected for tests.
 type LookPath func(name string) (string, error)
 
-// PreToolUse evaluates a payload against integrity rules and routes.
-// Returns Decision{Block: false} on no match (best-effort hint surface;
-// hard denial belongs to the harness's permissions.deny, not this hook).
-// source is the consumer name prefixed onto Block messages.
+// PreToolUse evaluates a payload against integrity rules, routes, and
+// the engine-level arbitrary-code-execution deny. Returns
+// Decision{Block: false} on no match.
+//
+// Two classes of Block:
+//
+//   - Route hints and integrity warnings are best-effort signalling on
+//     top of the harness's own permissions.deny.
+//   - The arbitrary-code-execution deny (interpreter invocation,
+//     execution from a writable scratch directory) is a hard denial
+//     the engine owns outright. It is not consumer-configurable: a
+//     consumer cannot allowlist its way around running arbitrary
+//     Python. See coilysiren/cli-guard#87.
+//
+// Every segment of a compound command is evaluated, so a denied
+// command cannot launder clean by piping it behind an allowed one
+// (`head file | python3 -c ...`).
 //
 // Failure modes (non-Bash tool, empty command, malformed segments) pass
-// through silently. The hook is signaling, not policing.
+// through silently.
 func PreToolUse(payload Payload, source string, rules []IntegrityRule, routes []Route, lookup LookPath) Decision {
 	if payload.ToolName != "Bash" {
 		return Decision{}
@@ -100,7 +113,7 @@ func PreToolUse(payload Payload, source string, rules []IntegrityRule, routes []
 		if seg == "" {
 			continue
 		}
-		if d := evaluateSegment(seg, source, integrity, routeByToken, lookup); d.Block {
+		if d := evaluateSegment(seg, source, payload.CWD, integrity, routeByToken, lookup); d.Block {
 			return d
 		}
 	}
@@ -123,8 +136,23 @@ func indexRoutes(routes []Route) map[string]Route {
 	return out
 }
 
-func evaluateSegment(seg, source string, integrity map[string][]string, routeByToken map[string]Route, lookup LookPath) Decision {
+func evaluateSegment(seg, source, cwd string, integrity map[string][]string, routeByToken map[string]Route, lookup LookPath) Decision {
 	token := LeadingToken(seg)
+
+	// Engine-level arbitrary-code-execution deny, checked before any
+	// consumer route. Runs on every segment, so piping a denied
+	// command behind an allowed one does not launder it.
+	if name := interpreterName(token); name != "" {
+		return Decision{Block: true, Message: fmt.Sprintf(
+			"%s hook: blocked interpreter `%s`. Running arbitrary code through an interpreter defeats the command allowlist. This deny holds no matter the spelling: bare, with `-c`, piped behind an allowed command, by absolute path, or via an executable shebang script.",
+			source, name)}
+	}
+	if scratchExec(token, cwd) {
+		return Decision{Block: true, Message: fmt.Sprintf(
+			"%s hook: blocked execution of `%s` from a writable scratch directory. A file under /tmp (or a similar scratch dir) can carry an interpreter shebang, so the kernel runs arbitrary code the moment it is exec'd - the guard never sees the interpreter token. Writing scratch files to /tmp stays allowed; executing them does not.",
+			source, token)}
+	}
+
 	if allowed, ok := integrity[token]; ok {
 		if msg := CheckBinaryPath(token, allowed, lookup, source); msg != "" {
 			return Decision{Block: true, Message: msg}
@@ -245,4 +273,82 @@ func LeadingToken(seg string) string {
 		return seg
 	}
 	return seg[:i]
+}
+
+// interpreterTokens is the set of program basenames that denote
+// arbitrary-code execution: a process whose job is to take a script or
+// inline source and run it. Matched on the basename so an absolute
+// path (`/usr/bin/python3`) or a scratch-dir copy is caught the same as
+// the bare name. Engine-owned and not consumer-configurable. #87.
+var interpreterTokens = map[string]bool{
+	"python": true, "python2": true, "python3": true,
+	"ruby": true, "perl": true, "node": true, "nodejs": true,
+	"deno": true, "bun": true, "osascript": true, "php": true,
+	"lua": true, "tclsh": true, "Rscript": true, "groovy": true,
+	"sh": true, "bash": true, "zsh": true, "fish": true,
+	"dash": true, "ksh": true, "csh": true, "tcsh": true, "ash": true,
+	"powershell": true, "powershell.exe": true,
+	"pwsh": true, "pwsh.exe": true,
+	"cmd": true, "cmd.exe": true,
+	"wscript": true, "wscript.exe": true,
+	"cscript": true, "cscript.exe": true,
+	"mshta": true, "mshta.exe": true,
+}
+
+// interpreterName returns the interpreter program name when token names
+// an interpreter (bare, absolute, or any path form), or "" otherwise.
+// `/usr/bin/python3` and `/tmp/x/python3` both return "python3".
+func interpreterName(token string) string {
+	if token == "" {
+		return ""
+	}
+	base := token
+	if i := strings.LastIndexByte(base, '/'); i >= 0 {
+		base = base[i+1:]
+	}
+	if interpreterTokens[base] {
+		return base
+	}
+	return ""
+}
+
+// scratchExecRoots are filesystem prefixes that are world-writable
+// scratch space. They carry no trailing slash; a path equal to a root
+// or living under one is scratch. /private/* covers macOS, where /tmp
+// and /var/tmp are symlinks into /private.
+var scratchExecRoots = []string{
+	"/tmp", "/var/tmp", "/dev/shm",
+	"/private/tmp", "/private/var/tmp",
+}
+
+// scratchExec reports whether token executes a file that lives in a
+// writable scratch directory. An agent can write a script there,
+// `chmod +x` it, and the kernel runs it through its shebang
+// interpreter - the guard would otherwise only ever see the path
+// token, never the interpreter. #87 Gap 2.
+//
+// Only path-shaped tokens execute a file directly: a bare name with no
+// slash resolves through $PATH, not the working directory. Relative
+// paths are anchored against cwd (the PreToolUse payload's CWD); with
+// no cwd a relative path cannot be classified and is left to pass.
+func scratchExec(token, cwd string) bool {
+	if token == "" || !strings.ContainsRune(token, '/') {
+		return false
+	}
+	var abs string
+	switch {
+	case strings.HasPrefix(token, "/"):
+		abs = token
+	case cwd != "":
+		abs = filepath.Join(cwd, token)
+	default:
+		return false
+	}
+	abs = filepath.Clean(abs)
+	for _, root := range scratchExecRoots {
+		if abs == root || strings.HasPrefix(abs, root+"/") {
+			return true
+		}
+	}
+	return false
 }

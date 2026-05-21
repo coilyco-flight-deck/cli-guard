@@ -132,8 +132,12 @@ linters:
           - errcheck
           - gosec
       # Examples are small demonstration mains; structure is illustrative, not
-      # production code.
-      - path: "^examples/"
+      # production code. Matched on the `examples/` path component rather than
+      # a string-start anchor: in a git worktree golangci-lint reports file
+      # paths prefixed with the relative hop back to the checkout
+      # (`../../../cli-guard/examples/...`), which a `^examples/` anchor would
+      # miss, leaking example-only lint noise into every dispatched commit.
+      - path: "(^|/)examples/"
         linters:
           - funlen
           - gocognit

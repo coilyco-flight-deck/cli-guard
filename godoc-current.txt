@@ -1042,13 +1042,25 @@ type Decision struct {
     (no route matched, no integrity rule fired).
 
 func PreToolUse(payload Payload, source string, rules []IntegrityRule, routes []Route, lookup LookPath) Decision
-    PreToolUse evaluates a payload against integrity rules and routes.
-    Returns Decision{Block: false} on no match (best-effort hint surface;
-    hard denial belongs to the harness's permissions.deny, not this hook).
-    source is the consumer name prefixed onto Block messages.
+    PreToolUse evaluates a payload against integrity rules, routes, and the
+    engine-level arbitrary-code-execution deny. Returns Decision{Block: false}
+    on no match.
+
+    Two classes of Block:
+
+      - Route hints and integrity warnings are best-effort signalling on top of
+        the harness's own permissions.deny.
+      - The arbitrary-code-execution deny (interpreter invocation, execution
+        from a writable scratch directory) is a hard denial the engine owns
+        outright. It is not consumer-configurable: a consumer cannot allowlist
+        its way around running arbitrary Python. See coilysiren/cli-guard#87.
+
+    Every segment of a compound command is evaluated, so a denied command cannot
+    launder clean by piping it behind an allowed one (`head file | python3 -c
+    ...`).
 
     Failure modes (non-Bash tool, empty command, malformed segments) pass
-    through silently. The hook is signaling, not policing.
+    through silently.
 
 type IntegrityRule struct {
 	Binary       string

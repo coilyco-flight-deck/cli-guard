@@ -6,6 +6,7 @@ Inventory of what cli-guard does today. Scope changes should land in the same co
 
 - **audit** - Append-only JSONL invocation log with lumberjack rotation. Foundation for every other primitive.
 - **policy** - Argv validation rejecting shell metacharacters before they reach `execve`.
+- **hook** - Shared Claude Code PreToolUse engine. Consumers register integrity rules and routing hints; the engine owns a non-configurable deny on arbitrary-code execution (interpreter invocation, execution from a writable scratch dir) that fires on every segment of a compound command, so a denied interpreter cannot launder behind an allowed token or via a `/tmp` shebang script.
 - **verb** - Middleware wrapping every `*cli.Command.Action` in the standard pipeline (validate → execute → audit).
 - **scope** - Resolve `--commit-scope=auto` to a git toplevel so every audit row binds to a reconstructable commit.
 - **exitcode** - Public exit-code taxonomy (success / generic / policy-denied / upstream-failed / internal / user-error) for orchestrators.
