@@ -34,6 +34,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -291,6 +292,7 @@ func withEgressAction(bin string, base *shell.Runner, allowlist []string, mode e
 			"https_proxy="+proxyURL,
 			"http_proxy="+proxyURL,
 		)
+		shadow.Env = appendLoopbackNoProxy(shadow.Env)
 		if err := applySecretResolver(&shadow, resolver); err != nil {
 			return err
 		}
@@ -351,6 +353,63 @@ func applySecretResolver(shadow *shell.Runner, r mcporter.SecretResolver) error 
 	}
 	shadow.Env = cloned
 	return nil
+}
+
+func appendLoopbackNoProxy(env []string) []string {
+	merged := mergeNoProxyValues(effectiveEnvValue("NO_PROXY", env), effectiveEnvValue("no_proxy", env))
+	merged = mergeNoProxyValues(merged, "127.0.0.1,::1,localhost")
+	env = upsertEnv(env, "NO_PROXY", merged)
+	env = upsertEnv(env, "no_proxy", merged)
+	return env
+}
+
+func effectiveEnvValue(key string, env []string) string {
+	if v, ok := envLookup(env, key); ok {
+		return v
+	}
+	return os.Getenv(key)
+}
+
+func envLookup(env []string, key string) (string, bool) {
+	for i := len(env) - 1; i >= 0; i-- {
+		k, v, ok := strings.Cut(env[i], "=")
+		if ok && k == key {
+			return v, true
+		}
+	}
+	return "", false
+}
+
+func upsertEnv(env []string, key, value string) []string {
+	out := make([]string, 0, len(env)+1)
+	for _, entry := range env {
+		k, _, ok := strings.Cut(entry, "=")
+		if ok && k == key {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return append(out, key+"="+value)
+}
+
+func mergeNoProxyValues(values ...string) string {
+	var merged []string
+	seen := make(map[string]struct{})
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			token := strings.TrimSpace(part)
+			if token == "" {
+				continue
+			}
+			key := strings.ToLower(token)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			merged = append(merged, token)
+		}
+	}
+	return strings.Join(merged, ",")
 }
 
 // tailBuffer is a fixed-size last-N-bytes ring. Writes never block and never
