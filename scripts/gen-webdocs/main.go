@@ -26,6 +26,7 @@ type entry struct {
 func main() {
 	entries := []entry{
 		{"audit", "cli-guard examples/audit", func() *cli.Command { return treebuilders.Audit(nil) }},
+		{"dispatch", "cli-guard examples/dispatch", func() *cli.Command { return treebuilders.Dispatch(nil, nil) }},
 		{"egress", "cli-guard examples/egress", treebuilders.Egress},
 		{"exitcode", "cli-guard examples/exitcode", treebuilders.Exitcode},
 		{"gittree", "cli-guard examples/gittree", treebuilders.Gittree},

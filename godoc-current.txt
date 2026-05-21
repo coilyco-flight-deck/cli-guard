@@ -498,6 +498,113 @@ func RedactPolicy() audit.RedactPolicy
     like. Install once at Writer construction via audit.Writer.SetRedactPolicy.
 
 
+## github.com/coilysiren/cli-guard/dispatch
+
+package dispatch // import "github.com/coilysiren/cli-guard/dispatch"
+
+Package dispatch hosts the reusable dispatch subsystem: fire `claude` against a
+real open GitHub issue, in the matching local checkout, headless or interactive.
+
+dispatch is generic. The security claim - the prompt is derived from a real
+open issue inside an allowed org, never free text - holds for any consumer. The
+host-specific bits (which org is allowed, where checkouts and worktrees live,
+how a subprocess is run, how a verb is wrapped for audit) are injected through
+Config rather than hard-coded, so cli-guard consumers like coily and agent-guard
+each wire the same package into their own urfave/cli command tree.
+
+Build a Dispatcher with New, then hang Dispatcher.Command off the host CLI's
+command tree. The package owns the verb logic; the consumer owns the wiring,
+the same split cli-guard uses for shell, verb, and audit.
+
+TYPES
+
+type Config struct {
+	// Runner executes subprocesses (gh, git, open). Required.
+	Runner *shell.Runner
+
+	// Wrap applies the consumer's verb pipeline (argv validation, audit,
+	// commit-scope resolution) to a verb.Spec the package builds. coily
+	// passes a closure over its WrapVerb bound to its audit writer.
+	// Required - dispatch is a privileged verb and must not run unaudited.
+	Wrap func(verb.Spec) cli.ActionFunc
+
+	// AllowedOwner is the GitHub org dispatch will accept issue refs from.
+	// This is the security claim, not a knob: dispatch refuses anything
+	// outside <AllowedOwner>/*. Required.
+	AllowedOwner string
+
+	// RepoPath resolves a repo name to its expected local checkout. The
+	// consumer owns the workspace layout. Required.
+	RepoPath func(repo string) (string, error)
+
+	// WorktreeRoot is the parent directory under which each interactive
+	// dispatch gets its own git worktree. Required.
+	WorktreeRoot func() (string, error)
+
+	// LogRoot is the parent directory for headless dispatch log files.
+	// Required.
+	LogRoot func() (string, error)
+
+	// BinaryName is the host CLI's name, used only to format help text so
+	// it reads correctly per consumer ("coily dispatch ..." vs
+	// "agent-guard dispatch ..."). Optional; defaults to "dispatch".
+	BinaryName string
+
+	// ClaudeConfigPath resolves the Claude Code config file holding
+	// per-folder trust state. Optional; defaults to ~/.claude.json.
+	ClaudeConfigPath func() (string, error)
+
+	// Notify, when set, is called once per completed dispatch with a
+	// summary Event. The consumer wires ntfy, a done banner, or any other
+	// out-of-band signal. Optional; nil disables notification.
+	Notify func(Event)
+
+	// Seams below are pluggable so tests avoid spawning real processes or
+	// shelling out to git. Production leaves them nil and New installs the
+	// real implementation. OpenLaunch is also a genuine consumer hook: a
+	// non-Warp host overrides how the interactive surface is opened.
+	SpawnDetached    func(repoPath, logPath, bin string, argv, env []string) (int, error)
+	OpenLaunch       func(ctx context.Context, runner *shell.Runner, url string) error
+	WorktreeAdd      func(ctx context.Context, runner *shell.Runner, repoPath, branch, worktreePath string) error
+	WorktreeReapable func(ctx context.Context, runner *shell.Runner, repoPath, branch string) bool
+	WorktreeRemove   func(ctx context.Context, runner *shell.Runner, repoPath, worktreePath, branch string) error
+}
+    Config carries the host-specific seams the dispatch package refuses to
+    hard-code. Required fields are noted; everything else has a documented
+    default. New validates the required set and fills the rest in.
+
+type Dispatcher struct {
+	// Has unexported fields.
+}
+    Dispatcher is a configured dispatch subsystem. Build one with New and hang
+    Command off the host CLI's command tree.
+
+func New(cfg Config) (*Dispatcher, error)
+    New validates cfg, fills defaults, and returns a Dispatcher. It errors
+    rather than panicking so the host CLI can fail loud at startup.
+
+func (d *Dispatcher) Command() *cli.Command
+    Command returns the dispatch umbrella verb. It refuses bare invocation and
+    requires an explicit mode subverb (headless or interactive). The security
+    claim that makes this verb defensible: the prompt is derived from a real
+    open issue inside Config.AllowedOwner, not free text.
+
+    Why force the mode choice. Both modes have valid uses. Headless is for AFK
+    queue work and bulk fan-out. Interactive is for "this should be its own
+    focused session but I want eyes on it". A default would silently pick a
+    billing model and a supervision posture. Operator chooses on every call.
+
+type Event struct {
+	Mode  string // "headless" or "interactive"
+	Ref   string // owner/repo#N
+	Title string
+	URL   string
+	Cwd   string
+	PID   int // headless only; 0 otherwise
+}
+    Event is the summary handed to Config.Notify when a dispatch completes.
+
+
 ## github.com/coilysiren/cli-guard/egress
 
 package egress // import "github.com/coilysiren/cli-guard/egress"

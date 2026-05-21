@@ -13,9 +13,11 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/coilysiren/cli-guard/audit"
+	"github.com/coilysiren/cli-guard/dispatch"
 	"github.com/coilysiren/cli-guard/egress"
 	"github.com/coilysiren/cli-guard/exitcode"
 	"github.com/coilysiren/cli-guard/gittree"
@@ -1004,5 +1006,58 @@ audit-row slot on a misconfigured call.`,
 				},
 			},
 		},
+	}
+}
+
+// Dispatch is the tree for examples/dispatch. runner and writer may be
+// nil for doc rendering since Actions are not executed. The Config wired
+// here is the smallest valid one: an AllowedOwner, a workspace layout
+// resolver, and the verb pipeline. A real consumer (coily, agent-guard)
+// supplies its own host-specific seams.
+func Dispatch(runner *shell.Runner, writer *audit.Writer) *cli.Command {
+	if runner == nil {
+		runner = &shell.Runner{}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.TempDir()
+	}
+	owner := "coilysiren"
+	d, derr := dispatch.New(dispatch.Config{
+		Runner:       runner,
+		Wrap:         func(s verb.Spec) cli.ActionFunc { return verb.Wrap(s, writer) },
+		AllowedOwner: owner,
+		BinaryName:   "dispatch-demo",
+		RepoPath: func(repo string) (string, error) {
+			return filepath.Join(home, "projects", owner, repo), nil
+		},
+		WorktreeRoot: func() (string, error) {
+			return filepath.Join(home, "projects", owner, ".dispatch-worktrees"), nil
+		},
+		LogRoot: func() (string, error) {
+			return filepath.Join(home, "projects", owner, ".dispatch-logs"), nil
+		},
+	})
+	if derr != nil {
+		panic("treebuilders: dispatch.New: " + derr.Error())
+	}
+	return &cli.Command{
+		Name:    "dispatch-demo",
+		Usage:   "fire claude against a real open issue, headless or interactive",
+		Version: "v0.0.0",
+		Description: `dispatch-demo wires the cli-guard dispatch subsystem into a host CLI.
+The dispatch package resolves a GitHub issue reference, refuses anything
+outside the configured org or any non-open issue, and hands off to a
+detached headless run or an interactive Warp tab.
+
+The package owns the verb logic; this demo supplies the host-specific
+seams - allowed org, workspace layout, verb pipeline - through
+dispatch.Config. coily and agent-guard wire their own.
+
+Try the dry-run paths, which resolve and print without spawning claude:
+
+    dispatch-demo dispatch headless    --dry-run coilysiren/coily#1
+    dispatch-demo dispatch interactive --dry-run coilysiren/coily#1`,
+		Commands: []*cli.Command{d.Command()},
 	}
 }

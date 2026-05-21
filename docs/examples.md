@@ -12,6 +12,7 @@ Each subdirectory under [`examples/`](https://github.com/coilysiren/cli-guard/tr
 | [`repocfg/`](https://github.com/coilysiren/cli-guard/tree/main/examples/repocfg) | Per-repo verb allowlist loaded from `.coily/coily.yaml`. |
 | [`exitcode/`](https://github.com/coilysiren/cli-guard/tree/main/examples/exitcode) | Public exit-code taxonomy for orchestrators. |
 | [`egress/`](https://github.com/coilysiren/cli-guard/tree/main/examples/egress) | Per-invocation CONNECT proxy with an allowlist (used by `passthrough.WithEgress`). |
+| [`dispatch/`](https://github.com/coilysiren/cli-guard/tree/main/examples/dispatch) | Wire the `dispatch` subsystem into a host CLI: fire `claude` against a real open issue, headless or interactive. |
 
 ## Running
 
@@ -22,6 +23,7 @@ go run ./examples/audit hello world
 go run ./examples/passthrough -- echo hello
 go run ./examples/policy unsafe 'foo; rm -rf /'
 go run ./examples/exitcode policy ; echo "exit: $?"
+go run ./examples/dispatch dispatch headless --dry-run coilysiren/coily#1
 ```
 
 ## Reading order
@@ -35,3 +37,4 @@ If you are new to cli-guard:
 5. **exitcode** - the contract with orchestrators.
 6. **gittree** and **repocfg** - the repo-verb pattern.
 7. **egress** - the network-layer gate (advanced).
+8. **dispatch** - a whole subsystem wired into a host CLI through `Config` (advanced).

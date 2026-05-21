@@ -15,6 +15,7 @@ cli-guard is a **security-boundary** framework for [urfave/cli][urfave/cli] v3 a
 - thin pass-through wrapper for embedding existing CLIs as audited subcommands
 - per-invocation CONNECT proxy with consumer-supplied egress allowlist
 - public exit-code taxonomy for orchestrators
+- reusable dispatch subsystem firing `claude` against a real open issue, headless or interactive
 
 ## Documentation
 
