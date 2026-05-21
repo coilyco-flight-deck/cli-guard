@@ -158,6 +158,135 @@ func TestPreToolUse_SplitsOnShellBoundaries(t *testing.T) {
 	}
 }
 
+func TestPreToolUse_DeniesInterpreterEverySpelling(t *testing.T) {
+	// No routes, no integrity rules: the interpreter deny is
+	// engine-owned and must fire on its own.
+	cases := []string{
+		"python3 /tmp/script.py",
+		`python3 -c "import os"`,
+		"head -1 file | python3 -c 'print(1)'", // Gap 1: pipeline laundering
+		"cat data.txt && python3 evil.py",      // && chain
+		"echo hi ; ruby -e 'exec\"sh\"'",       // ; sequence
+		"$(node -e 'process.exit(0)')",         // command substitution
+		"/usr/bin/python3 script.py",           // absolute path
+		"ls | /opt/homebrew/bin/python3",       // absolute path behind a pipe
+		"perl -e 'system(\"sh\")'",
+		"env FOO=bar python3 -c 'pass'", // env-prefixed
+	}
+	for _, cmd := range cases {
+		t.Run(cmd, func(t *testing.T) {
+			d := PreToolUse(
+				Payload{ToolName: "Bash", ToolInput: map[string]any{"command": cmd}},
+				"test", nil, nil, lookFunc(nil))
+			if !d.Block {
+				t.Fatalf("expected interpreter deny, got pass-through")
+			}
+			if !strings.Contains(d.Message, "blocked interpreter") {
+				t.Errorf("missing interpreter-deny message: %q", d.Message)
+			}
+		})
+	}
+}
+
+func TestPreToolUse_DeniesScratchDirExecution(t *testing.T) {
+	// Gap 2: an executable shebang script run directly from /tmp. The
+	// guard sees only the path token, never the interpreter.
+	cases := []struct {
+		cmd string
+		cwd string
+	}{
+		{"/tmp/script", ""},
+		{"/tmp/build/helper.sh", ""},
+		{"/var/tmp/x", ""},
+		{"/dev/shm/payload", ""},
+		{"/private/tmp/script", ""},
+		{"cat foo | /tmp/script", ""},          // laundered behind a pipe
+		{"./script", "/tmp/work"},              // relative, cwd in scratch
+		{"../sibling/script", "/tmp/work/sub"}, // relative climbs, still scratch
+	}
+	for _, tc := range cases {
+		t.Run(tc.cmd, func(t *testing.T) {
+			d := PreToolUse(
+				Payload{ToolName: "Bash", CWD: tc.cwd, ToolInput: map[string]any{"command": tc.cmd}},
+				"test", nil, nil, lookFunc(nil))
+			if !d.Block {
+				t.Fatalf("expected scratch-exec deny, got pass-through")
+			}
+			if !strings.Contains(d.Message, "writable scratch directory") {
+				t.Errorf("missing scratch-exec message: %q", d.Message)
+			}
+		})
+	}
+}
+
+func TestPreToolUse_AllowsWritingToScratch(t *testing.T) {
+	// Writing scratch files to /tmp must stay unaffected: only
+	// executing a file from there is denied.
+	cases := []string{
+		"cat /tmp/notes.txt",
+		"head -1 /tmp/data.json",
+		"ls /tmp",
+		"echo hi > /tmp/out.txt",
+		"grep foo /tmp/log",
+		"/usr/bin/touch /tmp/marker", // a non-interpreter binary, scratch arg
+	}
+	for _, cmd := range cases {
+		t.Run(cmd, func(t *testing.T) {
+			d := PreToolUse(
+				Payload{ToolName: "Bash", ToolInput: map[string]any{"command": cmd}},
+				"test", nil, nil, lookFunc(nil))
+			if d.Block {
+				t.Errorf("expected pass-through for scratch write, got block: %q", d.Message)
+			}
+		})
+	}
+}
+
+func TestInterpreterName(t *testing.T) {
+	cases := map[string]string{
+		"python3":                 "python3",
+		"/usr/bin/python3":        "python3",
+		"/tmp/copy/python3":       "python3",
+		"node":                    "node",
+		"gh":                      "",
+		"":                        "",
+		"/opt/homebrew/bin/coily": "",
+	}
+	for in, want := range cases {
+		t.Run(in, func(t *testing.T) {
+			if got := interpreterName(in); got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestScratchExec(t *testing.T) {
+	cases := []struct {
+		token string
+		cwd   string
+		want  bool
+	}{
+		{"/tmp/script", "", true},
+		{"/tmp", "", true},
+		{"/var/tmp/x", "", true},
+		{"/private/tmp/x", "", true},
+		{"/usr/bin/python3", "", false},
+		{"script", "/tmp", false}, // bare name resolves via PATH, not cwd
+		{"./script", "/tmp/work", true},
+		{"./script", "/home/kai", false},
+		{"./script", "", false}, // relative with no cwd cannot classify
+		{"", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.token+"|"+tc.cwd, func(t *testing.T) {
+			if got := scratchExec(tc.token, tc.cwd); got != tc.want {
+				t.Errorf("scratchExec(%q,%q) = %v, want %v", tc.token, tc.cwd, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCheckBinaryPath_EnoentPassesThrough(t *testing.T) {
 	msg := CheckBinaryPath("nonexistent", []string{"/opt/homebrew/bin/nonexistent"},
 		lookFunc(nil), "test")

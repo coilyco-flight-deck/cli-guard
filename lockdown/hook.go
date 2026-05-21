@@ -47,6 +47,32 @@ func renderBinaryCheck(d *Driver) string {
 	return b.String()
 }
 
+// renderScratchExecCheck emits the shell block that denies executing a
+// file from a writable scratch directory (coilysiren/cli-guard#87 Gap
+// 2). A file under /tmp can carry an interpreter shebang, so the kernel
+// runs arbitrary code the moment it is exec'd and the leading-token
+// deny case never sees an interpreter name. Writing scratch files to
+// /tmp is unaffected; only executing a file from there is denied. This
+// is a content-based check on the segment's leading token, so it lives
+// outside the deny-prefix case statement and reuses $seg_first set by
+// renderBinaryCheck.
+//
+// Absolute scratch paths only. A relative `./script` run from a cwd
+// inside /tmp is a residual gap here: this hook parses only the command
+// string, not the PreToolUse cwd field. The cli-guard/hook engine,
+// which does see cwd, closes that form.
+func renderScratchExecCheck() string {
+	return `  # Scratch-dir execution check (cli-guard#87 Gap 2): reject executing
+  # a file that lives under a writable scratch directory.
+  case "$seg_first" in
+    /tmp/*|/var/tmp/*|/dev/shm/*|/private/tmp/*|/private/var/tmp/*)
+      printf 'lockdown: blocked: execution of %s from a writable scratch directory. A file there can carry an interpreter shebang and run arbitrary code. Writing scratch files to /tmp stays allowed; executing them does not.\n' "$seg_first" >&2
+      exit 2
+      ;;
+  esac
+`
+}
+
 // renderHookHeader emits the script preamble: shebang, header comment,
 // stdin parse, segment split, and check_segment open through env strip.
 func renderHookHeader() string {
@@ -174,7 +200,7 @@ func claudeCodeRenderHookScript(d *Defaults, drv *Driver) (string, error) {
 	if len(prefixes) == 0 {
 		return "", fmt.Errorf("lockdown: no Bash(...:*) deny rules to render")
 	}
-	return renderHookHeader() + renderBinaryCheck(drv) + renderDenyPrefixCase(prefixes, drv.WrapperRecovery) + renderHookFooter(), nil
+	return renderHookHeader() + renderBinaryCheck(drv) + renderScratchExecCheck() + renderDenyPrefixCase(prefixes, drv.WrapperRecovery) + renderHookFooter(), nil
 }
 
 // claudeCodeRenderUserHookScript emits the user-level PreToolUse hook:

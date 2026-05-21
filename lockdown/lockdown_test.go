@@ -466,6 +466,19 @@ func TestWriteHook_BlocksDeniedCommand(t *testing.T) {
 		{"/usr/local/bin/coily allowed", `{"tool_input":{"command":"/usr/local/bin/coily kubectl"}}`, 0},
 		{"linuxbrew coily allowed", `{"tool_input":{"command":"/home/linuxbrew/.linuxbrew/bin/coily ssh"}}`, 0},
 		{"coily denied via piped second segment", `{"tool_input":{"command":"echo go | /tmp/coily ssh"}}`, 2},
+		// Gap 1: a denied interpreter laundered behind an allowed leading
+		// token. Every segment of the pipeline must be evaluated.
+		{"python3 laundered behind head", `{"tool_input":{"command":"head -1 file | python3 -c print"}}`, 2},
+		{"ruby laundered behind cat in && chain", `{"tool_input":{"command":"cat x && ruby -e exec"}}`, 2},
+		// Gap 2: executing a shebang script from a writable scratch dir.
+		{"/tmp shebang script denied", `{"tool_input":{"command":"/tmp/script.py"}}`, 2},
+		{"/tmp script with args denied", `{"tool_input":{"command":"/tmp/build/helper arg1"}}`, 2},
+		{"/var/tmp script denied", `{"tool_input":{"command":"/var/tmp/x"}}`, 2},
+		{"/dev/shm script denied", `{"tool_input":{"command":"/dev/shm/payload"}}`, 2},
+		{"/tmp script laundered behind cat", `{"tool_input":{"command":"cat data | /tmp/script"}}`, 2},
+		// Writing to /tmp stays allowed: only executing from it is denied.
+		{"cat from /tmp allowed", `{"tool_input":{"command":"cat /tmp/notes.txt"}}`, 0},
+		{"redirect into /tmp allowed", `{"tool_input":{"command":"head -1 /tmp/in > /tmp/out"}}`, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
