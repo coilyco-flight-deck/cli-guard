@@ -136,13 +136,33 @@ type Record struct {
 // resolver-status vocabulary (e.g. "override" / "missing_file" /
 // "unknown_profile" / "unset"), and Coordinate captures the resolved
 // tier-per-axis Coordinate so a forensic reader sees exactly which
-// tiers were in effect at decision time.
+// tiers were in effect at decision time. The JSON key is
+// declared_coordinate to make clear this is the static profile coordinate,
+// not observed runtime behavior.
 type ProfileDecision struct {
 	Allowed    bool       `json:"allowed"`
 	Profile    string     `json:"profile,omitempty"`
 	Source     string     `json:"source,omitempty"`
-	Coordinate Coordinate `json:"coordinate"`
+	Coordinate Coordinate `json:"declared_coordinate"`
 	Reason     string     `json:"reason,omitempty"`
+}
+
+// UnmarshalJSON accepts old audit rows that used "coordinate" before the
+// static-label field was renamed to "declared_coordinate".
+func (p *ProfileDecision) UnmarshalJSON(data []byte) error {
+	type profileDecision ProfileDecision
+	var wire struct {
+		profileDecision
+		LegacyCoordinate Coordinate `json:"coordinate,omitempty"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	*p = ProfileDecision(wire.profileDecision)
+	if p.Coordinate == (Coordinate{}) {
+		p.Coordinate = wire.LegacyCoordinate
+	}
+	return nil
 }
 
 // Coordinate mirrors cli-guard/profile.Coordinate as a JSON-stable
