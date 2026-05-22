@@ -37,8 +37,8 @@ Inventory of what cli-guard does today. Scope changes should land in the same co
 
 ## See also
 
-- [README.md](../README.md) - human-facing intro.
-- [AGENTS.md](../AGENTS.md) - agent-facing operating rules.
-- [.agent-guard/agent-guard.yaml](../.agent-guard/agent-guard.yaml) - allowlisted commands.
+- [README.md](https://github.com/coilysiren/cli-guard/blob/main/README.md) - human-facing intro.
+- [AGENTS.md](https://github.com/coilysiren/cli-guard/blob/main/AGENTS.md) - agent-facing operating rules.
+- [.agent-guard/agent-guard.yaml](https://github.com/coilysiren/cli-guard/blob/main/.agent-guard/agent-guard.yaml) - allowlisted commands.
 
 Cross-reference convention from [coilysiren/agentic-os#59](https://github.com/coilysiren/agentic-os/issues/59).
