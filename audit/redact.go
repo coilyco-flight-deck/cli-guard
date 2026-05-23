@@ -158,6 +158,7 @@ func (w *Writer) applyRedaction(r *Record) {
 	p := w.redact
 	w.mu.Unlock()
 	r.Argv = RedactArgv(r.Argv, tier, p)
+	r.RemoteArgv = RedactArgv(r.RemoteArgv, tier, p)
 	r.Error = RedactIdentifiersInString(r.Error, tier, p)
 	r.StderrTail = RedactIdentifiersInString(r.StderrTail, tier, p)
 	if r.ProfileDecision != nil {

@@ -165,6 +165,106 @@ func TestWriter_Append_RedactsWhenProfileAware(t *testing.T) {
 	}
 }
 
+func TestWriter_Append_RedactsRemoteArgvAtHigh(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	w := NewWriter(path)
+	w.SetRedactPolicy(samplePolicy())
+	defer func() { _ = w.Close() }()
+	rec := Record{
+		Verb:       "ssh.passthrough",
+		Decision:   DecisionAccept,
+		Argv:       []string{"coily", "ssh", "kai-server"},
+		RemoteArgv: []string{"coily", "ops", "aws", "ssm", "--password=hunter2"},
+		ProfileDecision: &ProfileDecision{
+			Allowed:    true,
+			Coordinate: Coordinate{DataSecurity: DataSecurityHigh},
+		},
+	}
+	if err := w.Append(rec); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var got Record
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal: %v line=%s", err, b)
+	}
+	if got.RemoteArgv[4] != "--password=[REDACTED]" {
+		t.Errorf("remote argv not redacted at high: %v", got.RemoteArgv)
+	}
+	if got.Argv[1] != "ssh" {
+		t.Errorf("local argv mutated unexpectedly: %v", got.Argv)
+	}
+}
+
+func TestWriter_Append_MaxDropsRemoteArgv(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	w := NewWriter(path)
+	w.SetRedactPolicy(samplePolicy())
+	defer func() { _ = w.Close() }()
+	rec := Record{
+		Verb:       "ssh.passthrough",
+		Decision:   DecisionAccept,
+		Argv:       []string{"coily", "ssh", "kai-server"},
+		RemoteArgv: []string{"coily", "ops", "aws", "ssm", "--password=hunter2"},
+		ProfileDecision: &ProfileDecision{
+			Allowed:    true,
+			Coordinate: Coordinate{DataSecurity: DataSecurityMax},
+		},
+	}
+	if err := w.Append(rec); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var got Record
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal: %v line=%s", err, b)
+	}
+	if len(got.RemoteArgv) != 0 {
+		t.Errorf("max should drop remote argv when matched, got %v", got.RemoteArgv)
+	}
+}
+
+func TestWriter_Append_RoundTripsRemoteArgv(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	w := NewWriter(path)
+	defer func() { _ = w.Close() }()
+	rec := Record{
+		Verb:       "ssh.passthrough",
+		Decision:   DecisionAccept,
+		Argv:       []string{"coily", "ssh", "kai-server"},
+		RemoteArgv: []string{"coily", "systemctl", "restart", "forgejo"},
+	}
+	if err := w.Append(rec); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	var got Record
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal: %v line=%s", err, b)
+	}
+	if len(got.RemoteArgv) != 4 || got.RemoteArgv[1] != "systemctl" || got.RemoteArgv[3] != "forgejo" {
+		t.Errorf("remote_argv round-trip wrong: %v", got.RemoteArgv)
+	}
+}
+
 func TestWriter_Append_MaxDropsArgv(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
 	w := NewWriter(path)

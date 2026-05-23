@@ -236,6 +236,16 @@ type Record struct {
 	// backward = look up the row whose id == this audit_parent. Empty for
 	// the common single-host case. coilysiren/coily#187 phase 2.
 	AuditParent string `json:"audit_parent,omitempty"`
+	// RemoteArgv carries the post-`--` argv slice for ssh-passthrough rows:
+	// the remote coily sub-command and its arguments. Set by the consumer
+	// (coily ssh) via verb.Spec.OnComplete, so the local audit row records
+	// what the operator actually asked the remote host to do without
+	// conflating that intent with the literal local Argv (`coily ssh
+	// <alias>`). The corresponding remote row records the same sub-command
+	// as its own Argv and is linked back via AuditParent. Subject to the
+	// same redaction as Argv at medium+ data-security tiers. Empty on
+	// every non-ssh-passthrough row. coilysiren/coily#328.
+	RemoteArgv []string `json:"remote_argv,omitempty"`
 }
     Record is one line in the audit log. Timestamp is unix seconds (int64),
     JSON-encoded as a number. Easier to sort and diff than RFC3339 strings.
