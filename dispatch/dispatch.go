@@ -201,16 +201,19 @@ mode subverbs:
                                   "Work on issue <ref>". Operator has
                                   eyes on it.
 
-It also carries one maintenance verb:
+It also carries two maintenance verbs:
 
   %s dispatch reap                Remove dispatch worktrees whose branch
                                   is already merged into main.
+  %s dispatch status              Show pid + log tail for a headless
+                                  dispatch (most recent, by ref, or by pid).
 
-Bare 'dispatch <ref>' errors. Pick a mode.`, d.cfg.AllowedOwner, bin, bin, bin),
+Bare 'dispatch <ref>' errors. Pick a mode.`, d.cfg.AllowedOwner, bin, bin, bin, bin),
 		Commands: []*cli.Command{
 			d.headlessCommand(),
 			d.interactiveCommand(),
 			d.reapCommand(),
+			d.statusCommand(),
 		},
 		Action: func(_ context.Context, _ *cli.Command) error {
 			return fmt.Errorf("dispatch: specify mode: interactive | headless (see `%s dispatch --help`)", bin)
@@ -432,6 +435,17 @@ func (d *Dispatcher) runHeadless(ctx context.Context, c *cli.Command) error {
 	pid, err := d.cfg.SpawnDetached(repoPath, logPath, bin, argv, d.cfg.Runner.Env)
 	if err != nil {
 		return fmt.Errorf("dispatch headless: %w", err)
+	}
+	// Persist pid + spawn time alongside the log so `dispatch status`
+	// can render RUNNING/EXITED without scraping ps. Soft-fail: a missed
+	// sidecar degrades status to "pid unknown" but never breaks the run.
+	if err := writeDispatchMeta(logPath, dispatchMeta{
+		PID:       pid,
+		StartedAt: time.Now().UTC(),
+		Ref:       ref.String(),
+		URL:       issue.URL,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "dispatch headless: could not write status sidecar (%v); `dispatch status` will report pid unknown.\n", err)
 	}
 	fmt.Printf("dispatch headless: spawned claude for %s (pid %d)\n", ref, pid)
 	fmt.Printf("  cwd: %s\n", repoPath)
