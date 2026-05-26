@@ -1,9 +1,5 @@
 // Command demo is a tiny urfave/cli v3 application that exercises the
 // cli-guard framework primitives. Run with:
-//
-//	go run ./examples/demo hello world
-//
-// Audit rows land in $TMPDIR/cli-guard-demo.jsonl.
 package main
 
 import (

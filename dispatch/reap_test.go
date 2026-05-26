@@ -13,7 +13,6 @@ import (
 
 // TestParseIssueDirName pins the "issue-N" worktree dir name parse. The
 // reaper walks <root>/<repo>/issue-<N> dirs, so anything that is not that
-// shape (a stray file, a non-issue dir) must be rejected, not reaped.
 func TestParseIssueDirName(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -39,7 +38,6 @@ func TestParseIssueDirName(t *testing.T) {
 
 // TestReapDispatchWorktrees_RemovesMergedOnly is the core reap contract:
 // a merged worktree is removed, an unmerged one is left in place, and a
-// worktree whose removal fails is skipped rather than reported as removed.
 func TestReapDispatchWorktrees_RemovesMergedOnly(t *testing.T) {
 	d := newTestDispatcher(t)
 	root := t.TempDir()
@@ -106,7 +104,6 @@ func TestReapDispatchWorktrees_RemovesMergedOnly(t *testing.T) {
 
 // TestReapDispatchWorktrees_NoRoot verifies a missing dispatch-worktree
 // root is a clean no-op, not an error: a host that has never dispatched
-// must be able to run the reaper.
 func TestReapDispatchWorktrees_NoRoot(t *testing.T) {
 	d := newTestDispatcher(t)
 	missing := filepath.Join(t.TempDir(), "does-not-exist")

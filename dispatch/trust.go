@@ -10,7 +10,6 @@ import (
 
 // defaultClaudeConfigPath resolves the Claude Code config file that holds
 // per-folder trust state (~/.claude.json). It is the default for
-// Config.ClaudeConfigPath; tests redirect that field to a tempfile.
 func defaultClaudeConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -21,21 +20,6 @@ func defaultClaudeConfigPath() (string, error) {
 
 // ensureClaudeFolderTrust marks dir as trusted in the Claude Code config
 // so the dispatched Claude session opens straight into work instead of
-// stalling on the "Do you trust the files in this folder?" prompt.
-//
-// Claude Code keys folder trust per exact absolute path under
-// projects.<path>.hasTrustDialogAccepted, and only flips that flag when a
-// folder is opened interactively and the dialog accepted. A dispatch
-// worktree is a brand-new path dispatch just created, and even the bare
-// checkout may never have been opened interactively, so the operator hits
-// the prompt on dispatch. dispatch set up the target, so it can vouch
-// for it.
-//
-// Soft by contract: failures are returned for the caller to log, but the
-// caller must not abort the dispatch over one - a stray trust prompt is a
-// papercut, not a reason to drop the work. A missing config file is not a
-// failure: Claude Code has not run yet and will write its own, so this
-// returns nil and the caller stays quiet.
 func (d *Dispatcher) ensureClaudeFolderTrust(dir string) error {
 	path, err := d.cfg.ClaudeConfigPath()
 	if err != nil {
@@ -74,9 +58,6 @@ func (d *Dispatcher) ensureClaudeFolderTrust(dir string) error {
 
 // writeClaudeConfig serializes doc back to path via a tmp-write + rename
 // in the same directory, so a reader - Claude Code itself, or a
-// concurrent dispatch - never observes a half-written file. Last writer
-// wins on the rare concurrent-dispatch race; the cost of a dropped update
-// is one trust prompt, never a corrupt config.
 func writeClaudeConfig(path string, doc map[string]any) error {
 	payload, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {

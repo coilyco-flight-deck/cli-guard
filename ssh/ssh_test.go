@@ -37,7 +37,6 @@ func TestRun_RejectsEmptyUser(t *testing.T) {
 
 // TestKnownHostsRequired verifies the host-key callback fails closed
 // when known_hosts is missing. The threat model forbids
-// ssh.InsecureIgnoreHostKey, so this is the load-bearing safety check.
 func TestKnownHostsRequired(t *testing.T) {
 	c := &coilyssh.Client{
 		KeyPath:        writeValidKey(t),
@@ -54,8 +53,6 @@ func TestKnownHostsRequired(t *testing.T) {
 
 // TestNoAuthAvailable verifies we error out cleanly when neither
 // ssh-agent nor a key file is reachable. We unset SSH_AUTH_SOCK so the
-// agent path is unavailable, leave KeyPath empty, and supply a valid
-// known_hosts so we exercise only the auth branch.
 func TestNoAuthAvailable(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "")
 	c := &coilyssh.Client{KnownHostsPath: writeEmptyKnownHosts(t)}
@@ -67,7 +64,6 @@ func TestNoAuthAvailable(t *testing.T) {
 
 // TestKeyPath_ReadFailure surfaces a clean error when the configured
 // key file cannot be read. This catches typos in coily config without
-// needing a live remote.
 func TestKeyPath_ReadFailure(t *testing.T) {
 	c := &coilyssh.Client{
 		KeyPath:        filepath.Join(t.TempDir(), "missing-key"),
@@ -101,9 +97,6 @@ func TestKeyPath_BadKey(t *testing.T) {
 
 // TestCopyTo_MissingLocalFile covers the open-local failure path without
 // hitting the wire. The dial still has to succeed to reach the file open,
-// so we feed a canceled ctx; ctx plumbing reaches dial() first and fails
-// there. That's enough to exercise the CopyTo entry point; live SFTP
-// coverage needs an integration harness and is out of scope here.
 func TestCopyTo_CancelsBeforeDial(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -132,7 +125,6 @@ func TestCopyTo_EmptyHost(t *testing.T) {
 
 // TestContextCanceled_BeforeDial surfaces ctx.Err() rather than a
 // network failure when the caller cancels up front. Demonstrates the
-// context plumbing reaches DialContext.
 func TestContextCanceled_BeforeDial(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -149,7 +141,6 @@ func TestContextCanceled_BeforeDial(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		// On some platforms the canceled ctx surfaces as a wrapped dial
 		// error. Accept either, as long as the underlying cause is the
-		// canceled context.
 		if !strings.Contains(err.Error(), "canceled") {
 			t.Fatalf("err = %v, want context.Canceled", err)
 		}
@@ -158,7 +149,6 @@ func TestContextCanceled_BeforeDial(t *testing.T) {
 
 // TestErrNoAuth_NamesRecovery pins issue #62: the no-auth-available
 // error must name the dictatable next step (`ssh-add ~/.ssh/<key>`) so
-// the operator can act without external knowledge.
 func TestErrNoAuth_NamesRecovery(t *testing.T) {
 	msg := coilyssh.ErrNoAuth.Error()
 	for _, want := range []string{"ssh-add", "ssh.key_path"} {
@@ -170,7 +160,6 @@ func TestErrNoAuth_NamesRecovery(t *testing.T) {
 
 // TestDialError_TranslatesCommonShapes pins issue #62: a real tcp dial
 // against an unreachable host surfaces a translated error that names
-// what the operator should check next, not just the crypto/ssh idiom.
 func TestDialError_TranslatesCommonShapes(t *testing.T) {
 	keyPath := writeValidKey(t)
 	c := &coilyssh.Client{
@@ -207,9 +196,6 @@ func TestDialError_TranslatesCommonShapes(t *testing.T) {
 
 // writeEmptyKnownHosts creates a known_hosts file with no entries. This
 // is enough to satisfy the load step (file exists, parses as zero
-// entries) without permitting any specific host. Real connections
-// against this file fail the host-key check, which is exactly what we
-// want for tests that should never reach the wire.
 func writeEmptyKnownHosts(t *testing.T) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "known_hosts")
@@ -221,8 +207,6 @@ func writeEmptyKnownHosts(t *testing.T) string {
 
 // writeValidKey emits a freshly-generated ed25519 private key in
 // OpenSSH PEM format. Used by tests that need ParsePrivateKey to
-// succeed so we can exercise code paths past authMethods. The key is
-// not used to authenticate anywhere.
 func writeValidKey(t *testing.T) string {
 	t.Helper()
 	_, priv, err := ed25519.GenerateKey(rand.Reader)

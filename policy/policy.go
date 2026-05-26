@@ -1,16 +1,5 @@
 // Package policy validates that verb arguments do not contain shell
 // metacharacters. Per SECURITY.md, coily's subprocess execution
-// always uses an explicit argv slice, but some downstream tools (ssh
-// <host> <remote-command>, kubectl exec, etc.) hand the last positional
-// argument to a remote shell. Rejecting these characters at the coily
-// boundary keeps a deny-list surprise at one layer from turning into an
-// execution surprise at another.
-//
-// Confirmation tokens used to live here too. They were removed once the
-// threat model clarified that a local agent already has everything it
-// needs to self-authorize (the HMAC key sat under $HOME, readable by the
-// same user). The allowlist, audit log, and Claude Code deny rules carry
-// the safety boundary; token ritual did not add to it.
 package policy
 
 import (
@@ -29,7 +18,6 @@ var ErrShellMeta = errors.New("policy: shell metacharacter rejected")
 
 // ValidateArg rejects strings containing shell metacharacters. Empty strings
 // are allowed. Callers should check for empty separately if the argument is
-// required.
 func ValidateArg(name, value string) error {
 	if i := strings.IndexAny(value, ShellMeta); i >= 0 {
 		return fmt.Errorf("%w: arg %s contains %q at index %d",

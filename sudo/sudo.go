@@ -1,10 +1,5 @@
 // Package sudo is policy-free plumbing for driving an interactive
 // sudo over an ssh transport without either (a) carrying a password
-// at rest or (b) leaking it through argv or the audit log.
-//
-// The hot path on a configured server is `sudo -n` against a NOPASSWD
-// sudoers entry, which never reaches this package. ReadPassword runs
-// only when -n is denied and an interactive fallback is required.
 package sudo
 
 import (
@@ -18,20 +13,10 @@ import (
 
 // ErrNoTTY is returned by ReadPassword when /dev/tty cannot be opened.
 // CI and headless invocations should fail fast on this rather than hang
-// waiting for input that will never come.
 var ErrNoTTY = errors.New("sudo: no controlling tty; cannot prompt for password")
 
 // ReadPassword prompts on /dev/tty (NOT stdin, which the caller will
 // reuse to pipe the password into the remote sudo) and returns the
-// typed bytes. Callers MUST zero the returned slice once consumed:
-//
-//	pw, err := sudo.ReadPassword("[sudo] password: ")
-//	if err != nil { ... }
-//	defer sudo.Zero(pw)
-//
-// Returning a []byte rather than a string is deliberate: strings are
-// immutable and cannot be wiped from memory, which defeats the whole
-// point of careful password handling.
 func ReadPassword(prompt string) ([]byte, error) {
 	fd, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
@@ -54,7 +39,6 @@ func ReadPassword(prompt string) ([]byte, error) {
 
 // Zero overwrites b in place. Use with `defer` after a successful
 // ReadPassword to keep the password-bearing buffer alive only as long
-// as it is actually needed.
 func Zero(b []byte) {
 	for i := range b {
 		b[i] = 0
@@ -63,10 +47,6 @@ func Zero(b []byte) {
 
 // PasswordRequired returns true when stderr from a `sudo -n` attempt
 // indicates the failure was "password needed" rather than a genuine
-// command error. The strings are stable across modern sudo (1.8+) and
-// localized only when LC_ALL/LANG is set on the remote. The ssh
-// transports used with this helper conventionally do not forward
-// locale, so the C-locale strings apply.
 func PasswordRequired(stderr string) bool {
 	for _, sentinel := range passwordSentinels {
 		if strings.Contains(stderr, sentinel) {

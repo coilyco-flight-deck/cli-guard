@@ -6,8 +6,6 @@ import "syscall"
 
 // Windows process-creation flags. DETACHED_PROCESS gives the child no
 // console, CREATE_NEW_PROCESS_GROUP makes it its own group so a Ctrl
-// event aimed at the parent's console does not reach it. Together they
-// are the Windows analog of Unix setsid.
 const (
 	detachedProcess       = 0x00000008
 	createNewProcessGroup = 0x00000200

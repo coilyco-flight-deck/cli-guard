@@ -46,7 +46,6 @@ func readLastRecord(t *testing.T, w *audit.Writer, path string) audit.Record {
 
 // TestOnEvaluate_NilLeavesBehaviorUnchanged confirms the field is
 // strictly optional: a spec with no OnEvaluate matches pre-phase-4
-// behavior bit for bit.
 func TestOnEvaluate_NilLeavesBehaviorUnchanged(t *testing.T) {
 	w, path := newWriterForTest(t)
 	called := false

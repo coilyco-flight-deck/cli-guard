@@ -66,7 +66,6 @@ func TestDispatchHasStatusSubverb(t *testing.T) {
 
 // TestStatus_MostRecent_PicksNewest is the bare-args case: no ref, no
 // --pid, just `dispatch status`. Must surface the newest log across all
-// repos by embedded timestamp, not by mtime.
 func TestStatus_MostRecent_PicksNewest(t *testing.T) {
 	d := newTestDispatcher(t)
 	root := t.TempDir()
@@ -97,7 +96,6 @@ func TestStatus_MostRecent_PicksNewest(t *testing.T) {
 
 // TestStatus_ByRef_FiltersToRepoAndNumber pins the positional-ref path:
 // `dispatch status owner/repo#N` must return the newest log for that
-// specific issue, even when other repos have newer logs.
 func TestStatus_ByRef_FiltersToRepoAndNumber(t *testing.T) {
 	d := newTestDispatcher(t)
 	root := t.TempDir()
@@ -219,7 +217,6 @@ func TestStatus_MissingMeta_Degrades(t *testing.T) {
 
 // TestStatus_ExitedShowsDuration verifies that an exited dispatch (pid
 // that does not refer to a live process) reports the elapsed wall time
-// from spawn to last log write.
 func TestStatus_ExitedShowsDuration(t *testing.T) {
 	d := newTestDispatcher(t)
 	root := t.TempDir()
@@ -269,7 +266,6 @@ func TestTailLines_Truncation(t *testing.T) {
 
 // TestDispatchLogNameRE pins the filename pattern: only logs produced by
 // dispatchLogPath are matched. A worktree-style "issue-N" without a
-// timestamp must not be picked up.
 func TestDispatchLogNameRE(t *testing.T) {
 	cases := []struct {
 		name string

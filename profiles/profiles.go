@@ -1,12 +1,5 @@
 // Package profiles loads the per-host lockdown profile registry from
 // ~/.coily/coily.yaml and resolves named profiles to cli-guard/profile
-// Coordinates. The override file is the only source of non-strictest
-// tiers: if it is absent, every profile resolves to Strictest(). The
-// embedded default.yaml is a template the operator copies into place
-// via a `lockdown init-config`-style verb, never silently active.
-//
-// Pairs with cli-guard/profile, which carries the axis/tier vocabulary.
-// This package is the on-disk store; profile is the type system.
 package profiles
 
 import (
@@ -31,7 +24,6 @@ type File struct {
 
 // rawCoordinate carries the four-tier declaration verbatim from YAML.
 // Validation (axis presence, tier membership) runs on this; the
-// validated form is profile.Coordinate.
 type rawCoordinate struct {
 	DataSecurity    string `yaml:"data_security"`
 	BlastRadius     string `yaml:"blast_radius"`
@@ -41,8 +33,6 @@ type rawCoordinate struct {
 
 // Source records why a Coordinate resolved the way it did. The session
 // show command surfaces this so the operator can see at a glance
-// whether the active tiers came from their override or the
-// deny-everything fallback.
 type Source string
 
 const (
@@ -56,7 +46,6 @@ const (
 
 	// SourceUnknownProfile means the override file exists and parsed,
 	// but the requested profile name was not declared in it. Every
-	// axis falls back to Strictest().
 	SourceUnknownProfile Source = "unknown_profile"
 
 	// SourceUnset means no profile name was requested (the session
@@ -66,7 +55,6 @@ const (
 
 // Resolution is the output of Resolve: the resolved Coordinate, the
 // source that produced it, and a human-readable note suitable for the
-// show command's output.
 type Resolution struct {
 	Coord  profile.Coordinate
 	Source Source
@@ -85,7 +73,6 @@ func OverridePath() (string, error) {
 
 // LoadOverride reads and validates ~/.coily/coily.yaml. Returns
 // (nil, os.ErrNotExist) when the file is absent so callers can fall
-// back to Strictest(). Other errors are loud and kind-tagged.
 func LoadOverride() (map[string]profile.Coordinate, error) {
 	path, err := OverridePath()
 	if err != nil {
@@ -103,7 +90,6 @@ func LoadOverride() (map[string]profile.Coordinate, error) {
 
 // ParseAndValidate decodes a YAML body and validates every profile.
 // Exposed for tests and for `coily lockdown init-config` to check the
-// embedded template before writing it.
 func ParseAndValidate(body []byte, sourceDesc string) (map[string]profile.Coordinate, error) {
 	var f File
 	if err := yaml.Unmarshal(body, &f); err != nil {
@@ -128,9 +114,6 @@ func ParseAndValidate(body []byte, sourceDesc string) (map[string]profile.Coordi
 
 // Resolve returns the Coordinate for the given profile name. An empty
 // name resolves to Strictest with Source=Unset so the show command can
-// distinguish "no sentinel" from "unknown profile". Errors propagate
-// from LoadOverride only when the override file is malformed; absence
-// of the file is not an error, it is the deny-everything fallback.
 func Resolve(profileName string) (Resolution, error) {
 	if profileName == "" {
 		return strictest(SourceUnset, "no profile selected for this session"), nil
@@ -167,7 +150,6 @@ func strictest(src Source, note string) Resolution {
 
 // validateProfileName mirrors cmd/coily/ops_session.go's check. Lives
 // here too so a malformed name in the YAML fails at load time, not
-// only when a session sentinel points at it.
 func validateProfileName(s string) error {
 	if s == "" {
 		return errors.New("profile name is empty")
@@ -192,7 +174,6 @@ func validateProfileName(s string) error {
 
 // validateRaw enforces the all-axes-required rule and checks each
 // declared tier against the cli-guard/profile axis ordering. Returns a
-// validated Coordinate or a kind-tagged error.
 func validateRaw(name string, raw rawCoordinate) (profile.Coordinate, error) {
 	checks := []struct {
 		axis  profile.Axis

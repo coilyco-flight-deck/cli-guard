@@ -9,7 +9,6 @@ import (
 
 // lookFunc returns a LookPath that resolves the given map; unknown
 // keys return exec.ErrNotFound (which the engine treats as
-// pass-through, mirroring real "binary not installed" cases).
 func lookFunc(m map[string]string) LookPath {
 	return func(name string) (string, error) {
 		if v, ok := m[name]; ok {

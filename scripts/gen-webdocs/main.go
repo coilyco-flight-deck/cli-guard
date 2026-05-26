@@ -1,8 +1,5 @@
 // Command gen-webdocs renders each cli-guard example's CLI tree as a
 // static HTML site under ../../site/cli/<example>/ via cli-web-docs.
-//
-// Invoked from the repo root by `make docs-cli`. Lives in its own
-// go module so the runtime library does not depend on cli-web-docs.
 package main
 
 import (

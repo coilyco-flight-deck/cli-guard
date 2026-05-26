@@ -11,13 +11,8 @@ import (
 // pattern-match on $? without parsing stderr.
 func ExampleNew() {
 	err := exitcode.New(exitcode.PolicyDenied, "policy", errors.New("argv rejected"), "fix the input and retry")
-	fmt.Println("code:", err.Code())
-	fmt.Println("kind:", err.Kind())
-	fmt.Println("err :", err)
-	// Output:
-	// code: 2
-	// kind: policy
-	// err : argv rejected
+	fmt.Printf("code=%d kind=%s err=%v\n", err.Code(), err.Kind(), err)
+	// Output: code=2 kind=policy err=argv rejected
 }
 
 // From recovers a Coded annotation from a wrapped error chain. Use in

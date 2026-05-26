@@ -18,7 +18,6 @@ import (
 
 // secretResolverHarness wires a passthrough that exec's a stub script
 // dumping its env to a file. Lets the test assert which env vars
-// reached the child process.
 type secretResolverHarness struct {
 	cmd     *cli.Command
 	envFile string

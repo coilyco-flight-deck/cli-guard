@@ -42,7 +42,6 @@ func ExampleWriter_Wrap() {
 		return nil
 	})
 	fmt.Println("err:", err)
-	// Output:
-	// doing work
+	// Output: doing work
 	// err: <nil>
 }

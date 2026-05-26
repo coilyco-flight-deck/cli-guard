@@ -10,7 +10,6 @@ import (
 
 // initRepo bootstraps a tiny local-only repo at dir, with one committed file
 // on a tracking branch. Returns the path to a co-located bare upstream that
-// the working repo's `main` branch tracks.
 func initRepo(t *testing.T) (workdir, upstream string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {

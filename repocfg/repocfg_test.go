@@ -282,7 +282,6 @@ func TestDiscoverChildren_FindsOverlayInChild(t *testing.T) {
 func TestDiscoverChildren_SkipsLegacyRootForm(t *testing.T) {
 	// A legacy /parent/child/coily.yaml (no .coily/ overlay) is intentionally
 	// ignored. Child discovery is opt-in via the .coily/ overlay so unrelated
-	// repos that happen to predate the migration don't get pulled in.
 	parent := t.TempDir()
 	childRoot := filepath.Join(parent, "legacy-child")
 	if err := os.MkdirAll(childRoot, 0o700); err != nil {

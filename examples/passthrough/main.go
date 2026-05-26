@@ -1,13 +1,5 @@
 // Command passthrough demonstrates wrapping an existing binary as an
 // audited urfave/cli subcommand. Run with:
-//
-//	go run ./examples/passthrough -- echo hello world
-//
-// Every invocation lands a row in $TMPDIR/cli-guard-passthrough.jsonl.
-// Try a deny path:
-//
-//	go run ./examples/passthrough -- echo 'hello; rm -rf /'
-//	# rejected by policy: shell metacharacter in argv
 package main
 
 import (

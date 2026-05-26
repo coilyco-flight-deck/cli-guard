@@ -18,8 +18,6 @@ import (
 
 // Defaults for the dispatch <-> Warp seam. The agentic-os shim reads from
 // the queue dir, the URI fires warp(preview)://(tab_config|launch)/<name>.
-// Neither side knows what the other contains beyond the queue dir, the
-// JSON schema, and the launch name.
 const (
 	defaultDispatchQueueDir   = "/tmp/coily-dispatch-queue"
 	defaultDispatchLaunchName = "claude-dispatch-interactive"
@@ -29,12 +27,10 @@ const (
 
 // dispatchQueueSchemaVersion lets the shim reject queue entries it does
 // not understand once the schema evolves. Bump when adding required
-// fields; the shim ignores forward-additive fields.
 const dispatchQueueSchemaVersion = 1
 
 // dispatchQueueEntry is the JSON payload dispatch writes for the shim to
 // consume. The shim reads ref, title, cwd, prompt via jq. Field tags are
-// the wire format - rename with care.
 type dispatchQueueEntry struct {
 	SchemaVersion int    `json:"schema_version"`
 	Ref           string `json:"ref"`
@@ -45,8 +41,6 @@ type dispatchQueueEntry struct {
 
 // channelScheme maps the --channel flag to the URL scheme that lands in
 // that Warp build. `warp://` always opens Stable, `warppreview://` always
-// opens Preview - there is no LaunchServices toggle that flips this. So
-// the operator picks the channel by scheme at call site.
 func channelScheme(channel string) (string, error) {
 	switch channel {
 	case "preview":
@@ -60,7 +54,6 @@ func channelScheme(channel string) (string, error) {
 
 // surfacePath maps the --surface flag to the URI path segment Warp uses
 // to pick between a new-tab fire (tab_config) and a new-window fire
-// (launch).
 func surfacePath(surface string) (string, error) {
 	switch surface {
 	case "tab":
@@ -88,14 +81,12 @@ func dispatchURL(channel, surface, launchName string) (string, error) {
 
 // defaultOpenLaunch fires `open <url>` through the shell runner so the
 // urfave/cli plumbing and audit row remain the production path. It is the
-// default for Config.OpenLaunch; a non-Warp consumer overrides it.
 func defaultOpenLaunch(ctx context.Context, runner *shell.Runner, url string) error {
 	return runner.Exec(ctx, "open", url)
 }
 
 // defaultWorktreeAdd runs `git -C <repoPath> worktree add -B <branch>
 // <worktreePath>` through the shell runner. Default for
-// Config.WorktreeAdd; tests swap that field.
 func defaultWorktreeAdd(ctx context.Context, runner *shell.Runner, repoPath, branch, worktreePath string) error {
 	_, err := runner.Capture(ctx, "git", "-C", repoPath, "worktree", "add", "-B", branch, worktreePath)
 	return err
@@ -113,17 +104,12 @@ func (d *Dispatcher) dispatchWorktreePath(repo string, number int) (string, erro
 
 // dispatchWorktreeBranch returns the branch name for a given issue
 // number. Format: dispatch/issue-<N>. Predictable so re-dispatching the
-// same issue reuses the same branch (idempotency).
 func dispatchWorktreeBranch(number int) string {
 	return fmt.Sprintf("dispatch/issue-%d", number)
 }
 
 // ensureDispatchWorktree returns worktreePath after guaranteeing a git
 // worktree exists there. Idempotent: if a `.git` entry already lives at
-// worktreePath, returns the path without touching git. Otherwise creates
-// the parent dir and runs `git worktree add -B <branch>`. The `-B` flag
-// makes the branch creation idempotent too: a re-dispatch after the
-// worktree was manually removed will reset the branch rather than fail.
 func (d *Dispatcher) ensureDispatchWorktree(ctx context.Context, repoPath string, ref *issueRef) (string, error) {
 	worktreePath, err := d.dispatchWorktreePath(ref.Repo, ref.Number)
 	if err != nil {
@@ -144,19 +130,6 @@ func (d *Dispatcher) ensureDispatchWorktree(ctx context.Context, repoPath string
 
 // interactiveCommand spins up a new Warp tab cwd'd into the target repo
 // with `claude "Work on issue <ref>"` already submitted as the first
-// turn. Hands control back to the operator immediately.
-//
-// dispatch writes one JSON file per dispatch under the queue dir named
-// <unix-nanos>-<8hex>.json, mode 0600, carrying ref / title / cwd /
-// prompt. Then fires `open warppreview://tab_config/<launch-name>` (or
-// one of the four URL shapes from channel x surface). The agentic-os shim
-// acquires a queue mutex, pops the oldest entry, echoes the title header,
-// and execs claude. The FIFO queue is what lets concurrent dispatches
-// land in separate tabs without racing on a single scratch path.
-//
-// Soft-fail: if `open` is unavailable or Warp does not respond, dispatch
-// prints a copy-paste fallback and exits 0. The queue entry is left in
-// place so the shim can still consume it on retry.
 func (d *Dispatcher) interactiveCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "interactive",
@@ -234,14 +207,6 @@ Soft-fails to a copy-paste fallback if Warp / open are unavailable.`,
 
 // interactivePrompt is the prompt the shim execs claude with. Embeds the
 // first-action instruction so the dispatched agent fetches issue body +
-// comments before touching code; without the prime the agent often skips
-// the explicit fetch and works from the bare ref line.
-//
-// In worktree mode it also embeds the merge-back instruction: the
-// dispatched session runs on a dispatch/issue-N branch, so it must land
-// the work on main itself once green, otherwise the branch sits unmerged
-// forever. --no-worktree dispatches run in the bare checkout on main
-// already, so they skip that paragraph.
 func interactivePrompt(ref *issueRef, issue *ghIssue, noWorktree bool, repoPath string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b,
@@ -258,17 +223,12 @@ func interactivePrompt(ref *issueRef, issue *ghIssue, noWorktree bool, repoPath 
 
 // interactiveTitleLine is the self-identifying header the shim echoes in
 // the dispatched tab before exec'ing claude. Gives the operator an
-// at-a-glance read on what the session is working on without waiting for
-// claude's first turn.
 func interactiveTitleLine(ref *issueRef, issue *ghIssue) string {
 	return fmt.Sprintf("%s: %s", ref, strings.TrimSpace(issue.Title))
 }
 
 // resolveDispatchCwd returns the directory the dispatched session should
 // run in. With --no-worktree, that's the bare repo checkout. Otherwise
-// it's the per-issue worktree path: dry-run resolves the path without
-// touching git, normal mode creates the worktree (or reuses an existing
-// one).
 func (d *Dispatcher) resolveDispatchCwd(ctx context.Context, repoPath string, ref *issueRef, noWorktree, dryRun bool) (string, error) {
 	if noWorktree {
 		return repoPath, nil
@@ -300,7 +260,6 @@ func (d *Dispatcher) runInteractive(ctx context.Context, c *cli.Command) error {
 
 	// Reap merged worktrees from prior dispatches before creating this
 	// one, so worktree sprawl stays self-limiting. Soft-fail: a reaper
-	// hiccup must never block the dispatch. Skipped under --dry-run.
 	if !c.Bool("dry-run") {
 		if removed, reapErr := d.reapDispatchWorktrees(ctx); reapErr != nil {
 			fmt.Fprintf(os.Stderr, "dispatch interactive: worktree reap skipped (%v)\n", reapErr)
@@ -316,8 +275,6 @@ func (d *Dispatcher) runInteractive(ctx context.Context, c *cli.Command) error {
 
 	// Each dispatch lands in its own git worktree branched off main, so
 	// concurrent dispatches into the same repo never collide on a shared
-	// working tree. --no-worktree opts out for the rare case a session
-	// must work against the canonical checkout.
 	cwd, err := d.resolveDispatchCwd(ctx, repoPath, ref, noWorktree, c.Bool("dry-run"))
 	if err != nil {
 		return fmt.Errorf("dispatch interactive: %w", err)
@@ -367,9 +324,6 @@ func (d *Dispatcher) runInteractive(ctx context.Context, c *cli.Command) error {
 
 // writeDispatchQueueEntry writes a single JSON file to dir named
 // <unix-nanos>-<8hex>.json with mode 0600. Atomic via tmp-write + rename
-// within the same directory: the shim must not see a partial JSON payload
-// if it pops the file before the write returns. Returns the final path so
-// the soft-fail message can name it.
 func writeDispatchQueueEntry(dir string, entry dispatchQueueEntry) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("mkdir queue dir: %w", err)
@@ -397,9 +351,6 @@ func writeDispatchQueueEntry(dir string, entry dispatchQueueEntry) (string, erro
 
 // printInteractiveFallback emits the exact command the operator can paste
 // in a manually-opened tab when the Warp URL fire fails. Soft-fail by
-// design: missing Warp shouldn't error the audit row, just inform the
-// operator that the automated path didn't fire. The queue entry stays on
-// disk so a retry can consume it.
 func printInteractiveFallback(ref *issueRef, repoPath, prompt, url, queuePath string, openErr error) {
 	fmt.Fprintf(os.Stderr, "dispatch interactive: %s did not fire (%v).\n", url, openErr)
 	fmt.Fprintf(os.Stderr, "Queue entry left at %s for the shim to consume on retry.\n", queuePath)

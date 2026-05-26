@@ -1,6 +1,5 @@
 // Path defaults and per-repo audit derivation. Globals live under
 // ~/.coily so they outlive any individual repo. Locals live under
-// ./.coily so a repo can carry its own allowlist into a fresh checkout.
 package config
 
 import (
@@ -22,7 +21,6 @@ const GlobalDirName = ".coily"
 
 // LocalDirName is the per-repo overlay directory. Lives at the root of the
 // checkout. Holds the local config overlay and the per-repo command
-// allowlist.
 const LocalDirName = ".coily"
 
 // AuditSubdir is the subdirectory under the global dir where per-repo audit
@@ -31,8 +29,6 @@ const AuditSubdir = "audit"
 
 // SessionsSubdir is the subdirectory under AuditSubdir where per-session
 // state lives. One directory per CLAUDE_CODE_SESSION_ID. Currently holds
-// the active-profile sentinel; future per-session artifacts (audit
-// counters, blocked-call rows) can land alongside.
 const SessionsSubdir = "sessions"
 
 // SessionProfileFile is the basename of the per-session sentinel file
@@ -41,7 +37,6 @@ const SessionProfileFile = "profile"
 
 // UnrootedAuditName is the slug used when coily is invoked outside any git
 // repo (or inside one with no origin remote). All such invocations land in
-// a single shared file rather than scattering by cwd basename.
 const UnrootedAuditName = "_unrooted"
 
 // GlobalDir returns ~/.coily, expanded against $HOME. Returns an error only
@@ -75,7 +70,6 @@ func LocalConfigPath() (string, error) {
 
 // SessionDir returns ~/.coily/audit/sessions/<sessionID>. Caller is
 // responsible for MkdirAll. Returns an error if sessionID is empty or
-// $HOME cannot be resolved.
 func SessionDir(sessionID string) (string, error) {
 	if sessionID == "" {
 		return "", fmt.Errorf("config: session id is empty")
@@ -99,7 +93,6 @@ func SessionProfilePath(sessionID string) (string, error) {
 
 // DefaultAuditPath returns ~/.coily/audit/<slug>.jsonl, where slug is
 // derived from the current git repo's origin remote. Falls back to
-// _unrooted.jsonl when no slug can be determined.
 func DefaultAuditPath() (string, error) {
 	dir, err := GlobalDir()
 	if err != nil {
@@ -110,7 +103,6 @@ func DefaultAuditPath() (string, error) {
 
 // ExpandHome turns a leading "~/" or "~" into the user's home directory.
 // Returns the input unchanged if it doesn't start with "~" or if $HOME
-// cannot be resolved.
 func ExpandHome(p string) string {
 	if p == "" || !strings.HasPrefix(p, "~") {
 		return p
@@ -130,8 +122,6 @@ func ExpandHome(p string) string {
 
 // repoSlugCache memoizes the result of RepoAuditSlug for a single process.
 // Audit append happens once per invocation, but the slug resolver shells out
-// to git, so caching keeps the cost off the hot path if anything ever calls
-// it more than once.
 var (
 	repoSlugCache    string
 	repoSlugCacheSet bool
@@ -144,8 +134,6 @@ var slugDashRun = regexp.MustCompile(`-+`)
 
 // RepoAuditSlug returns the audit slug for the current working directory.
 // Format: "<owner>-<repo>" lowercased and reduced to [a-z0-9-]. Returns
-// UnrootedAuditName when no git origin can be discovered. Cached after the
-// first call.
 func RepoAuditSlug() string {
 	repoSlugMu.Lock()
 	defer repoSlugMu.Unlock()
@@ -180,7 +168,6 @@ func resolveRepoSlug() string {
 
 // SanitizeSlug normalizes input to lowercase, replaces every non-[a-z0-9-]
 // run with a single dash, and trims leading and trailing dashes. Exported
-// for tests and for any caller that wants to reuse the same rule.
 func SanitizeSlug(s string) string {
 	s = strings.ToLower(s)
 	s = slugSanitizer.ReplaceAllString(s, "-")
@@ -194,7 +181,6 @@ func SanitizeSlug(s string) string {
 
 // gitOriginURL shells out to `git remote get-url origin`. A 2-second timeout
 // keeps a hung git from blocking every coily invocation. Returns the empty
-// string on any error - callers fall back to _unrooted.
 func gitOriginURL() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -208,12 +194,6 @@ func gitOriginURL() (string, error) {
 }
 
 // parseOwnerRepo extracts owner and repo from a git remote URL. Handles:
-//
-//   - https://github.com/owner/repo(.git)
-//   - git@github.com:owner/repo(.git)
-//   - ssh://git@github.com/owner/repo(.git)
-//
-// Falls back to the last two path segments for any other host.
 func parseOwnerRepo(remote string) (string, string, bool) {
 	remote = strings.TrimSpace(remote)
 	remote = strings.TrimSuffix(remote, ".git")

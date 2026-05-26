@@ -17,15 +17,6 @@ import (
 
 // TestCommand_ForwardsArgvVerbatim_AllBinaries pins the per-binary
 // pass-through shape across every CLI coily wraps. One row per `coily
-// <bin>` covered, asserting argv forwards verbatim, the audit row carries
-// the right verb name, and SkipFlagParsing keeps urfave/cli from
-// swallowing flags meant for the underlying tool. Uses /bin/echo as the
-// stand-in so the test does not require aws / kubectl / gh / etc. to be
-// installed.
-// withReadCacheTestHarness runs `coily <bin>` argv repeatedly through a
-// passthrough configured with WithReadCache, counting subprocess
-// invocations and recording captured stdout. Used by all the
-// WithReadCache tests below.
 type rcHarness struct {
 	cmd    *cli.Command
 	stdout *bytes.Buffer
@@ -48,7 +39,6 @@ func newRCHarness(t *testing.T, classifier passthrough.ReadCacheClassifier, payl
 	stdout := &bytes.Buffer{}
 	// Resolve to a tiny shell script that writes payload to stdout and
 	// either exits 0 or 1. Each invocation bumps calls so the test can
-	// assert "burst collapsed to one subprocess".
 	stub := filepath.Join(dir, "stub.sh")
 	exit := "0"
 	if exitNonZero {
@@ -68,7 +58,6 @@ func newRCHarness(t *testing.T, classifier passthrough.ReadCacheClassifier, payl
 	cmd := passthrough.Command("gh", r, w, passthrough.WithReadCache(classifier))
 	// Silence urfave/cli's default os.Exit on non-zero subprocess exit
 	// so the non-zero-exit test can assert behavior without killing the
-	// test binary.
 	cmd.ExitErrHandler = func(_ context.Context, _ *cli.Command, _ error) {}
 	return rcHarness{cmd: cmd, stdout: stdout, calls: &calls}
 }
@@ -117,7 +106,6 @@ func TestWithReadCache_NonClassifyingAlwaysExecs(t *testing.T) {
 func TestWithReadCache_UnclassifiedPathSkips(t *testing.T) {
 	// Classifier returns ok=true for a path ghcache does not classify
 	// (e.g. /rate_limit). MaybeServe will report a miss and Store will
-	// return false, so the burst should run the subprocess every time.
 	h := newRCHarness(t,
 		func(_ []string) (string, time.Duration, bool) {
 			return "/rate_limit", -1, true
@@ -159,7 +147,6 @@ func TestWithReadCache_NonZeroExitDoesNotPolluteCache(t *testing.T) {
 func TestWithReadCache_MaxAgeZeroBypassesAndRePopulates(t *testing.T) {
 	// Classifier returns max=0 on the first call (forced bypass), then
 	// max=-1 (no cap) on subsequent calls. The first call must exec, the
-	// store happens on success, and subsequent unconstrained calls hit.
 	mode := 0
 	h := newRCHarness(t,
 		func(argv []string) (string, time.Duration, bool) {
@@ -192,7 +179,6 @@ func TestWithReadCache_MaxAgeZeroBypassesAndRePopulates(t *testing.T) {
 func TestWithReadCache_MaxAgePositiveCapEvictsOlderEntries(t *testing.T) {
 	// First call primes the cache with max=-1 (no cap). Second call with
 	// max=1ns must miss because the stored entry is older than 1ns by the
-	// time MaybeServeMaxAge runs.
 	mode := 0
 	h := newRCHarness(t,
 		func(argv []string) (string, time.Duration, bool) {
@@ -308,9 +294,6 @@ func TestCommand_ForwardsArgvVerbatim_AllBinaries(t *testing.T) {
 
 // TestCommand_ForwardsArgvVerbatim exercises the full pass-through:
 // argv validation passes, the audit writer records the invocation, and
-// every argument after the binary name reaches the subprocess. Uses
-// /bin/echo as the stand-in tool so the test does not depend on any
-// real package manager being installed.
 func TestCommand_ForwardsArgvVerbatim(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "audit.jsonl")
@@ -354,9 +337,6 @@ func TestCommand_ForwardsArgvVerbatim(t *testing.T) {
 
 // TestCommand_CapturesStderrTailOnFailure pins issue #63: pass-through
 // failures must carry the wrapped tool's stderr in the audit row, not just
-// the bare Go process-exit string. Uses /bin/sh as the stand-in to write
-// to stderr and exit non-zero; the audit row's stderr_tail field carries
-// the captured slice.
 func TestCommand_CapturesStderrTailOnFailure(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "audit.jsonl")
@@ -398,7 +378,6 @@ func TestCommand_CapturesStderrTailOnFailure(t *testing.T) {
 
 // TestCommand_OmitsStderrTailOnSuccess pins the inverse: a successful
 // pass-through must not bloat the audit row with whatever the tool happened
-// to write to stderr (progress bars, info logs, deprecation warnings).
 func TestCommand_OmitsStderrTailOnSuccess(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "audit.jsonl")
@@ -428,10 +407,6 @@ func TestCommand_OmitsStderrTailOnSuccess(t *testing.T) {
 
 // TestCommand_WithSkipPolicy_AllowsShellMetacharacters pins the per-binary
 // opt-out: a pass-through built with WithSkipPolicy forwards argv that
-// would otherwise trip the metacharacter check, so callers can pass
-// markdown bodies (blockquotes, backticks, '$', parens) through `coily gh
-// issue create --body ...` and similar verbatim. The audit row still
-// records the invocation as accepted.
 func TestCommand_WithSkipPolicy_AllowsShellMetacharacters(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "audit.jsonl")
@@ -467,7 +442,6 @@ func TestCommand_WithSkipPolicy_AllowsShellMetacharacters(t *testing.T) {
 
 // TestCommand_RejectsShellMetacharacters pins the security property:
 // argv with a shell metacharacter is refused before the subprocess runs,
-// the refusal is recorded in the audit log, and the error surfaces.
 func TestCommand_RejectsShellMetacharacters(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "audit.jsonl")

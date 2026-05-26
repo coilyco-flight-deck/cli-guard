@@ -11,7 +11,6 @@ import (
 
 // resetCacheDir points ghidcache at a fresh tempdir and clears the gh
 // identity env vars so subtests do not alias each other through the
-// shared cache root.
 func resetCacheDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

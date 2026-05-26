@@ -1,19 +1,5 @@
 // Package ssh is the Go-SDK boundary for ssh and scp. Per the cli-guard
 // SECURITY.md discipline, simple-API tools (ssh, scp, tailscale) talk to
-// remote hosts through Go SDKs instead of shelling out, so no argv ever
-// reaches an OS exec layer for these verbs.
-//
-// This package wraps golang.org/x/crypto/ssh. Authentication uses the
-// running ssh-agent when KeyPath is empty, or a private key file when
-// set. Host keys are verified against ~/.ssh/known_hosts via
-// golang.org/x/crypto/ssh/knownhosts. ssh.InsecureIgnoreHostKey is
-// forbidden in this package; if known_hosts cannot be loaded, Dial fails
-// closed.
-//
-// Origin: lifted from coily/pkg/ssh in coily#187 phase 1 so the SSH
-// boundary becomes a standalone cli-guard library before the free-form
-// `coily ssh <host> -- <args>` passthrough lands on top of it. coily
-// keeps a type-alias shim at pkg/ssh that re-exports this package.
 package ssh
 
 import (
@@ -46,13 +32,10 @@ const DefaultPort = "22"
 
 // ErrNoAuth is returned when neither ssh-agent nor a private key file
 // can supply a usable signer. Message names the recovery path per
-// AGENTS.md "opaque errors are design smells - recovery messages should
-// name the dictatable next step." Issue #62.
 var ErrNoAuth = errors.New("ssh: no authentication method available (ssh-agent unreachable and no key path). Recovery: run `ssh-add ~/.ssh/<key>` to load a key into the agent, or set ssh.key_path in coily config")
 
 // ErrNoKnownHosts is returned when ~/.ssh/known_hosts cannot be read.
 // Failing closed here is the point. ssh.InsecureIgnoreHostKey is never
-// used in this package.
 var ErrNoKnownHosts = errors.New("ssh: cannot load known_hosts; refusing to dial without host-key verification")
 
 // Client is a configured ssh dialer. Build one per-process and reuse.
@@ -72,13 +55,6 @@ type Client struct {
 
 // Run opens a session on host as user, runs cmd, and returns its stdout
 // and stderr. The remote command is passed as a single string to the
-// remote shell, matching ssh(1) semantics. Callers must construct cmd
-// from compile-time constants or values that have passed
-// policy.ValidateArg, exactly the same discipline that pkg/shell argv
-// requires.
-//
-// The context bounds the dial and the session. Cancellation closes the
-// underlying connection.
 func (c *Client) Run(ctx context.Context, host, user, cmd string) (stdout, stderr string, err error) {
 	conn, err := c.dial(ctx, host, user)
 	if err != nil {
@@ -112,8 +88,6 @@ func (c *Client) Run(ctx context.Context, host, user, cmd string) (stdout, stder
 
 // Stream runs cmd on host as user, streaming stdout/stderr to the
 // supplied writers as bytes arrive. Useful for `journalctl -f` style
-// verbs where output must be incremental. Returns when the remote
-// command exits or ctx is canceled. Either writer may be nil to discard.
 func (c *Client) Stream(ctx context.Context, host, user, cmd string, stdout, stderr writer) error {
 	conn, err := c.dial(ctx, host, user)
 	if err != nil {
@@ -149,17 +123,12 @@ func (c *Client) Stream(ctx context.Context, host, user, cmd string, stdout, std
 
 // writer is the io.Writer subset used by StreamWriters. Exported as an
 // unnamed interface so callers can pass *os.File or *bytes.Buffer
-// without an extra import dance.
 type writer interface {
 	Write(p []byte) (int, error)
 }
 
 // StreamStdin is Stream with a stdin reader attached to the remote
 // session. Used by `coily ssh deploy` to pipe a sudo password into a
-// remote `sudo -S` invocation: the password reaches the remote sudo
-// over the encrypted ssh channel, never appears in argv (so it is
-// invisible to ps), and never reaches coily's audit log (which records
-// argv only). stdin may be nil, in which case this behaves like Stream.
 func (c *Client) StreamStdin(ctx context.Context, host, user, cmd string, stdin io.Reader, stdout, stderr writer) error {
 	conn, err := c.dial(ctx, host, user)
 	if err != nil {
@@ -198,14 +167,6 @@ func (c *Client) StreamStdin(ctx context.Context, host, user, cmd string, stdin 
 
 // CopyTo uploads localPath to remotePath on host as user, using SFTP over
 // the same ssh transport as Run / Stream. Host-key verification and auth
-// go through the same dial() path; ssh.InsecureIgnoreHostKey is still
-// forbidden. The remote file is created with mode 0644 and truncated if
-// it already exists. Intermediate remote directories are NOT created -
-// callers that need them should Run `mkdir -p` first.
-//
-// remotePath is passed to the remote's SFTP server as-is. Callers must
-// build it from compile-time constants or values that have passed
-// policy.ValidateArg, same discipline as Run.
 func (c *Client) CopyTo(ctx context.Context, host, user, localPath, remotePath string) error {
 	conn, err := c.dial(ctx, host, user)
 	if err != nil {
@@ -278,10 +239,6 @@ func (c *Client) dial(ctx context.Context, host, user string) (*ssh.Client, erro
 		Timeout:         c.dialTimeout(ctx),
 		// Restrict the client's host-key-algorithm list to what is actually
 		// recorded in known_hosts for this host. Without this, crypto/ssh
-		// requests any server-preferred algo, and when the server offers
-		// ecdsa/rsa first we hit "key mismatch" even though an ed25519
-		// entry exists. knownhosts.New does not do this automatically in
-		// x/crypto v0.50 (no HostKeyDB/HostKeyAlgorithms helper yet).
 		HostKeyAlgorithms: c.knownHostAlgos(host),
 	}
 
@@ -289,7 +246,6 @@ func (c *Client) dial(ctx context.Context, host, user string) (*ssh.Client, erro
 
 	// Use a Dialer that respects ctx for the TCP step. crypto/ssh has no
 	// context-aware Dial, so we connect manually then hand the conn to
-	// ssh.NewClientConn.
 	d := net.Dialer{Timeout: cfg.Timeout}
 	tcp, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
@@ -305,8 +261,6 @@ func (c *Client) dial(ctx context.Context, host, user string) (*ssh.Client, erro
 
 // translateDialError wraps a TCP dial failure with an actionable hint
 // when the underlying error matches a common shape. Issue #62: the raw
-// crypto/ssh idiom names the cause but not the next step. Falls through
-// verbatim when the shape is unrecognized so debugging info is preserved.
 func translateDialError(addr string, err error) error {
 	msg := err.Error()
 	switch {
@@ -324,7 +278,6 @@ func translateDialError(addr string, err error) error {
 
 // translateHandshakeError wraps an SSH handshake failure with an
 // actionable hint. The most common shape on Kai's hosts is auth
-// rejection from a stale or unloaded key.
 func translateHandshakeError(addr string, err error) error {
 	msg := err.Error()
 	switch {
@@ -388,7 +341,6 @@ func (c *Client) authMethods() ([]ssh.AuthMethod, error) {
 
 // hostKeyCallback wires ~/.ssh/known_hosts (or KnownHostsPath if set)
 // into the dial. Always strict. ssh.InsecureIgnoreHostKey is forbidden
-// in this package and not reachable from any code path.
 func (c *Client) hostKeyCallback() (ssh.HostKeyCallback, error) {
 	path := c.KnownHostsPath
 	if path == "" {
@@ -409,14 +361,7 @@ func (c *Client) hostKeyCallback() (ssh.HostKeyCallback, error) {
 }
 
 // knownHostAlgos parses known_hosts and returns the set of host-key
-// algorithms recorded for host. Returns nil on any error or empty match
-// so crypto/ssh falls back to its default list (which reproduces the
-// original "key mismatch" behavior; no worse than today). host may have
-// an optional ":port" suffix, which is stripped for the lookup since
-// known_hosts bracket-ports only for non-22.
-//
-//nolint:gocognit,gocyclo,cyclop // known_hosts parsing inherently branches on comment/blank/hashed/hostlist/base64 sanity; splitting the loop body obscures the parse flow.
-func (c *Client) knownHostAlgos(host string) []string {
+func (c *Client) knownHostAlgos(host string) []string { //nolint:gocognit,gocyclo,cyclop // known_hosts parsing inherently branches on comment/blank/hashed/hostlist/base64 sanity.
 	path := c.KnownHostsPath
 	if path == "" {
 		home, err := os.UserHomeDir()
@@ -433,7 +378,6 @@ func (c *Client) knownHostAlgos(host string) []string {
 
 	// Strip :port if present. knownhosts hashes also start with "|1|"; we
 	// don't resolve those here, so hashed entries won't contribute. Kai's
-	// known_hosts uses plain hostname entries.
 	bare := host
 	if i := strings.LastIndex(host, ":"); i >= 0 && !strings.Contains(host, "]") {
 		bare = host[:i]
@@ -453,7 +397,6 @@ func (c *Client) knownHostAlgos(host string) []string {
 		}
 		// fields[0] is hostlist, fields[1] is algo, fields[2] is base64 key.
 		// hostlist may be a comma-separated set. We match exactly; hashed
-		// entries (|1|…) are skipped (no hostname match).
 		hosts := strings.Split(fields[0], ",")
 		match := false
 		for _, h := range hosts {
@@ -489,7 +432,6 @@ func loadSigner(path string) (ssh.Signer, error) {
 
 // withDefaultPort returns host as-is if it already has a ":port" suffix,
 // otherwise appends DefaultPort. IPv6 literals (which contain colons)
-// must be supplied bracketed by the caller.
 func withDefaultPort(host string) string {
 	if strings.Contains(host, "]") || strings.Count(host, ":") == 1 {
 		return host

@@ -108,7 +108,6 @@ func TestRender_Table_ListOfMaps(t *testing.T) {
 	}
 	// tablewriter v1 renders headers uppercased and uses unicode box
 	// characters by default. We verify the data lands and the box is
-	// drawn; exact glyphs are an implementation detail of tablewriter.
 	for _, want := range []string{"ID", "NAME", "a", "alpha"} {
 		if !strings.Contains(string(got), want) {
 			t.Errorf("table missing %q in:\n%s", want, got)

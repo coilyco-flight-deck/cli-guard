@@ -65,8 +65,6 @@ func dialThroughProxy(t *testing.T, proxyURL, hostport string) (net.Conn, error)
 
 // newHTTPSServer starts a TLS test server and returns its host:port plus a
 // CA cert pool that trusts it. The proxy itself does no TLS, so the client
-// (us, in the test) must trust the server cert when negotiating through the
-// tunnel.
 func newHTTPSServer(t *testing.T, body string) (hostport string, pool *x509.CertPool) {
 	t.Helper()
 	s := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

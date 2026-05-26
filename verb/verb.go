@@ -1,14 +1,5 @@
 // Package verb is the middleware that wraps every coily command action in
 // the standard pipeline of:
-//
-//  1. Argument validation (no shell metacharacters).
-//  2. Action execution.
-//  3. Audit-log record.
-//
-// Using verb.Wrap is the way coily guarantees that every user-visible verb
-// goes through the security boundary. Anything that constructs a
-// *cli.Command.Action by hand bypasses audit logging and argv validation.
-// Don't do that.
 package verb
 
 import (
@@ -25,20 +16,14 @@ import (
 
 // CommitScopeFlag is the canonical name of the global --commit-scope flag.
 // Exported so the host CLI can declare the flag and verb.Wrap can read it
-// without disagreeing on spelling.
 const CommitScopeFlag = "commit-scope"
 
 // AuditParentFlag is the canonical name of the global --audit-parent flag.
 // Set by a coily-on-host A invocation that ssh-passthroughs into host B, so
-// host B's audit row records the host-A row's id as its parent. The host
-// CLI declares the flag and verb.Wrap reads it via the same spelling.
-// Companion env var is COILY_AUDIT_PARENT. coilysiren/coily#187 phase 2.
 const AuditParentFlag = "audit-parent"
 
 // AuditParentEnvVar is the env-var alternative to --audit-parent. Reads
 // the same value into audit.Record.AuditParent. Useful when the parent
-// process can set the environment for a child but cannot intercept its
-// argv. coilysiren/coily#187 phase 2.
 const AuditParentEnvVar = "COILY_AUDIT_PARENT"
 
 // Spec describes a verb before it is wrapped into a cli.ActionFunc.
@@ -49,8 +34,6 @@ type Spec struct {
 
 	// ArgsFunc extracts the user-supplied string arguments from the
 	// *cli.Command for validation. Returns named flags and positional args.
-	// Both are fed to policy.ValidateArgs / ValidateArgSlice. If ArgsFunc is
-	// nil, Wrap treats the verb as having no user-supplied string input.
 	ArgsFunc func(*cli.Command) (args map[string]string, positional []string)
 
 	// Action is the verb's real work. Called only after argv validation passes.
@@ -58,86 +41,42 @@ type Spec struct {
 
 	// SkipPolicy disables the shell-metacharacter check for this verb. Set
 	// true only for pass-throughs whose argv goes straight through execve to
-	// a tool that does not feed it back through a shell (gh, aws, tailscale,
-	// package managers). The audit log and the lockdown deny list still
-	// cover the boundary; the metacharacter check is paranoia for the
-	// remote-shell path (ssh remote-cmd, kubectl/docker exec into bash -c)
-	// and gets in the way of legitimate argv content like markdown bodies
-	// (backticks, '>', '$') that callers want to forward verbatim.
 	SkipPolicy bool
 
 	// SkipScope disables --commit-scope resolution for this verb. Set true
 	// for read-only or self-referential verbs that would refuse to run
-	// outside a git repo otherwise (version, whoami, audit, git trailer/
-	// audit-show, lockdown, setup, install-completion). The audit row is
-	// still written; CommitScope is just left empty so the row never appears
-	// in any commit's trailer query.
 	SkipScope bool
 
 	// OnComplete, if set, runs inside writer.Wrap after Action returns and
 	// before the audit record is appended. Receives a pointer to the record
-	// being finalized so the verb can attach side-channel data (e.g. the
-	// rows collected by the egress proxy in pkg/egress). Decision /
-	// ExitCode / DurationMS / Error are already set when OnComplete runs;
-	// mutating them is not the contract.
 	OnComplete func(*audit.Record)
 
 	// CommitScopeOverride, when non-empty, replaces flag/env resolution and
 	// uses this absolute path as the audit row's commit-scope. Set by `coily
-	// exec` discovered-from-child verbs so audit rows bind to the matched
-	// child repo, not cwd's git toplevel (which often is not a repo when the
-	// operator runs `coily exec` one directory above the target). Ignored
-	// when SkipScope is true.
 	CommitScopeOverride string
 
 	// CommitScopeArgvHint, when set, runs as a fallback resolver before
 	// scope.Resolve and only when neither --commit-scope (still at "auto")
-	// nor $COILY_COMMIT_SCOPE was set explicitly. Receives the verb's argv;
-	// returning a non-empty path becomes the resolved commit-scope. Used by
-	// `coily ops gh` to default the scope to ~/projects/coilysiren/<name>
-	// when the user passed --repo coilysiren/<name>. Loses to
-	// CommitScopeOverride and to any explicit flag/env value. Ignored when
-	// SkipScope is true.
 	CommitScopeArgvHint func(argv []string) string
 
 	// OnEvaluate, when set, runs after argv validation and before Action.
 	// Returning a non-nil *ProfileDecision attaches it to the audit row.
-	// Returning a non-nil error with Decision.Allowed=false short-circuits
-	// the Action call, exits with PolicyDenied, and tags the audit row as
-	// reject. Returning (nil, err) is treated as an evaluator internal
-	// failure (Generic exit code). Phase 4 plumbing for
-	// coilysiren/coily#150; no caller in cli-guard sets this. Phase 5
-	// fills in per-axis decision logic on the consumer side.
 	OnEvaluate func(ctx context.Context, cmd *cli.Command) (*audit.ProfileDecision, error)
 
 	// IDOverride, when non-empty, is used as audit.Record.ID for this
 	// invocation in place of the default auto-generated UUID v7. Set by
-	// verbs that need to know their own audit row id before the row is
-	// written, so the id can be plumbed into a side channel that other
-	// processes will reference. Notably coily's ssh passthrough
-	// pre-allocates the local row id and ships it to the remote as
-	// --audit-parent. coilysiren/coily#187 phase 2.
 	IDOverride string
 
 	// ResolveInvokeCWD, when set, returns the operator's invoke-time cwd
 	// (distinct from os.Getwd() which captures the post-cd subprocess
-	// cwd). The returned value lands in audit.Record.CWDAtInvocation so
-	// audit reviewers can flag drift between the two. cli-guard does not
-	// look at any environment variable itself; the consumer wires this
-	// callback to its own resolver (typically reading $OLDPWD or a
-	// consumer-specific override). Empty return = no value recorded.
-	// See coilysiren/coily#109.
 	ResolveInvokeCWD func() string
 }
 
 // Wrap returns a cli.ActionFunc that runs the full coily verb pipeline.
-//
-// writer may be nil in dev contexts; a nil writer skips audit logging.
 func Wrap(spec Spec, writer *audit.Writer) cli.ActionFunc {
 	return func(ctx context.Context, cmd *cli.Command) error {
 		// os.Args is what the user typed. Better for audit than trying to
 		// reconstruct from cli.Command state (which requires a fully-
-		// initialized cmd and is awkward to assemble).
 		argv := append([]string{}, os.Args...)
 		if !spec.SkipPolicy {
 			args, positional := extractArgs(spec, cmd)
@@ -190,12 +129,6 @@ func Wrap(spec Spec, writer *audit.Writer) cli.ActionFunc {
 
 // buildBaseRecord composes the per-invocation Record that writer.Wrap will
 // fill in with Decision/ExitCode/DurationMS. Resolves --commit-scope here
-// so a misconfigured shell fails loud before fn runs. Honors
-// spec.CommitScopeOverride when set so verbs that pre-compute their
-// commit-scope (notably `coily exec` from a direct-child match) can bind
-// the audit row to a path that is not cwd's git toplevel. argv is the full
-// os.Args captured by Wrap and is fed to spec.CommitScopeArgvHint when
-// neither --commit-scope nor $COILY_COMMIT_SCOPE was set explicitly.
 func buildBaseRecord(spec Spec, argv []string, cmd *cli.Command) (audit.Record, error) {
 	cwd := scope.CWD()
 	repoRoot, _ := scope.Resolve("auto", "", cwd) // forensic-only, ignore error
@@ -256,7 +189,6 @@ func buildBaseRecord(spec Spec, argv []string, cmd *cli.Command) (audit.Record, 
 
 // resolveAuditParent reads --audit-parent off the root command, then falls
 // back to $COILY_AUDIT_PARENT. Empty when neither is set (the common case;
-// only ssh-passthrough invocations carry a parent id today).
 func resolveAuditParent(cmd *cli.Command) string {
 	root := cmd
 	if r := cmd.Root(); r != nil {
@@ -270,9 +202,6 @@ func resolveAuditParent(cmd *cli.Command) string {
 
 // runOnEvaluate calls spec.OnEvaluate (if set) and returns the
 // attached decision plus an optional coded error that Wrap should
-// return immediately. Splits the deny path (decision attached, audit
-// row written, PolicyDenied) from the evaluator-internal-failure path
-// (Generic). Returns (nil, nil) when OnEvaluate is unset.
 func runOnEvaluate(ctx context.Context, cmd *cli.Command, spec Spec, base audit.Record, writer *audit.Writer, argv []string) (*audit.ProfileDecision, error) {
 	if spec.OnEvaluate == nil {
 		return nil, nil //nolint:nilnil // intentional: no decision, no error

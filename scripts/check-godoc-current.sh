@@ -1,10 +1,6 @@
 #!/bin/sh
 # Generate or check godoc-current.txt: the committed snapshot of `go doc -all`
 # for every public package in this module. CI runs this without --update and
-# fails if the file is out of date, so unintentional API changes show up as a
-# diff in PR review. Regenerate locally with `coily exec godoc-update` (or
-# `./scripts/check-godoc-current.sh --update`) and commit alongside the API
-# change. Pattern adopted from urfave/cli.
 
 set -eu
 

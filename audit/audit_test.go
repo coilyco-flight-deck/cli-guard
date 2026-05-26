@@ -189,7 +189,6 @@ func TestAppend_RotatesOnSize(t *testing.T) {
 func TestAppend_CreatesNestedParentDirectories(t *testing.T) {
 	// Simulate the "parent directory does not exist" path. tempWriter already
 	// nests a single "subdir" level; this test goes deeper and verifies the
-	// whole chain is created with 0700 perms.
 	dir := t.TempDir()
 	nested := filepath.Join(dir, "a", "b", "c")
 	w := &audit.Writer{
@@ -224,7 +223,6 @@ func TestAppend_FailsWhenParentDirUnwritable(t *testing.T) {
 	}
 	// Parent directory exists but lacks write permission. Append should
 	// return an error (mkdir or open will fail with EACCES). The Wrap layer
-	// will surface it to stderr exactly once.
 	dir := t.TempDir()
 	locked := filepath.Join(dir, "locked")
 	if err := os.Mkdir(locked, 0o500); err != nil {
@@ -297,7 +295,6 @@ func TestWrap_PrintsStderrOnAppendFailure(t *testing.T) {
 	}
 	// Point Path at an unwritable directory so Append fails. Capture stderr
 	// across several Wrap calls; every failure prints a line so the operator
-	// notices something is wrong.
 	dir := t.TempDir()
 	locked := filepath.Join(dir, "locked")
 	if err := os.Mkdir(locked, 0o500); err != nil {

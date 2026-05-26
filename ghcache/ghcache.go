@@ -1,28 +1,5 @@
 // Package ghcache caches GitHub REST `GET` responses keyed by method,
 // path, body, and token fingerprint, with method-aware write-through
-// invalidation. Drives both `coily dispatch` (a burst of dispatches
-// against the same issue collapses to one `gh api` call plus hits) and
-// the `watch coily ops gh ...` pattern across ~10 repos at 2-second
-// intervals without burning the 5000/hr REST budget.
-//
-// Tiered TTLs reflect how stable each surface is. The four tiers are
-// declarative: 1 minute for fast-moving issue/PR/CI surfaces (the
-// `watch` use case), 10 minutes for head-of-branch reads and search, 1
-// hour for repo-level metadata, 25 hours for the identity surface
-// (user/org/teams). Tier classification lives in this package so the
-// choice is reviewable in one place.
-//
-// Write-through invalidation: when a caller issues a `POST`, `PATCH`,
-// or `DELETE`, the matching `GET` entry plus its semantic parent (e.g.
-// the issue body when a comment is posted, the issue list when an
-// issue is mutated, the labels list when a label is touched) are
-// dropped. The cache is not load-bearing for correctness; on a missed
-// invalidation, the next read returns slightly stale data for at most
-// the tier's TTL.
-//
-// Failure mode matches ttlcache: cache miss or corrupt entry falls
-// through to the underlying fetch. See cli-guard#56 (initial) and
-// cli-guard#75 (four-tier expansion).
 package ghcache
 
 import (
@@ -43,29 +20,23 @@ import (
 const (
 	// TTL1Min covers fast-moving issue/PR/CI surfaces. Sized to absorb a
 	// `watch -n 2` loop across ~10 repos (~10 calls/min, well under the
-	// 5000/hr authenticated REST budget) while still surfacing new
-	// issues/comments within a minute of being filed.
 	TTL1Min = 1 * time.Minute
 
 	// TTL10Min covers head-of-branch reads, ref/tree/content lookups,
 	// and search. Slower turnover than issues; long enough to collapse
-	// most repeated reads, short enough that a push is visible quickly.
 	TTL10Min = 10 * time.Minute
 
 	// TTL1Hour covers repo-level metadata: the repo body, labels,
 	// milestones, releases, tags, topics, languages, contributors,
-	// collaborators. These move on human-edit timescales (weeks).
 	TTL1Hour = 1 * time.Hour
 
 	// TTL25Hour covers the identity surface: user, org, teams. Picked
 	// at 25 (not 24) hours so a daily cron always sees a miss across
-	// clock skew. ghidcache keeps its own shorter TTL for `/user`.
 	TTL25Hour = 25 * time.Hour
 )
 
 // get returns a ttlcache rooted under the gh-api-cache subdir. The
 // directory is shared across tiers; per-entry TTLs encode the freshness
-// window so a single directory can hold mixed-tier entries.
 func get() *ttlcache.Cache {
 	dir := os.Getenv("COILY_CACHE_DIR")
 	if dir == "" {
@@ -80,18 +51,11 @@ func get() *ttlcache.Cache {
 
 // GetJSON fetches the response body for a `GET <path>` GitHub REST call,
 // served from cache if a fresh entry exists. On miss it invokes fetch
-// and stores the result under a TTL derived from the path tier.
-//
-// The path is the gh-api-style request path - either `/repos/O/R/issues/N`
-// or `repos/O/R/issues/N` (leading slash is normalized). Query strings
-// are included for cache-key purposes so paginated reads of the same
-// endpoint produce distinct entries.
 func GetJSON(path string, fetch func() ([]byte, error)) ([]byte, error) {
 	ttl := classify(path)
 	if ttl == 0 {
 		// Path doesn't match any tier - skip the cache entirely rather
 		// than guess a TTL that might be too long for a write-sensitive
-		// endpoint.
 		return fetch()
 	}
 	return get().GetOrSet(cacheKey("GET", path, nil), ttl, fetch)
@@ -99,9 +63,6 @@ func GetJSON(path string, fetch func() ([]byte, error)) ([]byte, error) {
 
 // MaybeServe is the lookup-only half of the cache. Returns (cached
 // bytes, true) on a fresh hit, (nil, false) on miss or unclassified
-// path. Designed for callers that run their own fetch (e.g. a
-// subprocess passthrough that needs to tee stdout while still serving
-// cache hits without exec); pair with Store on a successful fetch.
 func MaybeServe(path string) ([]byte, bool) {
 	if classify(path) == 0 {
 		return nil, false
@@ -111,17 +72,6 @@ func MaybeServe(path string) ([]byte, bool) {
 
 // MaybeServeMaxAge is the per-call-freshness variant of MaybeServe.
 // Returns (cached bytes, true) only when a cached entry exists AND its
-// age is <= max. max == 0 always returns (nil, false), letting a caller
-// force a bypass with no special-case. max < 0 disables the extra cap
-// and behaves identically to MaybeServe.
-//
-// The underlying entry's tier TTL still applies as the upper bound: an
-// entry that has expired under its tier is a miss regardless of max.
-// Store TTL is unaffected by max - that stays the path-tier value, so
-// the next read still sees the full TTL window unless the next caller
-// also passes a tighter max.
-//
-// Designed for `coily ops gh --max-age=<dur>` (coilysiren/coily#267).
 func MaybeServeMaxAge(path string, maxAge time.Duration) ([]byte, bool) {
 	if classify(path) == 0 {
 		return nil, false
@@ -131,10 +81,6 @@ func MaybeServeMaxAge(path string, maxAge time.Duration) ([]byte, bool) {
 
 // Store puts data under path using the TTL derived from the path's
 // tier. Returns false if the path is unclassified (caller should be
-// checking too, but this is the safe-by-default guard). I/O errors on
-// the underlying ttlcache write are swallowed: a missed store falls
-// through to "next read refetches", same failure mode as the rest of
-// the cache.
 func Store(path string, data []byte) bool {
 	ttl := classify(path)
 	if ttl == 0 {
@@ -146,19 +92,6 @@ func Store(path string, data []byte) bool {
 
 // Invalidate drops cache entries that a `method <path>` write would
 // affect. Idempotent and safe to call on paths that have no cached
-// entry. Beyond the direct path, also drops:
-//
-//   - Comment writes drop the parent issue/PR (the `comments` count
-//     changes on the parent body).
-//   - Issue/PR body writes drop the corresponding list endpoint.
-//   - Label writes drop the labels list and (for named-label edits) the
-//     label entry.
-//   - Release writes drop the releases list and the latest-release entry.
-//   - Milestone writes drop the milestones list.
-//   - PR review writes drop the parent PR and its reviews list.
-//
-// Method is normalized to upper-case. method == "GET" is a no-op (reads
-// don't invalidate anything).
 func Invalidate(method, path string) {
 	method = strings.ToUpper(strings.TrimSpace(method))
 	if method == "" || method == "GET" {
@@ -176,8 +109,6 @@ func Invalidate(method, path string) {
 
 // affectedReadKeys returns the read endpoints a write to `path`
 // invalidates beyond the direct path. The list captures the realistic
-// surface coily actually writes through `gh` rewrites (issue/PR
-// mutations, label edits, release/milestone edits, PR reviews).
 func affectedReadKeys(path string) []string {
 	p := normalizePath(path)
 	var out []string
@@ -212,8 +143,6 @@ func affectedReadKeys(path string) []string {
 
 // classify returns the TTL for a path or 0 if no tier matches. Order
 // matters: more specific patterns are tested before the catch-alls
-// (e.g. /commits/{sha}/status is Tier-1 and must be tested before
-// /commits/{sha} which is Tier-2).
 func classify(path string) time.Duration {
 	p, _ := splitQuery(normalizePath(path))
 	switch {
@@ -262,15 +191,7 @@ func classify(path string) time.Duration {
 }
 
 // cacheKey produces the on-disk key. Layout: method:path:bodyhash:host:tokenfp.
-// Sorting query params (when present) so callers that build URLs in
-// different orders still alias. body is nil for GET, the raw request body
-// otherwise (POST/PATCH bodies are not cached today but the signature
-// reserves the slot for symmetry with cli-guard#56's spec).
-//
-// write-body-cache shape called out in the cli-guard#56 spec.
-//
-//nolint:unparam // method is always "GET" today; slot reserved for the
-func cacheKey(method, path string, body []byte) string {
+func cacheKey(method, path string, body []byte) string { //nolint:unparam // method always "GET" today; slot reserved for future write-cache.
 	method = strings.ToUpper(method)
 	p, q := splitQuery(normalizePath(path))
 	bh := "no-body"
@@ -323,8 +244,6 @@ func sortedQuery(q string) string {
 
 // tokenFingerprint is the same shape as ghidcache's: short sha256 of the
 // token, or a stable "no-env-token" marker for keyring-auth runs. Keeps
-// different tokens from aliasing in the cache without writing the token
-// itself to disk.
 func tokenFingerprint(tok string) string {
 	if tok == "" {
 		return "no-env-token"

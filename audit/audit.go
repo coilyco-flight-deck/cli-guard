@@ -1,17 +1,5 @@
 // Package audit writes one JSONL record per CLI invocation to an
 // append-only log outside the working tree. Per SECURITY.md, the
-// audit log is the forensic trail if an agent (or a confused human) invokes
-// something destructive.
-//
-// Rotation is handled by lumberjack: when the active file reaches MaxSizeMB
-// it is renamed with a timestamp suffix and a fresh file is started. Old
-// backups past MaxBackups or MaxAgeDays are pruned. All files are written
-// with 0600 perms. If the target directory does not exist it is created
-// with 0700.
-//
-// Failure mode: per-call Append errors propagate up. The runtime is expected
-// to call Preflight at startup so an unwritable audit dir fails loudly there
-// instead of being swallowed across hundreds of invocations.
 package audit
 
 import (
@@ -34,16 +22,9 @@ import (
 
 // Record is one line in the audit log. Timestamp is unix seconds (int64),
 // JSON-encoded as a number. Easier to sort and diff than RFC3339 strings.
-//
-// Decision is "accept" if the verb was allowed to run (regardless of whether
-// the underlying tool then succeeded or failed) or "reject" if coily's policy
-// blocked the invocation before any subprocess or SDK call. Both outcomes are
-// audited; "reject" lets a forensic reader cleanly distinguish a metacharacter
-// scrub from an AccessDenied at the AWS edge.
 type Record struct {
 	// ID is a UUID v7 (time-ordered) populated on Append if unset. Used as
 	// the stable identifier in commit trailers (`coily://<ts>/<short>`),
-	// where short is the first 8 base32 chars of the raw bytes.
 	ID        string   `json:"id,omitempty"`
 	Timestamp int64    `json:"ts"`
 	Version   string   `json:"version,omitempty"`
@@ -54,99 +35,48 @@ type Record struct {
 	Error     string   `json:"error,omitempty"`
 	// StderrTail is a bounded last-N-bytes capture of the wrapped tool's
 	// stderr, populated by pass-through verbs on non-zero exit so the audit
-	// row carries enough context to reconstruct what the tool said. Bare
-	// "exit status 1" is the failure mode this fixes (issue #63). Bounded
-	// at MaxStderrTailBytes to keep rows small. Empty when the verb did
-	// not run a captured subprocess, when exit was zero, or when the
-	// subprocess wrote nothing to stderr.
 	StderrTail string `json:"stderr_tail,omitempty"`
 	DurationMS int64  `json:"duration_ms,omitempty"`
 	// RepoRoot is git rev-parse --show-toplevel of cwd at invocation time,
 	// or empty if cwd was not inside a git repo. Forensic only: tells the
-	// reader where the operator actually was, independent of CommitScope.
 	RepoRoot string `json:"repo_root,omitempty"`
 	// CWDSubprocess is os.Getwd() captured by buildBaseRecord at the
 	// moment the subprocess saw the world. Differs from CWDAtInvocation
-	// when an agent did `cd <repo> && bin ...` to enter a target tree
-	// before invoking - the subprocess sees the post-cd path. Always
-	// populated.
 	CWDSubprocess string `json:"cwd_subprocess,omitempty"`
 	// CWDAtInvocation is the consumer-resolved operator cwd, populated
 	// from verb.Spec.ResolveInvokeCWD when set. Empty when the consumer
-	// has not wired the resolver. When non-empty AND it differs from
-	// CWDSubprocess, audit reviewers can flag the drift surfaced in
-	// coilysiren/coily#109. Env-var conventions ($COILY_INVOKE_CWD,
-	// $OLDPWD) live in the consumer; cli-guard only carries the value.
 	CWDAtInvocation string `json:"cwd_at_invocation,omitempty"`
 	// CommitScope binds this row to a commit-trailer query. Resolved from
 	// --commit-scope (default "auto" = cwd's git toplevel). Empty means the
-	// op was deliberately not bound to any commit and will not appear in
-	// any trailer.
 	CommitScope string `json:"commit_scope,omitempty"`
 	// SessionID joins this row to the Claude Code (or other agent harness)
 	// session that produced the invocation. Resolution order at write time:
-	// (1) context value via WithSessionID, (2) env var CLAUDE_SESSION_ID,
-	// (3) empty. Long-lived in-process servers should plumb ctx; spawn-shaped
-	// flows can inherit the env var from the parent. Empty when neither
-	// source carried a value.
 	SessionID string `json:"session_id,omitempty"`
 	// AuditOverride is set true when a repo verb ran with
 	// --audit-override-dirty: the clean+synced gate refused but the
-	// operator forced through. Companion field WorkingTreeStatus carries
-	// the porcelain snapshot at refusal time so the run can still be
-	// reconstructed after the fact.
 	AuditOverride bool `json:"audit_override,omitempty"`
 	// WorkingTreeStatus is the truncated `git status --porcelain` output
 	// captured when a repo verb ran with --audit-override-dirty. Empty for
-	// every other audit row.
 	WorkingTreeStatus string `json:"working_tree_status,omitempty"`
 	// Egress carries one row per host contacted by the wrapped subprocess
 	// when the verb runs through the per-invocation HTTP CONNECT proxy
-	// (see pkg/egress). Aggregated by host: a `coily npm install` that
-	// opens 200 connections to registry.npmjs.org produces one row, not 200.
-	// Empty when the verb did not run through the proxy.
 	Egress []EgressRow `json:"egress,omitempty"`
 	// ProfileDecision captures the per-session lockdown-profile evaluation
 	// for this verb, when a consumer has wired verb.Spec.OnEvaluate. Absent
-	// in default-off rows. Phase 4 plumbing for coilysiren/coily#150;
-	// phase 5 fills in real per-axis branching.
 	ProfileDecision *ProfileDecision `json:"profile_decision,omitempty"`
 	// PolicySkipped is true when the shell-metacharacter validator was
 	// bypassed for this invocation. Set by consumers whose verb wiring
-	// runs with verb.Spec.SkipPolicy = true for a non-paranoid reason
-	// (notably a repocfg.Command opted in via allow_metacharacters: true
-	// in the committed .coily/coily.yaml). Forensics can still see that
-	// the row ran under the relaxed policy even though the argv was
-	// accepted. cli-guard#81.
 	PolicySkipped bool `json:"policy_skipped,omitempty"`
 	// AuditParent is the audit-row ID of an enclosing invocation when this
 	// invocation was spawned by another coily process across a host boundary
-	// (typically `coily ssh <alias> -- <args>` shipping the local id to the
-	// remote via --audit-parent / COILY_AUDIT_PARENT). Forensic walking:
-	// forward = search any audit log for rows with audit_parent == <id>;
-	// backward = look up the row whose id == this audit_parent. Empty for
-	// the common single-host case. coilysiren/coily#187 phase 2.
 	AuditParent string `json:"audit_parent,omitempty"`
 	// RemoteArgv carries the post-`--` argv slice for ssh-passthrough rows:
 	// the remote coily sub-command and its arguments. Set by the consumer
-	// (coily ssh) via verb.Spec.OnComplete, so the local audit row records
-	// what the operator actually asked the remote host to do without
-	// conflating that intent with the literal local Argv (`coily ssh
-	// <alias>`). The corresponding remote row records the same sub-command
-	// as its own Argv and is linked back via AuditParent. Subject to the
-	// same redaction as Argv at medium+ data-security tiers. Empty on
-	// every non-ssh-passthrough row. coilysiren/coily#328.
 	RemoteArgv []string `json:"remote_argv,omitempty"`
 }
 
 // ProfileDecision is the structured outcome of a per-session
 // lockdown-profile evaluation. Allowed=false plus a non-nil verb.Spec
-// OnEvaluate error short-circuits the action with PolicyDenied. Profile
-// names the active sentinel profile, Source matches the consumer's
-// resolver-status vocabulary (e.g. "override" / "missing_file" /
-// "unknown_profile" / "unset"), and Coordinate captures the resolved
-// tier-per-axis Coordinate so a forensic reader sees exactly which
-// tiers were in effect at decision time.
 type ProfileDecision struct {
 	Allowed    bool       `json:"allowed"`
 	Profile    string     `json:"profile,omitempty"`
@@ -157,8 +87,6 @@ type ProfileDecision struct {
 
 // Coordinate mirrors cli-guard/profile.Coordinate as a JSON-stable
 // snapshot. Duplicated here so audit.Record (the wire format) does not
-// take a hard dependency on the profile package, and so the JSON tag
-// shape is owned by the audit package.
 type Coordinate struct {
 	DataSecurity    string `json:"data_security,omitempty"`
 	BlastRadius     string `json:"blast_radius,omitempty"`
@@ -168,8 +96,6 @@ type Coordinate struct {
 
 // EgressRow is one (parent-invocation, host) pair from the egress proxy.
 // Decision is "allow" or "deny"; deny rows are produced when the host fails
-// the per-binary allowlist in enforce mode and the underlying CONNECT
-// returned 403 instead of being forwarded.
 type EgressRow struct {
 	Host       string `json:"host"`
 	Decision   string `json:"decision"`
@@ -186,8 +112,6 @@ const (
 
 // MaxStderrTailBytes caps Record.StderrTail so the audit row stays small
 // even when a wrapped tool spews. 2 KiB is enough to carry the last few
-// lines of a typical stderr (kubectl error, aws sdk error, gh API error)
-// without bloating each line of the JSONL log.
 const MaxStderrTailBytes = 2048
 
 // ShortID returns the 8-char base32 prefix of the raw UUID bytes. Used in
@@ -198,8 +122,6 @@ func (r Record) ShortID() string {
 
 // Trailer returns the canonical Audit-log trailer value for this record:
 // `coily://<unix-ts>/<short-id>`. Empty if ID is unset. This is the form
-// ParseTrailer round-trips; for the human-readable line that also includes
-// the argv summary, use TrailerLine.
 func (r Record) Trailer() string {
 	short := r.ShortID()
 	if short == "" {
@@ -210,13 +132,6 @@ func (r Record) Trailer() string {
 
 // TrailerLine returns the full Audit-log trailer value rendered for a
 // commit: `coily://<unix-ts>/<short-id> - <argv summary>`. The argv summary
-// is argv[0] (basename) plus any subsequent positional tokens up to but
-// not including the first flag-shaped token (anything starting with `-`).
-// Flags and their values are dropped, because flag values can be sensitive
-// (e.g. an SSM parameter name encoding a GPG key id) and have no business
-// in commit history. The full argv is still in the per-scope JSONL audit
-// log on disk for forensic recovery; the commit message gets the verb chain
-// and nothing more. Empty if ID is unset (matches Trailer's behavior).
 func (r Record) TrailerLine() string {
 	url := r.Trailer()
 	if url == "" {
@@ -244,9 +159,6 @@ func (r Record) TrailerLine() string {
 
 // ParseTrailer extracts the unix timestamp and short ID from a coily://
 // trailer value. Returns (ts, short, true) on a well-formed input. Accepts
-// either the bare URL form (`coily://<ts>/<short>`) or the full TrailerLine
-// form with an argv summary appended (`coily://<ts>/<short> - <argv...>`);
-// the suffix after ` - ` is informational and is discarded.
 func ParseTrailer(s string) (int64, string, bool) {
 	const prefix = "coily://"
 	if !strings.HasPrefix(s, prefix) {
@@ -281,10 +193,6 @@ func shortIDFromUUID(id string) string {
 
 // NewUUIDv7 returns a UUID v7 string (time-ordered) using crypto/rand.
 // Same generator that Append uses internally for unset Record.ID;
-// exported so callers can pre-allocate an id, embed it in a side
-// channel (e.g. --audit-parent on a child process), and then feed it
-// back as Spec.IDOverride for the local row. coilysiren/coily#187
-// phase 2.
 func NewUUIDv7() (string, error) {
 	return newUUIDv7(time.Now())
 }
@@ -416,7 +324,6 @@ func (w *Writer) Append(r Record) error {
 
 // Close releases the underlying log file. Safe to call multiple times and
 // on a Writer that was never used. Call at process exit if you want to be
-// tidy; coily's short-lived CLI model doesn't require it.
 func (w *Writer) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -430,19 +337,12 @@ func (w *Writer) Close() error {
 
 // Wrap records an invocation by running fn and logging the result. base
 // supplies caller-set fields (Verb, Argv, RepoRoot, CommitScope, Version);
-// Wrap fills in Decision, ExitCode, DurationMS, and Error. The returned
-// error is whatever fn returned, unmodified. Audit append failures are
-// written to stderr so the operator notices, but they do not mask fn's
-// error.
 func (w *Writer) Wrap(ctx context.Context, base Record, fn func() error) error {
 	return w.WrapHook(ctx, base, fn, nil)
 }
 
 // WrapHook is Wrap with an optional onComplete callback. The hook runs
 // after fn returns and before the record is appended; it gets a pointer
-// to the record so the caller can attach side-channel data (e.g. egress
-// rows). Decision/ExitCode/DurationMS/Error are already populated when the
-// hook fires.
 func (w *Writer) WrapHook(ctx context.Context, base Record, fn func() error, onComplete func(*Record)) error {
 	start := w.now()
 	err := fn()
@@ -468,7 +368,6 @@ func (w *Writer) WrapHook(ctx context.Context, base Record, fn func() error, onC
 
 // Preflight ensures the audit directory exists with 0700 perms and that the
 // target path is writable. Call at startup so a broken config blows up
-// immediately instead of dropping records silently across the session.
 func (w *Writer) Preflight() error {
 	if w.Path == "" {
 		return ErrPathUnset

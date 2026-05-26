@@ -1,11 +1,5 @@
 // Package respfmt renders a JSON response body through an optional
 // JMESPath projection and one of five output formats: yaml (default),
-// json, text, table, yaml-stream. The shape mirrors the aws CLI's
-// `--query` / `--output` surface so an operator's existing muscle memory
-// transfers, with the default flipped to yaml so a piped-to-file output
-// reads cleanly in an editor.
-//
-// Pure helper: no cli wiring, no I/O. The caller decides where to write.
 package respfmt
 
 import (
@@ -38,15 +32,6 @@ var validOutputs = map[string]bool{
 
 // Render applies the optional JMESPath projection to raw and formats the
 // result per output. Empty raw returns empty bytes, no error. Empty query
-// passes the parsed value through unchanged. Empty output defaults to
-// OutputYAML.
-//
-// Errors:
-//   - raw is non-empty but not parseable JSON.
-//   - query is non-empty but not a valid JMESPath expression.
-//   - output is non-empty but not in validOutputs.
-//   - the requested format cannot represent the projection (e.g. text on
-//     a non-list-of-records value).
 func Render(raw []byte, query, output string) ([]byte, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, nil
@@ -105,7 +90,6 @@ func renderYAML(data any) ([]byte, error) {
 
 // renderYAMLStream emits each top-level list element as its own yaml
 // document separated by `---\n`. For non-list values, falls back to a
-// single document, matching aws CLI's behavior.
 func renderYAMLStream(data any) ([]byte, error) {
 	list, ok := data.([]any)
 	if !ok {
@@ -124,14 +108,6 @@ func renderYAMLStream(data any) ([]byte, error) {
 }
 
 // renderText emits tab-separated rows. Accepts the aws CLI shapes:
-//
-//   - scalar: one line, the scalar's stringification.
-//   - list of scalars: one scalar per line.
-//   - list of lists (rows): tab-joined per row.
-//   - list of maps: tab-joined per row, columns sorted by key.
-//
-// Other shapes (single map, nested maps) decline with an error so the
-// caller can pick a richer format.
 func renderText(data any) ([]byte, error) {
 	switch v := data.(type) {
 	case nil:
@@ -175,13 +151,6 @@ func textRow(item any) string {
 }
 
 // renderTable emits a bordered ASCII table. Accepts:
-//
-//   - list of maps: column headers from the union of keys (sorted).
-//   - list of lists: numeric column headers.
-//
-// Other shapes decline so the caller can pick a richer format. Non-list
-// inputs return an error rather than guessing a single-row layout that
-// would be confusing in a table.
 func renderTable(data any) ([]byte, error) {
 	list, ok := data.([]any)
 	if !ok {
@@ -278,7 +247,6 @@ func tableRowsFromLists(list []any) ([]string, [][]string, error) {
 
 // scalarString formats a JSON-decoded value for text/table cells. Nested
 // containers are JSON-encoded inline so a stringification of "everything
-// fits in a cell" is consistent across text and table outputs.
 func scalarString(v any) string {
 	switch x := v.(type) {
 	case nil:

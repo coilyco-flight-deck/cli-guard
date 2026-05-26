@@ -4,8 +4,6 @@ import "github.com/coilysiren/cli-guard/lockdown"
 
 // testDriver returns a ClaudeCode-shaped driver pre-wired with the
 // historical coily-specific data. Tests parameterize over Driver via
-// this helper: switching to a hypothetical second driver requires only
-// returning a different *Driver here.
 func testDriver() *lockdown.Driver {
 	return lockdown.ClaudeCode(
 		"coily",

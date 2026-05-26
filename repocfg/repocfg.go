@@ -1,19 +1,5 @@
 // Package repocfg loads a per-repo command allowlist from a coily.yaml file
 // discovered by walking up from the current working directory. Each command
-// in the file becomes a top-level coily verb (coily test, coily lint, etc.)
-// that expands to a pre-declared argv.
-//
-// Repo commands share the same security boundary as every other coily verb.
-// Every argv token (both the tokens from coily.yaml and any user-supplied
-// extras appended at invocation) is run through policy.ValidateArg, which
-// rejects shell metacharacters. There is no "it's just a dev script" carve-
-// out. If a repo command needs a shell pipeline, the repo author's answer is
-// a wrapper script, not an escape hatch in coily.
-//
-// Unlike the embedded tool config, coily.yaml is loaded from disk at runtime.
-// The blast radius is bounded by the same policy checks, and the file is
-// expected to be checked into git where a human reviews diffs. Per-repo
-// dev tools change too often to warrant a rebuild+install cycle.
 package repocfg
 
 import (
@@ -38,7 +24,6 @@ const LocalDirName = ".coily"
 
 // LegacyFilename is the pre-overlay name (./coily.yaml) that we reject with
 // a pointer at the new location. Kept around so the error message can be
-// specific.
 const LegacyFilename = "coily.yaml"
 
 // EnvOverride, when set, is treated as the absolute path to the repo config
@@ -47,7 +32,6 @@ const EnvOverride = "COILY_REPO_CONFIG"
 
 // ErrLegacyLocation is wrapped by Discover when a coily.yaml is found at the
 // repo root rather than under ./.coily/. The new convention is to put it
-// inside the .coily/ overlay so locals (config + allowlist) sit together.
 var ErrLegacyLocation = errors.New("repocfg: coily.yaml at repo root is no longer supported, move it to .coily/coily.yaml")
 
 // Command is one parsed and validated entry from the commands: map.
@@ -58,31 +42,17 @@ type Command struct {
 	Description string
 	// Argv is the command split into tokens. argv[0] is the binary name as
 	// resolved via $PATH at exec time. Every token has been run through
-	// policy.ValidateArg unless AllowMetacharacters is true.
 	Argv []string
 	// Egress, when true, opts the command into the per-invocation CONNECT
 	// proxy that consumers (coily) wire around exec. The audit row picks up
-	// the same `egress` array that passthrough verbs already emit. Default
-	// false preserves the historical "argv + exit code only" shape. Set in
-	// the YAML mapping form via `audit.egress: true`. See
-	// coilysiren/coily#281.
 	Egress bool
 	// AllowMetacharacters opts this command out of the shell-metacharacter
 	// validator for both the YAML-declared argv tokens (skipped at load)
-	// and the user-supplied extras appended at invocation time (consumer
-	// wires verb.Spec.SkipPolicy from this flag). The opt-in is declarative
-	// in the committed coily.yaml and per-verb, so a reviewer sees in diff
-	// which verbs are relaxed. Consumers should stamp the audit row's
-	// PolicySkipped field so forensics still see the relaxed policy on
-	// every invocation. cli-guard#81.
 	AllowMetacharacters bool
 }
 
 // SSHTarget describes one named ssh destination for the
 // `coily ssh <alias> -- <args>` passthrough. All three fields are
-// mandatory: the spec for coilysiren/coily#187 phase 2 explicitly rules
-// out implicit working_dir resolution, since working_dir becomes the
-// remote --commit-scope and audit rows must bind to a real repo.
 type SSHTarget struct {
 	// Name is the host alias, e.g. "kai-server". Matches the map key it
 	// was loaded under. Validated with the same rules as command names.
@@ -94,7 +64,6 @@ type SSHTarget struct {
 	Host string
 	// WorkingDir is the absolute path of the working directory the remote
 	// coily binds its --commit-scope to. Must be absolute (POSIX leading
-	// slash) so the remote audit row pins to a real repo.
 	WorkingDir string
 }
 
@@ -115,9 +84,6 @@ var ErrNoConfig = errors.New("repocfg: no coily.yaml found")
 
 // Discover walks up from start looking for the repo config. Prefers
 // ./.coily/coily.yaml at each level. If no overlay file is found but a
-// legacy ./coily.yaml exists at the same level, returns ErrLegacyLocation
-// pointing at the new home. Returns "" and ErrNoConfig when neither exists
-// anywhere in the ancestry.
 func Discover(start string) (string, error) {
 	dir, err := filepath.Abs(start)
 	if err != nil {
@@ -141,7 +107,6 @@ func Discover(start string) (string, error) {
 
 // discoverAtLevel checks one directory for a repo config. Returns the path if
 // the preferred overlay exists, an ErrLegacyLocation-wrapped error if only
-// the legacy root form exists, ("", nil) if neither exists.
 func discoverAtLevel(dir string) (string, error) {
 	preferred := filepath.Join(dir, LocalDirName, Filename)
 	if ok, err := isFile(preferred); err != nil {
@@ -173,20 +138,6 @@ func isFile(path string) (bool, error) {
 
 // DiscoverChildren scans direct children of parentDir for a
 // ./.coily/coily.yaml overlay, loads each one, and returns the resulting
-// Configs sorted by Path. Best-effort by design: a child whose .coily/
-// directory is unreadable or whose coily.yaml fails to parse is skipped
-// silently rather than failing the whole scan, because the caller's intent
-// is fallback discovery for a parent directory that itself has no config
-// and may sit above a mix of repos and unrelated directories. Hidden
-// entries (names beginning with ".") are skipped. Symlinks are followed
-// at the .coily/coily.yaml stat step.
-//
-// Used by `coily exec` when no ancestor coily.yaml is found: instead of
-// refusing to run, the verb collects child configs so the operator can
-// invoke a command declared in a sibling repo (e.g. `coily exec
-// daily-social` from one directory above agentic-os-kai). The legacy
-// repo-root coily.yaml form is intentionally ignored here; child
-// discovery is opt-in via the .coily/ overlay.
 func DiscoverChildren(parentDir string) ([]*Config, error) {
 	abs, err := filepath.Abs(parentDir)
 	if err != nil {
@@ -226,19 +177,6 @@ func DiscoverChildren(parentDir string) ([]*Config, error) {
 
 // DiscoverAll returns every coily.yaml reachable from start in a single
 // deterministic pool: every level of the ancestor walk from start up to
-// the filesystem root, plus every direct child of start. Results are
-// sorted by Path and deduped. Best-effort like DiscoverChildren: a
-// malformed or unreadable config is silently skipped rather than aborting
-// the whole scan, because the caller's job is to present a unified menu
-// of repo commands and one broken sibling should not blank the menu.
-//
-// This is the single discovery surface for `coily exec`. It replaces the
-// older "ancestor wins, else fall back to direct children" branching,
-// which produced non-deterministic "where did my config come from"
-// behavior when cwd shifted by one level. The new contract: every config
-// the operator could plausibly be targeting from cwd is a candidate, and
-// the verb layer disambiguates by command name (1 declarant auto-runs,
-// >1 declarants prompt for a pick).
 func DiscoverAll(start string) ([]*Config, error) {
 	abs, err := filepath.Abs(start)
 	if err != nil {
@@ -275,8 +213,6 @@ func DiscoverAll(start string) ([]*Config, error) {
 
 // LoadDefault resolves the config path from $COILY_REPO_CONFIG or by walking
 // up from the current working directory, then parses it. Returns nil,
-// ErrNoConfig when no config is found. All other errors are parsing or
-// validation failures and are surfaced as-is.
 func LoadDefault() (*Config, error) {
 	if override := os.Getenv(EnvOverride); override != "" {
 		return Load(override)
@@ -337,9 +273,6 @@ func Load(path string) (*Config, error) {
 
 // decodeSSHTarget parses one entry from the `ssh.targets:` map. user, host,
 // and working_dir are all mandatory; working_dir must be absolute since it
-// becomes the remote --commit-scope. Every field is run through
-// policy.ValidateArg so a malicious yaml can't smuggle a shell
-// metacharacter into the eventual `ssh kai@host 'coily ...'` invocation.
 func decodeSSHTarget(name string, node yaml.Node) (SSHTarget, error) {
 	if err := validateName(name); err != nil {
 		return SSHTarget{}, err
@@ -429,7 +362,6 @@ func decodeCommand(name string, node yaml.Node) (Command, error) {
 
 // validateArgvTokens runs policy.ValidateArg over each declared argv token
 // unless the command opted in to allow_metacharacters: true. Split out of
-// decodeCommand to keep that function under the cyclomatic-complexity cap.
 func validateArgvTokens(argv []string, allowMetacharacters bool) error {
 	if allowMetacharacters {
 		return nil

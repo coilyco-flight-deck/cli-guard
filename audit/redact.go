@@ -7,7 +7,6 @@ import (
 
 // Tier values for ProfileDecision.Coordinate.DataSecurity. Mirrored
 // here so the redactor does not import the profile package and can
-// branch on plain strings read off the wire.
 const (
 	DataSecurityLow    = "low"
 	DataSecurityMedium = "medium"
@@ -17,13 +16,9 @@ const (
 
 // RedactPolicy carries the patterns the consumer wants applied. cli-guard
 // supplies the mechanism; the consumer (today: coily) supplies the patterns.
-// The zero value is a no-op policy.
 type RedactPolicy struct {
 	// SecretFlagPatterns is a list of flag-name prefixes (with leading
 	// dashes). Matching is "argv token starts with this prefix" so
-	// "--password" matches "--password=hunter2" and "--password" alone.
-	// When a bare-flag form matches, the next token in argv is treated
-	// as the value and redacted.
 	SecretFlagPatterns []string
 
 	// IdentifierPatterns is a list of compiled regexes. Any match in
@@ -37,7 +32,6 @@ const RedactedValue = "[REDACTED]"
 
 // hasSecretFlagPrefix returns the matching prefix and a bool. The
 // prefix includes the leading dashes. Argv tokens are checked for
-// "starts with prefix followed by '=' or end".
 func (p RedactPolicy) hasSecretFlagPrefix(tok string) (string, bool) {
 	for _, pre := range p.SecretFlagPatterns {
 		if tok == pre || strings.HasPrefix(tok, pre+"=") {
@@ -49,10 +43,6 @@ func (p RedactPolicy) hasSecretFlagPrefix(tok string) (string, bool) {
 
 // RedactArgv applies the data-security tier to argv. Returns the
 // argv to persist. At "low" the argv is returned unchanged. At
-// "medium" and "high" the matching tokens get their value portion
-// replaced with [REDACTED]. At "max" the entire Argv is returned as
-// nil whenever any token matches a pattern. The function does not
-// mutate the input; it returns a fresh slice when changes happen.
 func RedactArgv(argv []string, tier string, p RedactPolicy) []string {
 	if len(argv) == 0 || tier == "" || tier == DataSecurityLow {
 		return argv
@@ -92,7 +82,6 @@ func RedactArgv(argv []string, tier string, p RedactPolicy) []string {
 
 // RedactIdentifiersInString replaces every IdentifierPatterns match
 // with [REDACTED]. Runs at "medium" and stricter. Empty input or
-// empty policy is a no-op.
 func RedactIdentifiersInString(s string, tier string, p RedactPolicy) string {
 	if s == "" || tier == "" || tier == DataSecurityLow {
 		return s
@@ -108,9 +97,6 @@ func RedactIdentifiersInString(s string, tier string, p RedactPolicy) string {
 
 // RedactEgressRows applies the data_security tier to egress rows.
 // At "high" Host is stripped to the eTLD+1 best-effort (strip leading
-// subdomain). At "max" Host is replaced with [REDACTED] outright but
-// byte counts are preserved so budget tracking still works.
-// DurationMS is zeroed at max since timing is a side channel.
 func RedactEgressRows(rows []EgressRow, tier string) []EgressRow {
 	if len(rows) == 0 || tier == "" || tier == DataSecurityLow || tier == DataSecurityMedium {
 		return rows
@@ -131,10 +117,6 @@ func RedactEgressRows(rows []EgressRow, tier string) []EgressRow {
 
 // stripLeadingSubdomain returns the host with its leading subdomain
 // removed when the host has 3+ labels. Naive eTLD+1 approximation:
-// "api.github.com" -> "github.com", "registry.npmjs.org" -> stays as
-// is (2 labels), "foo.bar.baz.example.com" -> "bar.baz.example.com".
-// Good enough for high-tier audit-trail privacy; deliberately not
-// using publicsuffix to keep the dep surface small.
 func stripLeadingSubdomain(host string) string {
 	parts := strings.Split(host, ".")
 	if len(parts) <= 2 {
@@ -145,7 +127,6 @@ func stripLeadingSubdomain(host string) string {
 
 // applyRedaction mutates r in place with the tier and policy. Called
 // from Append before the JSON encode step. No-op when r.ProfileDecision
-// is nil (consumer is not profile-aware yet).
 func (w *Writer) applyRedaction(r *Record) {
 	if r.ProfileDecision == nil {
 		return
@@ -169,9 +150,6 @@ func (w *Writer) applyRedaction(r *Record) {
 
 // SetRedactPolicy installs the consumer-supplied pattern list. Safe
 // to call once at Runner construction. Calls during a hot pipeline
-// race on rule changes but the field is only read inside applyRedaction
-// under the same mutex used by Append, so the swap is consistent
-// per-record.
 func (w *Writer) SetRedactPolicy(p RedactPolicy) {
 	w.mu.Lock()
 	defer w.mu.Unlock()

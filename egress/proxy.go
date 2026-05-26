@@ -1,21 +1,5 @@
 // Package egress is the per-invocation HTTP CONNECT proxy that coily starts
 // for the duration of a wrapped subprocess. The child inherits HTTPS_PROXY /
-// HTTP_PROXY pointing at the proxy. The proxy logs every CONNECT, joins the
-// rows back to the parent invocation's audit row, and (per-binary) either
-// enforces a default-deny allowlist or observes silently.
-//
-// Two modes:
-//
-//   - ModeEnforce: per-binary allowlist pinned in code. Denied CONNECTs
-//     return 403 and the row is marked decision=deny. Used for the package-
-//     manager wrappers (brew, npm, pip, cargo, ...).
-//   - ModeObserve: no allowlist. Every CONNECT is forwarded and logged.
-//     Used for aws/gh/kubectl/docker/tailscale (issue #33).
-//
-// CONNECT-only. No TLS interception, no CA install. Hostnames come from
-// the CONNECT request line (host:port). Plaintext HTTP requests through the
-// proxy are rejected with 405 - any tool that relies on plaintext for
-// package fetching is already a bug.
 package egress
 
 import (
@@ -46,7 +30,6 @@ const (
 
 // Proxy is a single-use CONNECT proxy. New, Start, run the wrapped
 // subprocess, Stop. Not safe for reuse across invocations; build a fresh
-// Proxy per coily verb invocation.
 type Proxy struct {
 	allowlist map[string]bool
 	mode      Mode
@@ -59,7 +42,6 @@ type Proxy struct {
 
 	// inflight tracks active CONNECT tunnels. http.Server does not track
 	// hijacked connections, so we count them ourselves and wait on Stop
-	// before draining rows.
 	inflight sync.WaitGroup
 
 	// Now is overridable for tests.
@@ -75,7 +57,6 @@ type hostStat struct {
 
 // New returns a Proxy with the given allowlist and mode. The allowlist is
 // ignored when mode is ModeObserve. Hostname match is exact; suffix matching
-// (e.g. "*.crates.io") is a Phase 2 follow-up.
 func New(allowlist []string, mode Mode) *Proxy {
 	set := make(map[string]bool, len(allowlist))
 	for _, h := range allowlist {
@@ -171,7 +152,6 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
 	start := p.now()
 	// hostport is taken from the CONNECT request line by design - this
 	// process IS the proxy and the whole point is to dial what the client
-	// asked for, after the allowlist gate above.
 	upstream, err := net.DialTimeout("tcp", hostport, 10*time.Second) //nolint:gosec // G107/G704: intentional proxy dial
 	if err != nil {
 		p.record(host, audit.EgressDeny, 0, 0, p.now().Sub(start).Milliseconds())
@@ -257,7 +237,6 @@ func (p *Proxy) now() time.Time {
 
 // closeWrite half-closes the write side of a connection if it supports it.
 // Lets the peer see EOF on its read side without tearing down the read side
-// of this connection.
 func closeWrite(c net.Conn) {
 	type cw interface{ CloseWrite() error }
 	if w, ok := c.(cw); ok {

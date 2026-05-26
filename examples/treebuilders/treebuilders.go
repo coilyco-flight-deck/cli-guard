@@ -1,6 +1,5 @@
 // Package treebuilders exports each examples/<name>/main.go's *cli.Command
 // tree so scripts/gen-webdocs can render it, and so each example main
-// stays a thin shim that drives the tree.
 package treebuilders
 
 import (
@@ -538,7 +537,6 @@ without needing the operator's terminal scrollback.`,
 
 // Passthrough is the tree for examples/passthrough. writer/runner may be
 // nil for doc rendering. When nil, a placeholder echo command is
-// constructed so the rendered shape matches the runtime example.
 func Passthrough(runner *shell.Runner, writer *audit.Writer) *cli.Command {
 	var echoCmd *cli.Command
 	if runner != nil && writer != nil {
@@ -1011,9 +1009,6 @@ audit-row slot on a misconfigured call.`,
 
 // Dispatch is the tree for examples/dispatch. runner and writer may be
 // nil for doc rendering since Actions are not executed. The Config wired
-// here is the smallest valid one: an AllowedOwner, a workspace layout
-// resolver, and the verb pipeline. A real consumer (coily, agent-guard)
-// supplies its own host-specific seams.
 func Dispatch(runner *shell.Runner, writer *audit.Writer) *cli.Command {
 	if runner == nil {
 		runner = &shell.Runner{}

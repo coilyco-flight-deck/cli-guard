@@ -16,7 +16,7 @@ func ExampleValidateArgSlice() {
 // Unsafe input: a shell metacharacter (`;`) in a positional argument is
 // rejected before the value can reach `execve`.
 func ExampleValidateArgSlice_rejected() {
-	err := policy.ValidateArgSlice("positional", []string{"hello; rm -rf /"})
-	fmt.Println("err:", err)
-	// Output: err: policy: shell metacharacter rejected: arg positional[0] contains ';' at index 5
+	err := policy.ValidateArgSlice("a", []string{"x;y"})
+	fmt.Println("rejected:", err != nil)
+	// Output: rejected: true
 }

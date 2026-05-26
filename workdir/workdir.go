@@ -1,21 +1,5 @@
 // Package workdir does best-effort detection of the "primary working
 // directory" that a coily invocation is operating against. Subcommands
-// and audit-adjacent code that want a "what repo am I being called from"
-// hint should call Detect rather than rederiving it.
-//
-// This is intentionally separate from pkg/scope. scope is authoritative:
-// it produces the commit-scope path that audit rows bind to, and refuses
-// to fall back when the answer is uncertain. workdir is a hint: it
-// always returns a path, and tags the signal it used so callers can
-// downgrade trust when the source is weak.
-//
-// Signal order (first match wins):
-//  1. $COILY_PRIMARY_DIR override - operator forced an answer.
-//  2. Nearest ancestor containing a .git entry (file or dir, so worktrees
-//     count). Pure filesystem walk, no `git` spawn.
-//  3. If cwd is inside ~/projects/coilysiren/, the first path segment
-//     under it. Matches Kai's repo-parent workspace shape.
-//  4. cwd itself.
 package workdir
 
 import (
@@ -83,8 +67,6 @@ func absUnder(cwd, v string) string {
 
 // findGitRoot walks from start toward the filesystem root, returning the
 // first directory that has a .git child (file or dir). Worktree
-// checkouts use a .git file pointing at the real gitdir, so a stat-only
-// check is enough.
 func findGitRoot(start string) string {
 	if start == "" {
 		return ""

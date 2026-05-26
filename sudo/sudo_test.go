@@ -9,18 +9,12 @@ import (
 
 // TestReadPassword_NoTTY verifies that ReadPassword fails fast with
 // ErrNoTTY when /dev/tty is unreachable, rather than hanging. The
-// no-tty case is the hot path for CI and any non-interactive sudo
-// fallback; hanging would defeat the -n-first design.
 func TestReadPassword_NoTTY(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("no /dev/tty on windows")
 	}
 	// chroot-style sandboxes don't exist in stdlib tests, so we approximate
 	// "no tty" by closing stdin's controlling tty. The robust check is just
-	// to ensure that when /dev/tty open fails, we get ErrNoTTY rather than
-	// a hang. We can't reliably make the open fail on a developer machine,
-	// so verify the error path by stat-ing /dev/tty: if it doesn't exist
-	// (sandboxed CI), ReadPassword must return ErrNoTTY.
 	if _, err := os.Stat("/dev/tty"); err == nil {
 		t.Skip("dev has /dev/tty; ErrNoTTY path only fires under sandboxed CI")
 	}

@@ -123,9 +123,6 @@ func TestWrap_WritesAuditRecord(t *testing.T) {
 
 // TestWrap_RecordsCWDFields pins coilysiren/cli-guard#41: every audit
 // row carries CWDSubprocess (always populated from os.Getwd at record
-// build time) and, when Spec.ResolveInvokeCWD is wired, the operator's
-// invoke-time cwd in CWDAtInvocation. Lets audit reviewers spot the
-// drift class surfaced in coilysiren/coily#109.
 func TestWrap_RecordsCWDFields(t *testing.T) {
 	w := newTestWriter(t)
 	spec := verb.Spec{
@@ -154,7 +151,6 @@ func TestWrap_RecordsCWDFields(t *testing.T) {
 
 // TestWrap_RecordsCWDFields_NoResolverLeavesInvocationEmpty confirms the
 // nil-resolver default: CWDSubprocess still populated, CWDAtInvocation
-// stays empty (omitempty hides the field).
 func TestWrap_RecordsCWDFields_NoResolverLeavesInvocationEmpty(t *testing.T) {
 	w := newTestWriter(t)
 	spec := verb.Spec{
@@ -243,9 +239,6 @@ func TestWrap_OnCompleteMutatesRecord(t *testing.T) {
 func TestWrap_CommitScopeOverrideBypassesFlagResolution(t *testing.T) {
 	// CommitScopeOverride pins the audit row's commit-scope to a caller-
 	// supplied path. Used by `coily exec` discovered-from-child verbs to
-	// bind audits to the matched child repo, not cwd's git toplevel
-	// (which often is not a repo). Setting a bogus override that wouldn't
-	// resolve through gitToplevel proves it bypasses the auto path.
 	w := newTestWriter(t)
 	override := "/var/empty/not-a-repo"
 	spec := verb.Spec{
@@ -268,9 +261,6 @@ func TestWrap_CommitScopeOverrideBypassesFlagResolution(t *testing.T) {
 
 // TestWrap_CommitScopeArgvHintFiresWhenFlagUnset proves the argv hook
 // sets the audit row's commit-scope when neither --commit-scope nor
-// $COILY_COMMIT_SCOPE was set explicitly. Used by `coily ops gh` to
-// derive the scope from --repo coilysiren/<name> without forcing the
-// operator to thread --commit-scope through every invocation.
 func TestWrap_CommitScopeArgvHintFiresWhenFlagUnset(t *testing.T) {
 	t.Setenv("COILY_COMMIT_SCOPE", "")
 	w := newTestWriter(t)
@@ -297,7 +287,6 @@ func TestWrap_CommitScopeArgvHintFiresWhenFlagUnset(t *testing.T) {
 
 // TestWrap_CommitScopeArgvHintLosesToEnv proves that a hint declines to
 // override an explicit $COILY_COMMIT_SCOPE. The hint is a fallback, not a
-// preempt, and operator-set values must always win.
 func TestWrap_CommitScopeArgvHintLosesToEnv(t *testing.T) {
 	envScope := "/var/empty/from-env"
 	t.Setenv("COILY_COMMIT_SCOPE", envScope)
@@ -325,8 +314,6 @@ func TestWrap_CommitScopeArgvHintLosesToEnv(t *testing.T) {
 
 // TestWrap_IDOverridePinsAuditRowID proves Spec.IDOverride wins over the
 // audit writer's auto-generated UUID v7. Used by coily's ssh passthrough
-// to pre-allocate the local row id and ship it to the remote as
-// --audit-parent (coilysiren/coily#187 phase 2).
 func TestWrap_IDOverridePinsAuditRowID(t *testing.T) {
 	w := newTestWriter(t)
 	const pinned = "01234567-89ab-7def-0123-456789abcdef"
@@ -351,8 +338,6 @@ func TestWrap_IDOverridePinsAuditRowID(t *testing.T) {
 
 // TestWrap_AuditParentFromEnv proves the row picks up
 // $COILY_AUDIT_PARENT when no --audit-parent flag is set. Models the
-// remote-coily side of an ssh passthrough where the local coily set the
-// env var on the remote invocation. coilysiren/coily#187 phase 2.
 func TestWrap_AuditParentFromEnv(t *testing.T) {
 	const parent = "11111111-2222-7333-4444-555555555555"
 	t.Setenv("COILY_AUDIT_PARENT", parent)
@@ -377,8 +362,6 @@ func TestWrap_AuditParentFromEnv(t *testing.T) {
 
 // runWrapped invokes the wrapped action in a way that mimics urfave/cli's
 // real invocation shape. We pass an empty *cli.Command because Spec.ArgsFunc
-// is the only code path that reads from it, and test specs set ArgsFunc
-// when they care.
 func runWrapped(t *testing.T, spec verb.Spec, w *audit.Writer) error {
 	t.Helper()
 	action := verb.Wrap(spec, w)

@@ -1,33 +1,5 @@
 // Package lockdown writes a per-repo Claude Code settings file that
 // enforces an allowlist-inversion for the wrapper binary supplied by a
-// Driver. Defaults are embedded at build time. cli-guard ships one
-// Driver out of the box (ClaudeCode); future drivers can plug into the
-// same surface to gate other AI tool runtimes.
-//
-// The shape of the Claude Code output is:
-//
-//	{
-//	  "permissions": { "allow": [...], "deny": [...] }
-//	}
-//
-// MCP server allowlisting is intentionally out of scope. The Bash deny
-// list gates shell-level blast radius (cluster mutations, secret reads,
-// package installs). MCP-server gating is a different threat model -
-// "is this MCP server trustworthy" - and the answer is per-user /
-// per-machine, not per-repo. Baking it into a repo-scoped settings.json
-// puts the decision in the wrong place. Drop it; let the user manage
-// MCP allowlisting at the user-settings level.
-//
-// Behavior model:
-//
-//   - Bare `<host CLI> lockdown` prints the plan and exits. No write.
-//   - `<host CLI> lockdown --apply` writes a fresh file only if
-//     .claude/settings.json does not already exist.
-//   - `<host CLI> lockdown --apply --replace` overwrites an existing
-//     file wholesale.
-//
-// BuildPlan always returns the canonical defaults regardless of what is
-// on disk. Any hand-edited allow/deny entries are dropped on --replace.
 package lockdown
 
 import (
@@ -46,7 +18,6 @@ import (
 
 // validateShellSyntax pipes the script through `sh -n`, which parses
 // without executing. Used to guard hook generation: a malformed script
-// would silently neutralize the Desktop deny gate.
 func validateShellSyntax(body string) error {
 	cmd := exec.Command("sh", "-n")
 	cmd.Stdin = strings.NewReader(body)
@@ -62,7 +33,6 @@ var defaultsYAML []byte
 
 // Defaults is the parsed allow / deny list pair that BuildPlan writes
 // into the target settings file. Loaded from defaults.yaml via
-// LoadDefaults. Caller-supplied Defaults are also accepted.
 type Defaults struct {
 	Allow []string `yaml:"allow" json:"-"`
 	Deny  []string `yaml:"deny" json:"-"`
@@ -101,8 +71,6 @@ type Plan struct {
 
 // BuildPlan computes what the target settings file should look like
 // after applying the defaults. Does not touch disk. Routes through the
-// driver's BuildSettings function so the canonical settings shape stays
-// pluggable across hosts.
 func BuildPlan(targetPath string, d *Defaults, drv *Driver) (*Plan, error) {
 	if err := drv.Validate(); err != nil {
 		return nil, err
@@ -130,18 +98,6 @@ func BuildPlan(targetPath string, d *Defaults, drv *Driver) (*Plan, error) {
 
 // claudeCodeBuildSettings is the default ClaudeCode driver's
 // BuildSettings implementation. Takes the existing file bytes (nil for
-// a fresh bootstrap) and returns the bytes that should be written.
-//
-// Fresh-file path: the output contains only the canonical permissions
-// and hooks keys.
-//
-// Existing-file path: preserves every top-level key from the existing
-// file, replaces permissions wholesale with the canonical allow + deny
-// lists, and under hooks.PreToolUse swaps in (or appends) the canonical
-// Bash matcher entry while leaving any other PreToolUse matchers and
-// any other hook events (PostToolUse, SessionStart, ...) untouched.
-//
-// An existing file that does not parse as JSON is a hard error.
 func claudeCodeBuildSettings(raw []byte, d *Defaults, drv *Driver) ([]byte, error) {
 	canonicalPerms := map[string]any{
 		"allow": uniqueSorted(append([]string(nil), d.Allow...)),
@@ -178,8 +134,6 @@ func claudeCodeBuildSettings(raw []byte, d *Defaults, drv *Driver) ([]byte, erro
 
 // mergeBashHook returns a hooks-shaped map with the canonical Bash
 // matcher entry installed under PreToolUse. Other PreToolUse matchers
-// are preserved in place; other top-level hook events (PostToolUse,
-// SessionStart, etc.) carry through untouched.
 func mergeBashHook(existing any, canonicalBash map[string]any) map[string]any {
 	out := map[string]any{}
 	if m, ok := existing.(map[string]any); ok {
@@ -218,14 +172,12 @@ func Write(plan *Plan) error {
 
 // HookPath returns the absolute path of the generated PreToolUse hook
 // script. It sits next to settings.json under the driver's settings
-// directory.
 func HookPath(settingsPath string, drv *Driver) string {
 	return filepath.Join(filepath.Dir(settingsPath), drv.HookFilename)
 }
 
 // WriteHook renders and writes the PreToolUse hook script with 0755
 // perms. Validates the generated script with `sh -n` before writing -
-// a syntax error would silently neutralize the deny gate on Desktop.
 func WriteHook(settingsPath string, d *Defaults, drv *Driver) (string, bool, error) {
 	if err := drv.Validate(); err != nil {
 		return "", false, err
@@ -253,7 +205,6 @@ func WriteHook(settingsPath string, d *Defaults, drv *Driver) (string, bool, err
 
 // MergeDenyInto reasserts the canonical deny list at an ancestor
 // settings file. Returns (mutated, error) where mutated is true iff
-// the file's effective content changed.
 func MergeDenyInto(targetPath string, d *Defaults) (bool, error) {
 	root := map[string]any{}
 	existed := false

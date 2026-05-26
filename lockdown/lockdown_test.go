@@ -34,8 +34,6 @@ func TestLoadDefaults_AllowsCoilyBash(t *testing.T) {
 
 // TestLoadDefaults_AllowsNonShellEvaluators pins coilysiren/cli-guard#39:
 // jq and yq are pure non-shell evaluators (same safety class as grep/rg)
-// and live on the canonical allow list so external pipes off privileged-
-// op wrappers don't trip a per-invocation prompt at the harness layer.
 func TestLoadDefaults_AllowsNonShellEvaluators(t *testing.T) {
 	d, _ := lockdown.LoadDefaults()
 	for _, want := range []string{"Bash(jq:*)", "Bash(yq:*)"} {
@@ -51,9 +49,6 @@ func TestLoadDefaults_DeniesDangerousBase(t *testing.T) {
 		"Bash(python:*)", "Bash(bash:*)",
 		// aws/kubectl/gh are denied wholesale: every call routes through
 		// coily ops <bin>, which is the audit + argv-validation chokepoint.
-		// The previous design enumerated read-verb allows + write-verb
-		// denies, which only existed because Claude Code's prefix-only
-		// permission syntax could not match `aws * describe-*` generically.
 		"Bash(aws:*)", "Bash(kubectl:*)", "Bash(gh:*)",
 	}
 	for _, rule := range mustDeny {
@@ -125,10 +120,6 @@ func TestBuildPlan_NewFileGetsFullDefaults(t *testing.T) {
 func TestBuildPlan_ExistingFilePreservesNonManagedTopLevelKeys(t *testing.T) {
 	// Regression for #103. Permissions are still replaced wholesale with
 	// the canonical defaults, but every other top-level key from the
-	// existing file must carry through. The pre-#103 implementation built
-	// a fresh map containing only permissions and hooks, which clobbered
-	// hand-curated keys like enabledPlugins, model, and viewMode at
-	// ~/.claude/settings.json on every `lockdown --apply --replace`.
 	d, _ := lockdown.LoadDefaults()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "settings.json")
@@ -190,10 +181,6 @@ func TestBuildPlan_ExistingFilePreservesNonManagedTopLevelKeys(t *testing.T) {
 func TestBuildPlan_ExistingFileWithBadJSONErrors(t *testing.T) {
 	// Post-#103 contract: BuildPlan parses the existing file so it can
 	// merge non-managed top-level keys back in. An unparseable existing
-	// file is a hard error - the alternative (silently treat as fresh
-	// bootstrap) would clobber the operator's actual settings the moment
-	// the file went temporarily corrupt. Recovery is to delete the file
-	// and re-run.
 	d, _ := lockdown.LoadDefaults()
 	target := filepath.Join(t.TempDir(), "settings.json")
 	_ = os.WriteFile(target, []byte("this is not json"), 0o600)
@@ -244,7 +231,6 @@ func TestBuildPlan_ExistingFilePreservesPostToolUseHookEvent(t *testing.T) {
 func TestBuildPlan_ExistingFilePreservesNonBashPreToolUseMatchers(t *testing.T) {
 	// Within PreToolUse, only the Bash matcher entry is lockdown's
 	// surface. Other matchers (e.g. Edit, MultiEdit, Write) must carry
-	// through unchanged.
 	d, _ := lockdown.LoadDefaults()
 	target := filepath.Join(t.TempDir(), "settings.json")
 	existing := map[string]any{
@@ -378,8 +364,6 @@ func TestRenderHookScript_NamesCoilyWrapperOnDeny(t *testing.T) {
 	}
 	// Issue #61: deny-rule message must name `coily ops <bin>` as the
 	// recovery path for the wrapped binaries the agent reaches for most.
-	// Issue #122: hint coverage now extends to ssh, package managers, and
-	// build runners so `coily lockdown` is the single source of truth.
 	for prefix, recovery := range map[string]string{
 		"gh":        "coily ops gh",
 		"aws":       "coily ops aws",
@@ -619,10 +603,6 @@ func TestMergeDenyInto_NoOpWhenAlreadyCovered(t *testing.T) {
 func TestMergeDenyInto_DenyBeatsExistingAllowSemantics(t *testing.T) {
 	// Document the load-bearing assumption: Claude Code applies deny ahead
 	// of allow within a single settings file, so merging the canonical
-	// deny into a file that allow-lists `Bash(gh issue *)` produces a
-	// state where the allow stays present (we don't touch it) but the
-	// deny would override it at runtime. This test only proves the file
-	// state - the runtime semantics live in Claude Code itself.
 	dir := t.TempDir()
 	target := filepath.Join(dir, ".claude", "settings.local.json")
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {

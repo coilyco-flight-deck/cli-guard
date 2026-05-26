@@ -11,8 +11,6 @@ import (
 
 // resetCacheDir points stscache at a fresh tempdir and clears the AWS
 // profile env vars so subtests do not alias each other through the
-// shared cache root. The package resolves its dir on every call, so a
-// t.Setenv here takes effect immediately.
 func resetCacheDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -147,7 +145,6 @@ func TestCallerIdentity_InvalidateForcesRefetch(t *testing.T) {
 
 // TestCallerIdentity_HomeFallback exercises the $HOME-based default
 // cache dir by unsetting COILY_CACHE_DIR and pointing HOME at a tempdir.
-// Catches regressions in the lazy-init path.
 func TestCallerIdentity_HomeFallback(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COILY_CACHE_DIR", "")

@@ -8,8 +8,6 @@ import (
 
 // renderBinaryCheck emits the shell block that rejects invocations of
 // the wrapper binary outside its allowed install paths. Catches both
-// bare-name (e.g. "coily ...", resolved via `command -v`) and
-// explicit-path forms ("/some/path/coily" or "*/coily").
 func renderBinaryCheck(d *Driver) string {
 	allowed := strings.Join(d.BinaryAllowedPaths, ", ")
 	binary := d.BinaryName
@@ -49,18 +47,6 @@ func renderBinaryCheck(d *Driver) string {
 
 // renderScratchExecCheck emits the shell block that denies executing a
 // file from a writable scratch directory (coilysiren/cli-guard#87 Gap
-// 2). A file under /tmp can carry an interpreter shebang, so the kernel
-// runs arbitrary code the moment it is exec'd and the leading-token
-// deny case never sees an interpreter name. Writing scratch files to
-// /tmp is unaffected; only executing a file from there is denied. This
-// is a content-based check on the segment's leading token, so it lives
-// outside the deny-prefix case statement and reuses $seg_first set by
-// renderBinaryCheck.
-//
-// Absolute scratch paths only. A relative `./script` run from a cwd
-// inside /tmp is a residual gap here: this hook parses only the command
-// string, not the PreToolUse cwd field. The cli-guard/hook engine,
-// which does see cwd, closes that form.
 func renderScratchExecCheck() string {
 	return `  # Scratch-dir execution check (cli-guard#87 Gap 2): reject executing
   # a file that lives under a writable scratch directory.
@@ -149,8 +135,6 @@ exit 0
 
 // renderDenyPrefixCase emits the case statement that matches each deny
 // prefix as the segment's leading token (with or without trailing args).
-// Driver.WrapperRecovery maps prefixes to audited-wrapper hints printed
-// alongside the deny message.
 func renderDenyPrefixCase(prefixes []string, recovery map[string]string) string {
 	var b strings.Builder
 	b.WriteString("  case \"$seg\" in\n")
@@ -170,8 +154,6 @@ func renderDenyPrefixCase(prefixes []string, recovery map[string]string) string 
 
 // extractBashDenyPrefixes pulls the leading-token shape out of every
 // Bash(<prefix>:*) entry in the deny list. Other shapes (PowerShell,
-// PowerShell(*), bare strings) are skipped - the hook only gates the Bash
-// tool, the same surface Claude Code's built-in matcher gates.
 func extractBashDenyPrefixes(deny []string) []string {
 	const pre = "Bash("
 	const suf = ":*)"
@@ -194,7 +176,6 @@ func extractBashDenyPrefixes(deny []string) []string {
 
 // claudeCodeRenderHookScript emits the per-repo PreToolUse hook for the
 // Claude Code runtime: header + binary check + deny-prefix case +
-// footer. Wired into the ClaudeCode driver by default.
 func claudeCodeRenderHookScript(d *Defaults, drv *Driver) (string, error) {
 	prefixes := extractBashDenyPrefixes(d.Deny)
 	if len(prefixes) == 0 {
@@ -205,9 +186,6 @@ func claudeCodeRenderHookScript(d *Defaults, drv *Driver) (string, error) {
 
 // claudeCodeRenderUserHookScript emits the user-level PreToolUse hook:
 // header + binary check + footer (no deny-prefix case). Wired into the
-// ClaudeCode driver by default. Catches dev wrapper-binary invocations
-// from any cwd, complementing the per-repo hook which only fires inside
-// managed repos.
 func claudeCodeRenderUserHookScript(drv *Driver) string {
 	return renderHookHeader() + renderBinaryCheck(drv) + renderHookFooter()
 }

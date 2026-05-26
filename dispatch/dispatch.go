@@ -1,18 +1,5 @@
 // Package dispatch hosts the reusable dispatch subsystem: fire `claude`
 // against a real open GitHub issue, in the matching local checkout,
-// headless or interactive.
-//
-// dispatch is generic. The security claim - the prompt is derived from a
-// real open issue inside an allowed org, never free text - holds for any
-// consumer. The host-specific bits (which org is allowed, where checkouts
-// and worktrees live, how a subprocess is run, how a verb is wrapped for
-// audit) are injected through Config rather than hard-coded, so cli-guard
-// consumers like coily and agent-guard each wire the same package into
-// their own urfave/cli command tree.
-//
-// Build a Dispatcher with New, then hang Dispatcher.Command off the host
-// CLI's command tree. The package owns the verb logic; the consumer owns
-// the wiring, the same split cli-guard uses for shell, verb, and audit.
 package dispatch
 
 import (
@@ -35,20 +22,16 @@ import (
 
 // Config carries the host-specific seams the dispatch package refuses to
 // hard-code. Required fields are noted; everything else has a documented
-// default. New validates the required set and fills the rest in.
 type Config struct {
 	// Runner executes subprocesses (gh, git, open). Required.
 	Runner *shell.Runner
 
 	// Wrap applies the consumer's verb pipeline (argv validation, audit,
 	// commit-scope resolution) to a verb.Spec the package builds. coily
-	// passes a closure over its WrapVerb bound to its audit writer.
-	// Required - dispatch is a privileged verb and must not run unaudited.
 	Wrap func(verb.Spec) cli.ActionFunc
 
 	// AllowedOwner is the GitHub org dispatch will accept issue refs from.
 	// This is the security claim, not a knob: dispatch refuses anything
-	// outside <AllowedOwner>/*. Required.
 	AllowedOwner string
 
 	// RepoPath resolves a repo name to its expected local checkout. The
@@ -65,7 +48,6 @@ type Config struct {
 
 	// BinaryName is the host CLI's name, used only to format help text so
 	// it reads correctly per consumer ("coily dispatch ..." vs
-	// "agent-guard dispatch ..."). Optional; defaults to "dispatch".
 	BinaryName string
 
 	// ClaudeConfigPath resolves the Claude Code config file holding
@@ -74,13 +56,10 @@ type Config struct {
 
 	// Notify, when set, is called once per completed dispatch with a
 	// summary Event. The consumer wires ntfy, a done banner, or any other
-	// out-of-band signal. Optional; nil disables notification.
 	Notify func(Event)
 
 	// Seams below are pluggable so tests avoid spawning real processes or
 	// shelling out to git. Production leaves them nil and New installs the
-	// real implementation. OpenLaunch is also a genuine consumer hook: a
-	// non-Warp host overrides how the interactive surface is opened.
 	SpawnDetached    func(repoPath, logPath, bin string, argv, env []string) (int, error)
 	OpenLaunch       func(ctx context.Context, runner *shell.Runner, url string) error
 	WorktreeAdd      func(ctx context.Context, runner *shell.Runner, repoPath, branch, worktreePath string) error
@@ -161,28 +140,14 @@ func applyConfigDefaults(cfg *Config) {
 
 // defaultDispatchPermissionMode is the strictest mode that still lets the
 // headless child make progress without an operator to approve prompts.
-// auto matches the classifier-driven mode a lockdown reasons about;
-// strictly stricter modes (default, plan) stall on the first non-allowed
-// tool because there's no human to approve.
 const defaultDispatchPermissionMode = "auto"
 
 // defaultDispatchAllowedTools is the baseline tool set the seeded prompt
 // footer assumes. It covers the workflow that closes an issue: git
-// read+commit+push, wrapped privileged ops, and the standard file/search/
-// todos primitives. Override with --allowed-tools when a target repo
-// needs more.
 const defaultDispatchAllowedTools = "Bash,Read,Edit,Write,Glob,Grep,TodoWrite"
 
 // Command returns the dispatch umbrella verb. It refuses bare invocation
 // and requires an explicit mode subverb (headless or interactive). The
-// security claim that makes this verb defensible: the prompt is derived
-// from a real open issue inside Config.AllowedOwner, not free text.
-//
-// Why force the mode choice. Both modes have valid uses. Headless is for
-// AFK queue work and bulk fan-out. Interactive is for "this should be its
-// own focused session but I want eyes on it". A default would silently
-// pick a billing model and a supervision posture. Operator chooses on
-// every call.
 func (d *Dispatcher) Command() *cli.Command {
 	bin := d.cfg.BinaryName
 	return &cli.Command{
@@ -223,9 +188,6 @@ Bare 'dispatch <ref>' errors. Pick a mode.`, d.cfg.AllowedOwner, bin, bin, bin, 
 
 // headlessCommand fires `claude -p` against the issue in the local
 // checkout as a fully detached, fire-and-forget child: new session, own
-// process group, stdio to a per-dispatch log file. The package resolves
-// the issue, spawns the child, prints its PID and log path, and returns
-// immediately.
 func (d *Dispatcher) headlessCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "headless",
@@ -290,7 +252,6 @@ need a wider tool set can opt in without editing dispatch.`, d.cfg.AllowedOwner)
 
 // commitScopeArgvHint binds the audit row to the target repo by scanning
 // argv for the first issue ref and resolving its local checkout. Shared
-// by the headless and interactive verbs.
 func (d *Dispatcher) commitScopeArgvHint(argv []string) string {
 	ref := firstIssueRef(argv)
 	if ref == nil {
@@ -340,7 +301,6 @@ func parseIssueRef(s string) (*issueRef, error) {
 
 // firstIssueRef scans argv for the first arg that parses as an issue ref.
 // Used by the CommitScopeArgvHint to bind the audit row to the target
-// repo before the action runs.
 func firstIssueRef(argv []string) *issueRef {
 	for _, a := range argv {
 		if ref, err := parseIssueRef(a); err == nil {
@@ -352,10 +312,6 @@ func firstIssueRef(argv []string) *issueRef {
 
 // ghIssue is the subset of the GitHub REST issues response dispatch
 // consumes. Fetched via `gh api /repos/{owner}/{repo}/issues/{N}` rather
-// than `gh issue view --json`, since the latter routes through GraphQL
-// and shares its tight secondary-rate-limit budget. REST returns state as
-// lowercase ("open"/"closed"); the State check downstream is
-// case-insensitive.
 type ghIssue struct {
 	Number int    `json:"number"`
 	Title  string `json:"title"`
@@ -366,8 +322,6 @@ type ghIssue struct {
 
 // resolveDispatchIssue parses the ref, refuses non-allowed-owner and
 // non-open issues, and returns both the ref and the fetched issue. Shared
-// by the headless and interactive subverbs so the security claim and
-// validation shape stay identical.
 func (d *Dispatcher) resolveDispatchIssue(ctx context.Context, raw string) (*issueRef, *ghIssue, error) {
 	ref, err := parseIssueRef(raw)
 	if err != nil {
@@ -438,7 +392,6 @@ func (d *Dispatcher) runHeadless(ctx context.Context, c *cli.Command) error {
 	}
 	// Persist pid + spawn time alongside the log so `dispatch status`
 	// can render RUNNING/EXITED without scraping ps. Soft-fail: a missed
-	// sidecar degrades status to "pid unknown" but never breaks the run.
 	if err := writeDispatchMeta(logPath, dispatchMeta{
 		PID:       pid,
 		StartedAt: time.Now().UTC(),
@@ -464,7 +417,6 @@ func (d *Dispatcher) notify(e Event) {
 
 // dispatchLogPath returns the per-dispatch log file path. Format:
 // <LogRoot>/<repo>/issue-<N>-<YYYYMMDD-HHMMSS>.log. The timestamp keeps
-// re-dispatches of the same issue from clobbering an earlier run's log.
 func (d *Dispatcher) dispatchLogPath(repo string, number int) (string, error) {
 	root, err := d.cfg.LogRoot()
 	if err != nil {
@@ -476,10 +428,6 @@ func (d *Dispatcher) dispatchLogPath(repo string, number int) (string, error) {
 
 // spawnDetachedClaude starts `claude -p` fully detached: a new session
 // (see detachSysProcAttr), its own process group, stdio redirected to
-// logPath instead of the parent tty, and no Wait(). The child survives
-// the parent terminal closing - that is what makes headless dispatch
-// fire-and-forget. Returns the child PID. It is the default for
-// Config.SpawnDetached; tests swap that field.
 func spawnDetachedClaude(repoPath, logPath, bin string, argv, env []string) (int, error) {
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		return 0, fmt.Errorf("mkdir dispatch log dir: %w", err)
@@ -520,7 +468,6 @@ func spawnDetachedClaude(repoPath, logPath, bin string, argv, env []string) (int
 
 // buildDispatchClaudeArgv resolves the child claude binary and argv.
 // Pulled out of runHeadless so the per-flag conditionals don't push the
-// latter past the gocyclo threshold.
 func buildDispatchClaudeArgv(claudeBin, prompt, permMode, allowedTools string) (string, []string) {
 	if claudeBin == "" {
 		claudeBin = "claude"
@@ -537,7 +484,6 @@ func buildDispatchClaudeArgv(claudeBin, prompt, permMode, allowedTools string) (
 
 // fetchIssue shells out to gh to resolve the issue. Goes through the REST
 // API (`gh api /repos/.../issues/N`) rather than `gh issue view --json`
-// so it doesn't share GraphQL's tight secondary-rate-limit budget.
 func (d *Dispatcher) fetchIssue(ctx context.Context, ref *issueRef) (*ghIssue, error) {
 	path := fmt.Sprintf("/repos/%s/%s/issues/%d", ref.Owner, ref.Repo, ref.Number)
 	raw, err := ghcache.GetJSON(path, func() ([]byte, error) {
@@ -557,8 +503,6 @@ func (d *Dispatcher) fetchIssue(ctx context.Context, ref *issueRef) (*ghIssue, e
 
 // seedPrompt composes the prompt fed to claude -p. Footer carries the
 // standard git-workflow invariants (commit to main, close with closes #N,
-// push, never --no-verify). Kept as a single string constant so the
-// wording drifts in one place rather than per-call.
 func seedPrompt(ref *issueRef, issue *ghIssue) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Work on GitHub issue %s.\n\n", ref)

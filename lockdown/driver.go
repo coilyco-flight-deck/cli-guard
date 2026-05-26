@@ -9,25 +9,6 @@ import (
 
 // Driver describes the binary and runtime that lockdown should write
 // settings/hooks for. Callers either construct a Driver directly or use
-// the ClaudeCode constructor for the default coily-style behavior.
-//
-// The struct decouples lockdown from any particular CLI host:
-//
-//   - Binary fields name the wrapper binary (today: coily) and the
-//     install paths it must resolve to; the hook rejects invocations
-//     resolving anywhere else.
-//   - WrapperRecovery maps a denied bare binary (e.g. "gh") to the
-//     audited wrapper Kai should reach for instead ("coily ops gh").
-//     Surfaced in deny messages so opaque errors stay phone-dictatable.
-//   - HookFilename / UserHookFilename / UserHookMarkerKey name the
-//     per-repo + user-wide hook files and the JSON marker used to
-//     recognize our own entry in shared settings.
-//   - SettingsRelPath is the project-relative dir containing settings
-//     ('.claude' for Claude Code).
-//   - BuildSettings / RenderHookScript / RenderUserHookScript are the
-//     runtime-specific producers; the ClaudeCode constructor wires the
-//     defaults. A future Driver for a different AI tool runtime can
-//     swap these without touching the rest of the package.
 type Driver struct {
 	BinaryName         string
 	BinaryAllowedPaths []string
@@ -43,9 +24,6 @@ type Driver struct {
 
 	// Coordinate is the resolved per-session lockdown coordinate, when a
 	// consumer is profile-aware. Optional: BuildSettings consumers may
-	// branch on it to shape the settings.json plan. Phase 4 plumbing for
-	// coilysiren/coily#150; no BuildSettings in cli-guard yet branches on
-	// it. Phase 5 fills in real per-axis behavior.
 	Coordinate *profile.Coordinate
 }
 
@@ -57,9 +35,6 @@ func (d *Driver) HookSettingsPath() string {
 
 // Validate returns an error if the driver is missing fields the
 // lockdown package needs to operate. Callers should run this before
-// passing the driver into BuildPlan / Write / WriteHook / EnsureUserHook
-// so misconfiguration fails loudly at construction time rather than
-// silently writing a half-formed gate.
 func (d *Driver) Validate() error {
 	if d == nil {
 		return fmt.Errorf("lockdown: nil driver")
@@ -100,15 +75,6 @@ func (d *Driver) Validate() error {
 
 // ClaudeCode returns a Driver pre-wired for Claude Code's settings.json
 // shape and PreToolUse Bash hook contract. Callers supply the binary
-// name (typically "coily"), the closed set of filesystem paths that
-// binary is permitted to resolve to, and a wrapperRecovery map that
-// turns denied bare-binary tokens into the audited wrappers Kai should
-// dictate instead.
-//
-// Filenames default to the coily-style ('lockdown-deny.sh' and
-// '<binary>-binary-gate.sh') and the user-hook marker matches the
-// gate filename minus the suffix. Override fields on the returned
-// Driver before passing it into the package functions if needed.
 func ClaudeCode(binary string, allowedPaths []string, recovery map[string]string) *Driver {
 	d := &Driver{
 		BinaryName:         binary,

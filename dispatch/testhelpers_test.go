@@ -10,9 +10,6 @@ import (
 
 // newTestDispatcher builds a Dispatcher whose required Config fields point
 // at stable test tempdirs. Wrap is the identity pass-through: the verb
-// pipeline (audit, argv validation) is exercised in the verb package's
-// own tests, so the dispatch tests only need the bare Action to run.
-// Individual tests mutate d.cfg fields (seams, roots) after construction.
 func newTestDispatcher(t *testing.T) *Dispatcher {
 	t.Helper()
 	repoRoot := t.TempDir()

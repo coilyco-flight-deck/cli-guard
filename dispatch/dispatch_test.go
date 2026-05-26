@@ -103,8 +103,6 @@ func TestIssueRef_String(t *testing.T) {
 
 // TestDispatchDefaults pins the headless-friendly defaults: permission-
 // mode defaults to auto so the child doesn't stall on the first
-// non-allowed tool, and allowed-tools covers the workflow footer from
-// seedPrompt (git, wrapped privileged ops, edits, reads, todos).
 func TestDispatchDefaults(t *testing.T) {
 	if defaultDispatchPermissionMode != "auto" {
 		t.Errorf("defaultDispatchPermissionMode = %q, want auto", defaultDispatchPermissionMode)
@@ -138,7 +136,6 @@ func TestDispatchLogPath(t *testing.T) {
 
 // TestSpawnDetachedClaude verifies the detached spawn actually runs the
 // child, redirects its stdio to the log file, and returns without
-// waiting. Uses `sh` as a stand-in for the claude binary.
 func TestSpawnDetachedClaude(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses a POSIX shell as the claude stand-in")
@@ -165,7 +162,6 @@ func TestSpawnDetachedClaude(t *testing.T) {
 
 // TestResolveDispatchIssue_RejectsForeignOwner locks the security claim:
 // dispatch refuses any issue ref outside Config.AllowedOwner. The owner
-// gate runs before any network call, so this never reaches gh.
 func TestResolveDispatchIssue_RejectsForeignOwner(t *testing.T) {
 	d := newTestDispatcher(t)
 	_, _, err := d.resolveDispatchIssue(context.Background(), "someoneelse/repo#1")

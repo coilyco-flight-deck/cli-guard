@@ -121,7 +121,6 @@ func TestRecord_TrailerLineEmptyWhenNoID(t *testing.T) {
 func TestRecord_TrailerLine_DropsAtFirstFlag(t *testing.T) {
 	// Sensitive flag values (e.g. SSM parameter names that encode a GPG
 	// key id) must not land in commit history. Truncate at the first
-	// `-`-prefixed token. See cli-guard#60.
 	cases := []struct {
 		name string
 		argv []string

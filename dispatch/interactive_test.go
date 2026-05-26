@@ -13,10 +13,6 @@ import (
 
 // TestInteractivePrompt_RefAndFirstAction pins the prompt contract. The
 // shim greps the owner/repo#N token out of the JSON payload via jq, but
-// the prompt body itself is what claude sees, so the ref staying in the
-// first sentence is a human-readability claim. The first-action
-// instruction lands in the same prompt because the agent otherwise skips
-// the explicit issue fetch and works from the bare ref line.
 func TestInteractivePrompt_RefAndFirstAction(t *testing.T) {
 	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 270}
 	issue := &ghIssue{
@@ -44,9 +40,6 @@ func TestInteractivePrompt_RefAndFirstAction(t *testing.T) {
 
 // TestInteractivePrompt_MergeBack pins the worktree-mode contract: the
 // prompt must tell the dispatched agent to land its branch on main
-// itself, otherwise the dispatch/issue-N branch sits unmerged forever.
-// The --no-worktree variant runs in the bare checkout on main, so it must
-// NOT carry the merge-back paragraph.
 func TestInteractivePrompt_MergeBack(t *testing.T) {
 	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 300}
 	issue := &ghIssue{
@@ -77,7 +70,6 @@ func TestInteractivePrompt_MergeBack(t *testing.T) {
 
 // TestInteractiveTitleLine pins the self-identifying header shape
 // dispatch embeds in the queue entry's title field and the shim echoes
-// in the tab. Format is "<ref>: <title>", whitespace-trimmed.
 func TestInteractiveTitleLine(t *testing.T) {
 	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 279}
 	issue := &ghIssue{
@@ -95,7 +87,6 @@ func TestInteractiveTitleLine(t *testing.T) {
 
 // TestWriteDispatchQueueEntry_ModeAndJSON verifies the queue entry is
 // written under the queue dir with mode 0600, named
-// <unix-nanos>-<8hex>.json, and parseable as the shim's JSON schema.
 func TestWriteDispatchQueueEntry_ModeAndJSON(t *testing.T) {
 	dir := t.TempDir()
 	entry := dispatchQueueEntry{
@@ -139,7 +130,6 @@ func TestWriteDispatchQueueEntry_ModeAndJSON(t *testing.T) {
 
 // TestWriteDispatchQueueEntry_UniqueFilenames verifies two back-to-back
 // writes produce distinct filenames so concurrent dispatches never
-// collide on the same queue path.
 func TestWriteDispatchQueueEntry_UniqueFilenames(t *testing.T) {
 	dir := t.TempDir()
 	entry := dispatchQueueEntry{
@@ -164,7 +154,6 @@ func TestWriteDispatchQueueEntry_UniqueFilenames(t *testing.T) {
 
 // TestDispatchInteractiveDefaults pins the seam strings between dispatch
 // and the agentic-os shim. Changing either side without the other breaks
-// the contract.
 func TestDispatchInteractiveDefaults(t *testing.T) {
 	if defaultDispatchQueueDir != "/tmp/coily-dispatch-queue" {
 		t.Errorf("defaultDispatchQueueDir = %q, want /tmp/coily-dispatch-queue", defaultDispatchQueueDir)
@@ -185,8 +174,6 @@ func TestDispatchInteractiveDefaults(t *testing.T) {
 
 // TestDispatchURL_ChannelSurfaceMatrix pins the four URL shapes dispatch
 // can produce: (preview, stable) x (tab, window). Stable always lands at
-// warp://, Preview always at warppreview://; tab routes via tab_config/,
-// window routes via launch/.
 func TestDispatchURL_ChannelSurfaceMatrix(t *testing.T) {
 	cases := []struct {
 		channel string
@@ -212,7 +199,6 @@ func TestDispatchURL_ChannelSurfaceMatrix(t *testing.T) {
 
 // TestDispatchURL_RejectsUnknownChannel pins the "preview | stable" gate.
 // An unknown channel must error rather than silently fall through to a
-// default scheme, since picking the wrong channel opens the wrong app.
 func TestDispatchURL_RejectsUnknownChannel(t *testing.T) {
 	_, err := dispatchURL("garbage", "tab", "claude-dispatch-interactive")
 	if err == nil {
@@ -242,7 +228,6 @@ func TestDispatchURL_RejectsUnknownSurface(t *testing.T) {
 
 // TestDispatchBare_ErrorsWithModeGate pins the "no default mode" rule.
 // Bare `dispatch <ref>` must error and name the two valid modes; it must
-// not silently fall through to either headless or interactive.
 func TestDispatchBare_ErrorsWithModeGate(t *testing.T) {
 	d := newTestDispatcher(t)
 	cmd := d.Command()
@@ -291,7 +276,6 @@ func TestDispatchWorktreePath(t *testing.T) {
 
 // TestDispatchWorktreeBranch pins the branch name shape
 // `dispatch/issue-<N>`. Predictable so re-dispatching the same issue
-// reuses the same branch (idempotency contract).
 func TestDispatchWorktreeBranch(t *testing.T) {
 	if got, want := dispatchWorktreeBranch(285), "dispatch/issue-285"; got != want {
 		t.Errorf("dispatchWorktreeBranch(285) = %q, want %q", got, want)
@@ -300,7 +284,6 @@ func TestDispatchWorktreeBranch(t *testing.T) {
 
 // TestEnsureDispatchWorktree_CallsGit verifies the production path: when
 // no worktree exists at the target path, ensure runs the WorktreeAdd
-// seam exactly once with the expected arguments.
 func TestEnsureDispatchWorktree_CallsGit(t *testing.T) {
 	d := newTestDispatcher(t)
 	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 285}
@@ -339,7 +322,6 @@ func TestEnsureDispatchWorktree_CallsGit(t *testing.T) {
 
 // TestEnsureDispatchWorktree_Idempotent verifies the reuse path: when a
 // .git entry already exists under the target worktree path, ensure
-// returns the path without calling WorktreeAdd.
 func TestEnsureDispatchWorktree_Idempotent(t *testing.T) {
 	d := newTestDispatcher(t)
 	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 285}

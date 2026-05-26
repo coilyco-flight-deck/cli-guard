@@ -1,11 +1,5 @@
 // Package gittree inspects a repo's working tree for the clean+synced state
 // that gates `.coily/coily.yaml` repo verbs. The gate refuses repo-verb
-// invocations when the audit log could not be reconstructed from git history
-// alone: uncommitted changes, untracked files, detached HEAD, or a branch
-// that has not been fetched against its upstream recently.
-//
-// The gate is repo-verb-only. Built-in verbs are reproducible from the
-// binary version trailer in the audit row and are not subject to this check.
 package gittree
 
 import (
@@ -17,9 +11,6 @@ import (
 
 // State is the outcome of CheckClean. Clean is true when every gate property
 // holds. When false, Reason names the first failure in human-readable form
-// and Recovery names the dictatable shell command(s) the operator should run.
-// Status is the raw porcelain output (truncated) so a forensic reader can
-// reconstruct what was outstanding at refusal time.
 type State struct {
 	Clean    bool
 	Reason   string
@@ -27,9 +18,6 @@ type State struct {
 	Status   string
 	// DirtyPaths is every working-tree path that git porcelain v1 reported
 	// as dirty (modified, added, deleted, untracked, renamed - both halves
-	// of a rename). Paths are repo-root-relative POSIX strings, parsed from
-	// the untruncated porcelain output so a caller can do an authoritative
-	// membership check even when Status was truncated for display.
 	DirtyPaths []string
 	Branch     string
 	Upstream   string
@@ -43,14 +31,10 @@ const MaxStatusBytes = 2048
 
 // ErrNotGitRepo is returned when the supplied path is not inside a git repo.
 // Repo verbs only fire when a repocfg file was discovered, which itself implies
-// a repo, so this error is exceptional rather than a normal gate refusal.
 var ErrNotGitRepo = errors.New("gittree: path is not inside a git repo")
 
 // CheckClean evaluates the gate at repoRoot. Returns a *State whose Clean
 // field tells the caller whether the repo verb may run. A non-nil error is
-// returned only for environmental failures (git missing, repoRoot is not a
-// git repo) - normal "tree is dirty" outcomes are reported via State, not
-// error, so the caller can format a tailored refusal message.
 func CheckClean(repoRoot string) (*State, error) {
 	if _, err := exec.LookPath("git"); err != nil {
 		return nil, fmt.Errorf("gittree: git binary not found on $PATH: %w", err)
@@ -100,7 +84,6 @@ func checkLocalState(st *State, status string) bool {
 
 // checkUpstreamState resolves the branch's upstream and runs `git fetch`.
 // Sets a refusal reason on st when the branch has no upstream or fetch
-// fails. Returns true when a refusal was set.
 func checkUpstreamState(st *State, repoRoot string) bool {
 	upstream, err := runGit(repoRoot, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
 	if err != nil {
@@ -119,7 +102,6 @@ func checkUpstreamState(st *State, repoRoot string) bool {
 
 // checkAheadBehind populates st.Ahead/st.Behind from `git rev-list`. Sets
 // st.Clean=true when the branch is not behind upstream. Returns a non-nil
-// error only for environmental failures.
 func checkAheadBehind(st *State, repoRoot string) error {
 	revs, err := runGit(repoRoot, "rev-list", "--left-right", "--count", "HEAD..."+st.Upstream)
 	if err != nil {
@@ -142,8 +124,6 @@ func checkAheadBehind(st *State, repoRoot string) error {
 
 // FormatRefusal renders the human-readable refusal message for a non-clean
 // State, naming the verb so the operator's recovery suggestion includes
-// the retry command. Use this for the stderr line; the caller is responsible
-// for wrapping into an exitcode.New so the process exit reflects the gate.
 func (s *State) FormatRefusal(verbName string) string {
 	if s.Clean {
 		return ""
@@ -168,9 +148,6 @@ func (s *State) FormatRefusal(verbName string) string {
 
 // parseDirtyPaths extracts the working-tree paths from git porcelain v1
 // output. Each non-empty line is "XY <path>" or "XY <orig> -> <new>" for
-// renames; both halves of a rename are returned. The untruncated status
-// is parsed so the result is authoritative even when State.Status was
-// later truncated for display.
 func parseDirtyPaths(porcelain string) []string {
 	if porcelain == "" {
 		return nil
@@ -192,8 +169,6 @@ func parseDirtyPaths(porcelain string) []string {
 
 // unquoteStatusPath strips the optional surrounding quotes that git's
 // porcelain output uses for paths containing special characters. The
-// inner escape sequences are left as-is - callers do path-equality
-// against repo-relative POSIX paths in the common case.
 func unquoteStatusPath(p string) string {
 	if len(p) >= 2 && p[0] == '"' && p[len(p)-1] == '"' {
 		return p[1 : len(p)-1]

@@ -1,11 +1,5 @@
 // Package decision is the per-call profile-aware evaluator: takes a
 // session profile name, resolves it through the profiles registry, and
-// returns an audit.ProfileDecision suitable for attaching to an audit
-// row. Today every call returns Allowed=true with the resolved
-// Coordinate attached, so the audit log gathers a soak signal before
-// any axis flips to enforcing mode.
-//
-// Plug in via verb.Spec.OnEvaluate when audit.profile_aware is true.
 package decision
 
 import (
@@ -18,8 +12,6 @@ import (
 
 // RedactPolicy returns the default redactor: a secret-flag pattern list
 // and an identifier regex list suitable for any consumer wrapping aws,
-// gh, and the like. Install once at Writer construction via
-// audit.Writer.SetRedactPolicy.
 func RedactPolicy() audit.RedactPolicy {
 	return audit.RedactPolicy{
 		SecretFlagPatterns: []string{
@@ -43,10 +35,6 @@ func RedactPolicy() audit.RedactPolicy {
 
 // Evaluate resolves the named session profile via the profiles package
 // and returns an attached audit.ProfileDecision. Allowed is always true
-// today (soak mode). The error return path is reserved for loader
-// failures (malformed ~/.coily/coily.yaml); a missing override or an
-// unknown profile name fall through to a Strictest Coordinate with the
-// matching Source value rather than an error.
 func Evaluate(profileName string) (*audit.ProfileDecision, error) {
 	res, err := profiles.Resolve(profileName)
 	if err != nil {
@@ -63,8 +51,6 @@ func Evaluate(profileName string) (*audit.ProfileDecision, error) {
 
 // CoordinatePtr returns a non-nil *profile.Coordinate from the
 // resolver result, suitable for lockdown.Driver.Coordinate. Callers
-// that want the Strictest-fallback behavior on missing override can
-// pass the empty profile name; the resolver hands them Strictest.
 func CoordinatePtr(profileName string) (*profile.Coordinate, error) {
 	res, err := profiles.Resolve(profileName)
 	if err != nil {

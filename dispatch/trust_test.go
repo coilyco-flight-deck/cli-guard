@@ -9,7 +9,6 @@ import (
 
 // withClaudeConfig points the dispatcher's ClaudeConfigPath at a tempfile
 // seeded with the given JSON (empty string = no file on disk) and returns
-// the tempfile path.
 func withClaudeConfig(t *testing.T, d *Dispatcher, seed string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), ".claude.json")
@@ -45,7 +44,6 @@ func trustOf(t *testing.T, path, dir string) (trusted, ok bool) {
 
 // TestEnsureClaudeFolderTrust_MissingFile pins the soft contract: a config
 // that has never been written is not an error, and the function leaves no
-// file behind. Claude Code writes its own ~/.claude.json on first run.
 func TestEnsureClaudeFolderTrust_MissingFile(t *testing.T) {
 	d := newTestDispatcher(t)
 	path := withClaudeConfig(t, d, "")
@@ -59,7 +57,6 @@ func TestEnsureClaudeFolderTrust_MissingFile(t *testing.T) {
 
 // TestEnsureClaudeFolderTrust_NewEntry covers the dispatch-worktree case:
 // a path Claude Code has never seen gets a fresh project entry with the
-// trust flag set, and unrelated config is preserved untouched.
 func TestEnsureClaudeFolderTrust_NewEntry(t *testing.T) {
 	d := newTestDispatcher(t)
 	dir := "/Users/kai/projects/coilysiren/.dispatch-worktrees/coily/issue-290"
@@ -87,7 +84,6 @@ func TestEnsureClaudeFolderTrust_NewEntry(t *testing.T) {
 
 // TestEnsureClaudeFolderTrust_FlipsFalse covers the case where a repo has
 // an explicit hasTrustDialogAccepted:false (the state a headless run
-// leaves behind): it is flipped to true.
 func TestEnsureClaudeFolderTrust_FlipsFalse(t *testing.T) {
 	d := newTestDispatcher(t)
 	dir := "/Users/kai/projects/coilysiren/agentic-os-kai"

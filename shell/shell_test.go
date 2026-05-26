@@ -104,8 +104,6 @@ func TestExec_EnvAppendsToParent(t *testing.T) {
 func TestExecIn_RunsInDirectory(t *testing.T) {
 	// ExecIn forces cmd.Dir so the child process resolves relative paths
 	// against the caller-supplied directory rather than cwd. Used by
-	// `coily exec` discovered-from-child verbs to run a child repo's
-	// declared argv from that repo's root.
 	dir := t.TempDir()
 	var out bytes.Buffer
 	r := &shell.Runner{Stdout: &out}

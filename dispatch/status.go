@@ -19,10 +19,6 @@ import (
 
 // status.go owns the read-only verb that bundles the two questions an
 // operator asks about a headless dispatch: is it still running, and what
-// has it printed lately. Discovery uses the log filename shape
-// dispatchLogPath produces; pid + spawn time are persisted in a JSON
-// sidecar at <logPath>.meta written by writeDispatchMeta right after
-// runHeadless spawns the child. See coilysiren/cli-guard#90.
 
 // dispatchStatusTailLines is the default tail size, matching the issue
 // spec. Overridable per call via --tail.
@@ -30,8 +26,6 @@ const dispatchStatusTailLines = 15
 
 // dispatchMeta is the sidecar JSON written next to a headless dispatch
 // log so `dispatch status` can render pid + spawn time + ref without
-// scraping ps output or re-parsing the log. Field tags are the wire
-// format - rename with care.
 type dispatchMeta struct {
 	PID       int       `json:"pid"`
 	StartedAt time.Time `json:"started_at"`
@@ -41,15 +35,12 @@ type dispatchMeta struct {
 
 // dispatchMetaSuffix is the suffix appended to a headless log path to
 // derive its sidecar metadata file. Stable so status can locate it from
-// the log path alone.
 const dispatchMetaSuffix = ".meta"
 
 func metaPathFor(logPath string) string { return logPath + dispatchMetaSuffix }
 
 // writeDispatchMeta writes the sidecar JSON for one headless dispatch.
 // Best-effort by intent: a missing or corrupted meta degrades status
-// output to "pid unknown" but never breaks the dispatch itself, so the
-// caller treats failures as soft.
 func writeDispatchMeta(logPath string, m dispatchMeta) error {
 	payload, err := json.Marshal(m)
 	if err != nil {
@@ -96,7 +87,6 @@ func parseLogStamp(s string) (time.Time, error) {
 
 // walkDispatchLogs lists every headless dispatch log under LogRoot,
 // newest first by embedded timestamp. filterRepo and filterNumber narrow
-// the result; pass "" / 0 to skip a filter.
 func (d *Dispatcher) walkDispatchLogs(filterRepo string, filterNumber int) ([]logEntry, error) {
 	root, err := d.cfg.LogRoot()
 	if err != nil {
@@ -163,9 +153,6 @@ func walkRepoLogs(root, repo string, filterNumber int) []logEntry {
 
 // processRunning reports whether pid points at a live process via the
 // signal-0 trick. Note: after the original child exits, its pid can be
-// reused; status will report RUNNING in that case. The risk is low
-// enough for the audience that we accept it rather than persist start
-// time + /proc cross-check.
 func processRunning(pid int) bool {
 	if pid <= 0 {
 		return false
@@ -229,7 +216,6 @@ func formatDuration(d time.Duration) string {
 
 // statusCommand wires the read-only status verb. Not wrapped through
 // d.cfg.Wrap: status reads disk and signals pid 0, no privileged ops -
-// the reap sibling follows the same unwrapped pattern.
 func (d *Dispatcher) statusCommand() *cli.Command {
 	bin := d.cfg.BinaryName
 	return &cli.Command{
@@ -272,8 +258,6 @@ dispatch headless time. Older logs without a sidecar render with
 
 // pickStatusEntry resolves the operator's intent (positional ref, --pid,
 // or "newest of anything") to a single log entry + its meta. Routes to
-// the per-mode helpers below to keep each branch under the cyclomatic
-// threshold.
 func (d *Dispatcher) pickStatusEntry(args []string, pidFilter int) (*logEntry, dispatchMeta, bool, error) {
 	switch {
 	case pidFilter > 0:
@@ -357,7 +341,6 @@ func (d *Dispatcher) runStatus(ctx context.Context, c *cli.Command, w io.Writer)
 
 // statusRef formats the operator-facing ref string. Prefers the value
 // captured in the sidecar (which knows the canonical owner) and falls
-// back to reconstructing it from the discovered path + AllowedOwner.
 func statusRef(entry *logEntry, meta dispatchMeta, hasMeta bool, allowedOwner string) string {
 	if hasMeta && meta.Ref != "" {
 		return meta.Ref
@@ -367,7 +350,6 @@ func statusRef(entry *logEntry, meta dispatchMeta, hasMeta bool, allowedOwner st
 
 // statusSpawn picks the most authoritative spawn time we have: meta if
 // the sidecar was written, otherwise the timestamp embedded in the log
-// filename.
 func statusSpawn(entry *logEntry, meta dispatchMeta, hasMeta bool) time.Time {
 	if hasMeta && !meta.StartedAt.IsZero() {
 		return meta.StartedAt.Local()
@@ -377,7 +359,6 @@ func statusSpawn(entry *logEntry, meta dispatchMeta, hasMeta bool) time.Time {
 
 // printPidLine emits the pid + RUNNING/EXITED state line, plus the
 // duration line for an exited dispatch. Pulled out so printStatusBlock
-// stays below the cyclomatic threshold.
 func printPidLine(w io.Writer, meta dispatchMeta, hasMeta bool, spawn time.Time, modTime time.Time) {
 	if !hasMeta {
 		_, _ = fmt.Fprintf(w, "pid:     unknown (no %s sidecar)\n", dispatchMetaSuffix)
@@ -400,7 +381,6 @@ func printPidLine(w io.Writer, meta dispatchMeta, hasMeta bool, spawn time.Time,
 
 // printTail emits the trailing "tail:" header plus the captured lines.
 // Read failures surface inline rather than aborting the whole block - a
-// stale or rotated log shouldn't lose the rest of the status.
 func printTail(w io.Writer, path string, n int) {
 	lines, err := tailLines(path, n)
 	if err != nil {
@@ -434,7 +414,6 @@ const followPollInterval = 500 * time.Millisecond
 
 // drainNewBytes copies all currently-available bytes from f to w. EOF /
 // zero-read is the normal "no more data right now" exit; only true read
-// errors are surfaced.
 func drainNewBytes(f *os.File, w io.Writer, buf []byte) error {
 	for {
 		n, readErr := f.Read(buf)
@@ -454,7 +433,6 @@ func drainNewBytes(f *os.File, w io.Writer, buf []byte) error {
 
 // followLog tails the log to w until the recorded pid exits or ctx is
 // cancelled. Without havePID it tails forever (until ctx cancel) since
-// there is no exit signal to wait on.
 func followLog(ctx context.Context, w io.Writer, path string, pid int, havePID bool) error {
 	f, err := os.Open(path)
 	if err != nil {

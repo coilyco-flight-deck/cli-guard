@@ -10,21 +10,6 @@ import (
 
 // WithTTLCache wraps inner with an on-disk TTL cache persisted to a
 // single JSON file at persistPath. Cache shape:
-//
-//	{ "<name>": {"value": "...", "fetched_at": 1779262000} }
-//
-// On Resolve(name): if persistPath holds a non-expired entry for name,
-// return its value without calling inner. Otherwise call inner, write
-// the result back to persistPath under name, and return.
-//
-// Last-writer-wins, no locking on disk. Two concurrent processes may
-// race on the file; the failure mode is one of them losing its write,
-// not corruption (full file is rewritten atomically via temp + rename).
-// In-process callers are protected by a per-cache mutex.
-//
-// Resolver errors are not cached. A missing persistPath is created on
-// first write; a corrupt persistPath falls through to the underlying
-// resolver and is overwritten on next success.
 func WithTTLCache(inner SecretResolver, ttl time.Duration, persistPath string) SecretResolver {
 	return &ttlCache{inner: inner, ttl: ttl, path: persistPath}
 }
@@ -63,7 +48,6 @@ func (c *ttlCache) Resolve(name string) (string, error) {
 
 // load returns the persisted cache map. A missing or corrupt file
 // returns an empty map; both fall through to a fresh underlying resolve
-// and overwrite on next store.
 func (c *ttlCache) load() map[string]ttlEntry {
 	data, err := os.ReadFile(c.path)
 	if err != nil {
@@ -78,7 +62,6 @@ func (c *ttlCache) load() map[string]ttlEntry {
 
 // store rewrites the full cache atomically (temp file + rename). I/O
 // errors are swallowed; a failed store means the next call refetches,
-// which matches the cache's overall fall-through failure model.
 func (c *ttlCache) store(entries map[string]ttlEntry) {
 	if err := os.MkdirAll(filepath.Dir(c.path), 0o700); err != nil {
 		return

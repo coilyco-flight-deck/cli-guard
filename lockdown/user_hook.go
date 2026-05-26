@@ -10,11 +10,6 @@ import (
 
 // EnsureUserHook writes the user-level PreToolUse Bash hook script
 // under homeDir/<SettingsRelPath>/<driver.UserHookFilename> and
-// patches the user settings.json (same dir) so a PreToolUse Bash
-// matcher invokes it. Idempotent: re-runs overwrite the script and
-// leave the settings entry alone if the driver's marker is already
-// present. Returns the resolved hook path and a flag for whether
-// settings.json was changed.
 func EnsureUserHook(homeDir string, drv *Driver) (hookPath string, settingsChanged bool, err error) {
 	if err := drv.Validate(); err != nil {
 		return "", false, err
@@ -41,9 +36,6 @@ func EnsureUserHook(homeDir string, drv *Driver) (hookPath string, settingsChang
 
 // patchUserSettings reads the user settings.json, ensures
 // hooks.PreToolUse contains an entry whose hooks[].command matches
-// hookPath and whose matcher is "Bash", and writes the file back if
-// anything changed. A missing file is created with a minimal
-// structure.
 func patchUserSettings(settingsPath, hookPath, markerKey string) (bool, error) {
 	raw, readErr := os.ReadFile(settingsPath)
 	root := map[string]any{}
@@ -80,14 +72,6 @@ func patchUserSettings(settingsPath, hookPath, markerKey string) (bool, error) {
 
 // ensureHookEntry returns preToolUse with a guaranteed entry whose
 // inner hooks slice contains a {type: "command", command: hookPath,
-// _coily: markerKey} record under matcher "Bash". An existing entry
-// is identified by the marker and updated in place; other entries
-// (user-added Bash hooks) are preserved verbatim.
-//
-// The marker key is stored under the JSON key "_coily" for backward
-// compatibility with hook entries already on disk from the
-// coily-internal era. The key name is independent of the marker
-// value, which can be any driver-supplied string.
 func ensureHookEntry(preToolUse []any, hookPath, markerKey string) []any {
 	wantHook := map[string]any{
 		"type":    "command",

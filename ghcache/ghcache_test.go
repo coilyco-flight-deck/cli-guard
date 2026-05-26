@@ -73,7 +73,6 @@ func TestGetJSON_UnclassifiedPathBypassesCache(t *testing.T) {
 	}
 	// /notifications is a real gh-api path but not in any tier - the
 	// package declines to cache rather than guess a TTL on a path
-	// whose write semantics are unclear.
 	_, _ = ghcache.GetJSON("/notifications", fetch)
 	_, _ = ghcache.GetJSON("/notifications", fetch)
 	if calls != 2 {
