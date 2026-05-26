@@ -154,3 +154,7 @@ formatters:
 
 issues:
   max-same-issues: 20
+  # Dispatch worktrees are parallel-agent scratch space outside the main
+  # codebase; lint failures there are not actionable from the source repo.
+  exclude-dirs:
+    - .dispatch-worktrees

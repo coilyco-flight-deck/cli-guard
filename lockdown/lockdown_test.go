@@ -43,37 +43,18 @@ func TestLoadDefaults_AllowsNonShellEvaluators(t *testing.T) {
 	}
 }
 
-func TestLoadDefaults_DeniesDangerousBase(t *testing.T) {
+// TestLoadDefaults_DeniesWrappedBinaries pins cli-guard#13, #14: the deny
+// list maps 1:1 to the binaries coily wraps.
+func TestLoadDefaults_DeniesWrappedBinaries(t *testing.T) {
 	d, _ := lockdown.LoadDefaults()
 	mustDeny := []string{
-		"Bash(python:*)", "Bash(bash:*)",
-		// aws/kubectl/gh are denied wholesale: every call routes through
-		// coily ops <bin>, which is the audit + argv-validation chokepoint.
 		"Bash(aws:*)", "Bash(kubectl:*)", "Bash(gh:*)",
+		"Bash(uv:*)", "Bash(pip:*)", "Bash(cargo:*)", "Bash(npm:*)",
+		"Bash(docker:*)", "Bash(tailscale:*)", "Bash(ssh:*)",
 	}
 	for _, rule := range mustDeny {
 		if !contains(d.Deny, rule) {
 			t.Errorf("deny list missing required rule %q", rule)
-		}
-	}
-}
-
-func TestLoadDefaults_DeniesWindowsExecution(t *testing.T) {
-	d, _ := lockdown.LoadDefaults()
-	mustDeny := []string{
-		// Windows shells via Bash.
-		"Bash(cmd:*)", "Bash(cmd.exe:*)",
-		"Bash(powershell:*)", "Bash(powershell.exe:*)",
-		"Bash(pwsh:*)", "Bash(pwsh.exe:*)",
-		// Scripting hosts and LOLBAS binaries via Bash.
-		"Bash(wscript:*)", "Bash(cscript:*)", "Bash(mshta:*)",
-		"Bash(rundll32:*)", "Bash(regsvr32:*)",
-		// The PowerShell tool itself (separate from Bash).
-		"PowerShell", "PowerShell(*)",
-	}
-	for _, rule := range mustDeny {
-		if !contains(d.Deny, rule) {
-			t.Errorf("deny list missing required Windows rule %q", rule)
 		}
 	}
 }
@@ -371,14 +352,11 @@ func TestRenderHookScript_NamesCoilyWrapperOnDeny(t *testing.T) {
 		"docker":    "coily docker",
 		"tailscale": "coily tailscale",
 		"ssh":       "coily ssh",
-		"scp":       "coily ssh copy",
 		"npm":       "coily pkg npm",
 		"uv":        "coily pkg uv",
 		"pip":       "coily pkg pip",
 		"cargo":     "coily pkg cargo",
 		"brew":      "coily brew",
-		"make":      "coily exec <verb>",
-		"just":      "coily exec <verb>",
 	} {
 		want := "blocked by deny rule: " + prefix + ". Recovery: use `" + recovery
 		if !strings.Contains(body, want) {
@@ -450,10 +428,10 @@ func TestWriteHook_BlocksDeniedCommand(t *testing.T) {
 		{"/usr/local/bin/coily allowed", `{"tool_input":{"command":"/usr/local/bin/coily kubectl"}}`, 0},
 		{"linuxbrew coily allowed", `{"tool_input":{"command":"/home/linuxbrew/.linuxbrew/bin/coily ssh"}}`, 0},
 		{"coily denied via piped second segment", `{"tool_input":{"command":"echo go | /tmp/coily ssh"}}`, 2},
-		// Gap 1: a denied interpreter laundered behind an allowed leading
+		// Gap 1: a denied wrapped binary laundered behind an allowed leading
 		// token. Every segment of the pipeline must be evaluated.
-		{"python3 laundered behind head", `{"tool_input":{"command":"head -1 file | python3 -c print"}}`, 2},
-		{"ruby laundered behind cat in && chain", `{"tool_input":{"command":"cat x && ruby -e exec"}}`, 2},
+		{"aws laundered behind head", `{"tool_input":{"command":"head -1 file | aws s3 cp - s3://x/y"}}`, 2},
+		{"kubectl laundered behind cat in && chain", `{"tool_input":{"command":"cat x && kubectl get pods"}}`, 2},
 		// Gap 2: executing a shebang script from a writable scratch dir.
 		{"/tmp shebang script denied", `{"tool_input":{"command":"/tmp/script.py"}}`, 2},
 		{"/tmp script with args denied", `{"tool_input":{"command":"/tmp/build/helper arg1"}}`, 2},
