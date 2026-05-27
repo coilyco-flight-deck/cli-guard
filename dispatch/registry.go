@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -46,6 +47,7 @@ A sidequest is "active" when its recorded pid still responds to signal
 the surrounding log rotation prunes them; registry hides them.`, bin, bin),
 		Commands: []*cli.Command{
 			d.registryListCommand(),
+			d.registryCheckCommand(),
 		},
 		Action: func(ctx context.Context, c *cli.Command) error {
 			return d.runRegistryList(ctx, c, os.Stdout)
@@ -76,7 +78,7 @@ func (d *Dispatcher) runRegistryList(_ context.Context, c *cli.Command, w io.Wri
 		return err
 	}
 	if c.Bool("json") {
-		return writeRegistryJSON(w, entries)
+		return writeJSON(w, entries)
 	}
 	return writeRegistryText(w, entries)
 }
@@ -110,10 +112,131 @@ func (d *Dispatcher) collectActiveSidequests() ([]registryEntry, error) {
 	return out, nil
 }
 
-func writeRegistryJSON(w io.Writer, entries []registryEntry) error {
+// writeJSON emits indented JSON. Used for both list and check output.
+func writeJSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	return enc.Encode(entries)
+	return enc.Encode(v)
+}
+
+// parseClaims absolutizes a comma-separated --claims value.
+// Relative paths join against cwd at dispatch time; empty input → nil.
+func parseClaims(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("resolve cwd for relative claims: %w", err)
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		abs := p
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(cwd, abs)
+		}
+		out = append(out, filepath.Clean(abs))
+	}
+	return out, nil
+}
+
+// claimConflict is one (sidequest, claim) pair overlapping the query.
+type claimConflict struct {
+	PID    int    `json:"pid"`
+	Ref    string `json:"ref"`
+	Claim  string `json:"claim"`
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
+func (d *Dispatcher) registryCheckCommand() *cli.Command {
+	return &cli.Command{
+		Name:      "check",
+		Usage:     "Check whether a path is claimed by an active sidequest.",
+		ArgsUsage: "<path>",
+		Description: `check resolves <path> to an absolute path (relative paths join against
+cwd), then walks active sidequests. Exit 0 with no output means no
+conflict. Exit non-zero with one line per conflict means at least one
+active sidequest has claimed an identical or ancestor path.`,
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:  "json",
+				Usage: "emit JSON, one object per conflict",
+			},
+		},
+		Action: func(ctx context.Context, c *cli.Command) error {
+			return d.runRegistryCheck(ctx, c, os.Stdout)
+		},
+	}
+}
+
+func (d *Dispatcher) runRegistryCheck(_ context.Context, c *cli.Command, w io.Writer) error {
+	args := c.Args().Slice()
+	if len(args) != 1 {
+		return fmt.Errorf("dispatch registry check: pass exactly one path (got %d args)", len(args))
+	}
+	abs := args[0]
+	if !filepath.IsAbs(abs) {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("resolve cwd: %w", err)
+		}
+		abs = filepath.Join(cwd, abs)
+	}
+	abs = filepath.Clean(abs)
+	entries, err := d.collectActiveSidequests()
+	if err != nil {
+		return err
+	}
+	conflicts := findConflicts(abs, entries)
+	if c.Bool("json") {
+		if err := writeJSON(w, conflicts); err != nil {
+			return err
+		}
+	} else {
+		for _, cf := range conflicts {
+			if _, err := fmt.Fprintf(w, "pid=%d ref=%s claim=%s reason=%s\n", cf.PID, cf.Ref, cf.Claim, cf.Reason); err != nil {
+				return err
+			}
+		}
+	}
+	if len(conflicts) > 0 {
+		return fmt.Errorf("dispatch registry check: %d conflict(s) for %s", len(conflicts), abs)
+	}
+	return nil
+}
+
+// findConflicts returns every (sidequest, claim) overlap for path.
+func findConflicts(path string, entries []registryEntry) []claimConflict {
+	var out []claimConflict
+	for _, e := range entries {
+		for _, claim := range e.PathsClaimed {
+			reason := matchReason(path, claim)
+			if reason == "" {
+				continue
+			}
+			out = append(out, claimConflict{
+				PID: e.PID, Ref: e.Ref, Claim: claim, Path: path, Reason: reason,
+			})
+		}
+	}
+	return out
+}
+
+func matchReason(path, claim string) string {
+	if path == claim {
+		return "exact"
+	}
+	if strings.HasPrefix(path, claim+string(filepath.Separator)) {
+		return "ancestor"
+	}
+	return ""
 }
 
 func writeRegistryText(w io.Writer, entries []registryEntry) error {

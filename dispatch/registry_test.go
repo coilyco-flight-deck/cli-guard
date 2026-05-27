@@ -114,6 +114,131 @@ func TestRegistryListIncludesAliveSidequest(t *testing.T) {
 	}
 }
 
+// runRegistryCheckCmd parses argv against a check command bound to a
+// captured writer.
+func runRegistryCheckCmd(t *testing.T, d *Dispatcher, argv []string) (string, error) {
+	t.Helper()
+	var buf bytes.Buffer
+	regCmd := d.registryCommand()
+	for _, sub := range regCmd.Commands {
+		if sub.Name == "check" {
+			sub.Action = func(ctx context.Context, c *cli.Command) error {
+				return d.runRegistryCheck(ctx, c, &buf)
+			}
+		}
+	}
+	app := &cli.Command{
+		Name:     "test",
+		Commands: []*cli.Command{regCmd},
+	}
+	err := app.Run(context.Background(), append([]string{"test", "registry", "check"}, argv...))
+	return buf.String(), err
+}
+
+// TestParseClaimsAbsolutizes proves relative claims resolve against
+// cwd and absolute claims pass through, with empty input returning nil.
+func TestParseClaimsAbsolutizes(t *testing.T) {
+	cwd, _ := os.Getwd()
+	got, err := parseClaims("foo/bar, /abs/path , , baz")
+	if err != nil {
+		t.Fatalf("parseClaims: %v", err)
+	}
+	want := []string{
+		cwd + "/foo/bar",
+		"/abs/path",
+		cwd + "/baz",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d claims, got %d: %v", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("claim[%d]: want %q got %q", i, want[i], got[i])
+		}
+	}
+	empty, err := parseClaims("")
+	if err != nil || empty != nil {
+		t.Fatalf("empty input: want (nil, nil), got (%v, %v)", empty, err)
+	}
+}
+
+// TestRegistryCheckCleanReturnsZero proves a path with no overlapping
+// claim exits 0 with empty stdout.
+func TestRegistryCheckCleanReturnsZero(t *testing.T) {
+	d := newTestDispatcher(t)
+	root, _ := d.cfg.LogRoot()
+	writeFakeDispatch(t, root, "coily", 119, "20260527-130000", "", &dispatchMeta{
+		PID:          os.Getpid(),
+		StartedAt:    time.Unix(1700000000, 0).UTC(),
+		Ref:          "coilysiren/coily#119",
+		PathsClaimed: []string{"/work/foo"},
+	})
+	out, err := runRegistryCheckCmd(t, d, []string{"/work/bar"})
+	if err != nil {
+		t.Fatalf("check clean: %v", err)
+	}
+	if out != "" {
+		t.Fatalf("expected empty stdout on clean check, got %q", out)
+	}
+}
+
+// TestRegistryCheckExactConflict proves an identical path match exits
+// non-zero and names the claim.
+func TestRegistryCheckExactConflict(t *testing.T) {
+	d := newTestDispatcher(t)
+	root, _ := d.cfg.LogRoot()
+	writeFakeDispatch(t, root, "coily", 119, "20260527-130000", "", &dispatchMeta{
+		PID:          os.Getpid(),
+		StartedAt:    time.Unix(1700000000, 0).UTC(),
+		Ref:          "coilysiren/coily#119",
+		PathsClaimed: []string{"/work/foo"},
+	})
+	out, err := runRegistryCheckCmd(t, d, []string{"/work/foo"})
+	if err == nil {
+		t.Fatalf("expected non-zero on conflict, got nil err")
+	}
+	if !strings.Contains(out, "reason=exact") {
+		t.Fatalf("expected reason=exact in output, got %q", out)
+	}
+}
+
+// TestRegistryCheckAncestorConflict proves a claim on a directory
+// conflicts with a descendant file.
+func TestRegistryCheckAncestorConflict(t *testing.T) {
+	d := newTestDispatcher(t)
+	root, _ := d.cfg.LogRoot()
+	writeFakeDispatch(t, root, "coily", 119, "20260527-130000", "", &dispatchMeta{
+		PID:          os.Getpid(),
+		StartedAt:    time.Unix(1700000000, 0).UTC(),
+		Ref:          "coilysiren/coily#119",
+		PathsClaimed: []string{"/work/skills/tooling-foo"},
+	})
+	out, err := runRegistryCheckCmd(t, d, []string{"/work/skills/tooling-foo/SKILL.md"})
+	if err == nil {
+		t.Fatalf("expected non-zero on ancestor conflict, got nil err")
+	}
+	if !strings.Contains(out, "reason=ancestor") {
+		t.Fatalf("expected reason=ancestor in output, got %q", out)
+	}
+}
+
+// TestRegistryCheckAncestorBoundary proves that "/work/skills/tooling-foo"
+// claimed does NOT conflict with a sibling "/work/skills/tooling-foobar".
+func TestRegistryCheckAncestorBoundary(t *testing.T) {
+	d := newTestDispatcher(t)
+	root, _ := d.cfg.LogRoot()
+	writeFakeDispatch(t, root, "coily", 119, "20260527-130000", "", &dispatchMeta{
+		PID:          os.Getpid(),
+		StartedAt:    time.Unix(1700000000, 0).UTC(),
+		Ref:          "coilysiren/coily#119",
+		PathsClaimed: []string{"/work/skills/tooling-foo"},
+	})
+	out, err := runRegistryCheckCmd(t, d, []string{"/work/skills/tooling-foobar"})
+	if err != nil {
+		t.Fatalf("expected clean on sibling-prefix path, got err: %v, out=%q", err, out)
+	}
+}
+
 // TestRegistryListJSON proves --json emits a parseable array with the
 // expected fields rather than the human-readable text format.
 func TestRegistryListJSON(t *testing.T) {

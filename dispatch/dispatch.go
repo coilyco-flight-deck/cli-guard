@@ -246,6 +246,10 @@ need a wider tool set can opt in without editing dispatch.`, d.cfg.AllowedOwner)
 				Usage: "comma-separated allowedTools list passed to the child. Default covers the workflow footer: git, wrapped privileged ops, file edits, reads, todos.",
 				Value: defaultDispatchAllowedTools,
 			},
+			&cli.StringFlag{
+				Name:  "claims",
+				Usage: "comma-separated paths this sidequest will edit. Relative paths resolve against the dispatch caller's cwd. Surfaced via `dispatch registry list|check` so a parent or sibling can detect overlap.",
+			},
 		},
 		Action: d.cfg.Wrap(verb.Spec{
 			Name:       "dispatch.headless",
@@ -255,6 +259,7 @@ need a wider tool set can opt in without editing dispatch.`, d.cfg.AllowedOwner)
 					"--claude-bin":      c.String("claude-bin"),
 					"--permission-mode": c.String("permission-mode"),
 					"--allowed-tools":   c.String("allowed-tools"),
+					"--claims":          c.String("claims"),
 				}, c.Args().Slice()
 			},
 			CommitScopeArgvHint: d.commitScopeArgvHint,
@@ -446,14 +451,7 @@ func (d *Dispatcher) runHeadless(ctx context.Context, c *cli.Command) error {
 	allowedTools := c.String("allowed-tools")
 
 	if c.Bool("dry-run") {
-		fmt.Printf("# dispatch headless (dry-run)\n")
-		fmt.Printf("issue:           %s\n", ref)
-		fmt.Printf("url:             %s\n", issue.URL)
-		fmt.Printf("cwd:             %s\n", repoPath)
-		fmt.Printf("permission-mode: %s\n", permMode)
-		fmt.Printf("allowed-tools:   %s\n", allowedTools)
-		fmt.Printf("----- seeded prompt -----\n%s\n----- end -----\n", prompt)
-		return nil
+		return printHeadlessDryRun(c, ref, issue, repoPath, permMode, allowedTools, prompt)
 	}
 
 	// Pre-trust the checkout so the headless child never stalls on the
@@ -474,12 +472,17 @@ func (d *Dispatcher) runHeadless(ctx context.Context, c *cli.Command) error {
 	}
 	// Persist pid + spawn time alongside the log so `dispatch status`
 	// can render RUNNING/EXITED without scraping ps. Soft-fail: a missed
+	claims, err := parseClaims(c.String("claims"))
+	if err != nil {
+		return fmt.Errorf("dispatch headless: --claims: %w", err)
+	}
 	if err := writeDispatchMeta(logPath, dispatchMeta{
 		PID:           pid,
 		StartedAt:     time.Now().UTC(),
 		Ref:           ref.String(),
 		URL:           issue.URL,
 		ParentSession: os.Getenv("CLAUDE_CODE_SESSION_ID"),
+		PathsClaimed:  claims,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "dispatch headless: could not write status sidecar (%v); `dispatch status` will report pid unknown.\n", err)
 	}
@@ -488,6 +491,23 @@ func (d *Dispatcher) runHeadless(ctx context.Context, c *cli.Command) error {
 	fmt.Printf("  log: %s\n", logPath)
 	fmt.Printf("  detached - survives this terminal closing. Follow with: tail -f %s\n", logPath)
 	d.notify(Event{Mode: "headless", Ref: ref.String(), Title: strings.TrimSpace(issue.Title), URL: issue.URL, Cwd: repoPath, PID: pid})
+	return nil
+}
+
+// printHeadlessDryRun renders the resolved dispatch plan without spawning.
+func printHeadlessDryRun(c *cli.Command, ref *issueRef, issue *Issue, repoPath, permMode, allowedTools, prompt string) error {
+	claims, err := parseClaims(c.String("claims"))
+	if err != nil {
+		return fmt.Errorf("dispatch headless: --claims: %w", err)
+	}
+	fmt.Printf("# dispatch headless (dry-run)\n")
+	fmt.Printf("issue:           %s\n", ref)
+	fmt.Printf("url:             %s\n", issue.URL)
+	fmt.Printf("cwd:             %s\n", repoPath)
+	fmt.Printf("permission-mode: %s\n", permMode)
+	fmt.Printf("allowed-tools:   %s\n", allowedTools)
+	fmt.Printf("claims:          %s\n", strings.Join(claims, ","))
+	fmt.Printf("----- seeded prompt -----\n%s\n----- end -----\n", prompt)
 	return nil
 }
 
