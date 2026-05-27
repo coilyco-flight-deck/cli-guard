@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -34,8 +35,9 @@ func TestParseIssueRef(t *testing.T) {
 		{"random gibberish", false, "", "", 0},
 		{"github.com/coilysiren/coily/issues/136", false, "", "", 0}, // missing scheme
 	}
+	d := newTestDispatcher(t)
 	for _, tc := range cases {
-		got, err := parseIssueRef(tc.in)
+		got, err := d.parseIssueRef(tc.in)
 		if tc.wantOK {
 			if err != nil {
 				t.Errorf("parseIssueRef(%q): unexpected err: %v", tc.in, err)
@@ -52,8 +54,9 @@ func TestParseIssueRef(t *testing.T) {
 }
 
 func TestFirstIssueRef(t *testing.T) {
+	d := newTestDispatcher(t)
 	argv := []string{"coily", "dispatch", "headless", "--dry-run", "coilysiren/coily#136"}
-	ref := firstIssueRef(argv)
+	ref := d.firstIssueRef(argv)
 	if ref == nil {
 		t.Fatal("firstIssueRef returned nil; expected match")
 	}
@@ -63,8 +66,9 @@ func TestFirstIssueRef(t *testing.T) {
 }
 
 func TestFirstIssueRef_NoMatch(t *testing.T) {
+	d := newTestDispatcher(t)
 	argv := []string{"coily", "dispatch", "headless", "--dry-run"}
-	if ref := firstIssueRef(argv); ref != nil {
+	if ref := d.firstIssueRef(argv); ref != nil {
 		t.Errorf("firstIssueRef = %+v, want nil", ref)
 	}
 }
@@ -170,6 +174,79 @@ func TestResolveDispatchIssue_RejectsForeignOwner(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "refusing to dispatch outside coilysiren/*") {
 		t.Errorf("error = %q, want a coilysiren/* refusal", err)
+	}
+}
+
+// TestParseIssueRef_ForgejoURL pins recognition of Forgejo URLs,
+// and rejection when ForgejoBaseURL is unconfigured.
+func TestParseIssueRef_ForgejoURL(t *testing.T) {
+	base := "https://forgejo.coilysiren.me"
+	d, err := New(Config{
+		Runner:         &shell.Runner{},
+		Wrap:           func(s verb.Spec) cli.ActionFunc { return s.Action },
+		AllowedOwner:   "coilysiren",
+		RepoPath:       func(string) (string, error) { return "/tmp", nil },
+		WorktreeRoot:   func() (string, error) { return "/tmp", nil },
+		LogRoot:        func() (string, error) { return "/tmp", nil },
+		ForgejoBaseURL: base,
+		FetchForgejoIssue: func(context.Context, string, string, int) (*Issue, error) {
+			return &Issue{}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	url := base + "/coilysiren/agent-guard/issues/18"
+	got, err := d.parseIssueRef(url)
+	if err != nil {
+		t.Fatalf("parseIssueRef(%q): %v", url, err)
+	}
+	if got.Owner != "coilysiren" || got.Repo != "agent-guard" || got.Number != 18 || got.Platform != PlatformForgejo {
+		t.Errorf("parseIssueRef(%q) = %+v, want forgejo coilysiren/agent-guard#18", url, got)
+	}
+
+	bare := newTestDispatcher(t)
+	if _, err := bare.parseIssueRef(url); err == nil {
+		t.Errorf("parseIssueRef(%q) without ForgejoBaseURL: expected error", url)
+	}
+}
+
+// TestResolveDispatchIssue_ForgejoFirstThenGitHub pins shortform
+// disambiguation (Forgejo first, GitHub fallback on 404).
+func TestResolveDispatchIssue_ForgejoFirstThenGitHub(t *testing.T) {
+	var forgejoCalled, ghCalled bool
+	d, err := New(Config{
+		Runner:         &shell.Runner{},
+		Wrap:           func(s verb.Spec) cli.ActionFunc { return s.Action },
+		AllowedOwner:   "coilysiren",
+		RepoPath:       func(string) (string, error) { return "/tmp", nil },
+		WorktreeRoot:   func() (string, error) { return "/tmp", nil },
+		LogRoot:        func() (string, error) { return "/tmp", nil },
+		ForgejoBaseURL: "https://forgejo.coilysiren.me",
+		FetchForgejoIssue: func(_ context.Context, owner, repo string, n int) (*Issue, error) {
+			forgejoCalled = true
+			if owner == "coilysiren" && repo == "coily" && n == 99 {
+				return &Issue{Number: 99, Title: "from forgejo", State: "open", URL: "https://forgejo.coilysiren.me/coilysiren/coily/issues/99"}, nil
+			}
+			return nil, fmt.Errorf("forgejo: 404 not found")
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	_ = ghCalled
+	ref, issue, err := d.resolveDispatchIssue(context.Background(), "coilysiren/coily#99")
+	if err != nil {
+		t.Fatalf("resolveDispatchIssue: %v", err)
+	}
+	if !forgejoCalled {
+		t.Error("expected forgejo fetcher to be tried first for shortform")
+	}
+	if ref.Platform != PlatformForgejo {
+		t.Errorf("ref.Platform = %q, want forgejo", ref.Platform)
+	}
+	if issue.Title != "from forgejo" {
+		t.Errorf("issue.Title = %q, want from forgejo", issue.Title)
 	}
 }
 

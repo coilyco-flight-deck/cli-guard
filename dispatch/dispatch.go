@@ -34,6 +34,14 @@ type Config struct {
 	// This is the security claim, not a knob: dispatch refuses anything
 	AllowedOwner string
 
+	// ForgejoBaseURL enables Forgejo issue refs when set (scheme://host).
+	// Requires FetchForgejoIssue.
+	ForgejoBaseURL string
+
+	// FetchForgejoIssue resolves a Forgejo issue. 404-shaped errors
+	// (message contains "404") fall back to GitHub for shortform refs.
+	FetchForgejoIssue func(ctx context.Context, owner, repo string, number int) (*Issue, error)
+
 	// RepoPath resolves a repo name to its expected local checkout. The
 	// consumer owns the workspace layout. Required.
 	RepoPath func(repo string) (string, error)
@@ -108,6 +116,8 @@ func validateConfig(cfg Config) error {
 		return fmt.Errorf("dispatch: Config.WorktreeRoot is required")
 	case cfg.LogRoot == nil:
 		return fmt.Errorf("dispatch: Config.LogRoot is required")
+	case cfg.ForgejoBaseURL != "" && cfg.FetchForgejoIssue == nil:
+		return fmt.Errorf("dispatch: Config.FetchForgejoIssue is required when ForgejoBaseURL is set")
 	}
 	return nil
 }
@@ -253,7 +263,7 @@ need a wider tool set can opt in without editing dispatch.`, d.cfg.AllowedOwner)
 // commitScopeArgvHint binds the audit row to the target repo by scanning
 // argv for the first issue ref and resolving its local checkout. Shared
 func (d *Dispatcher) commitScopeArgvHint(argv []string) string {
-	ref := firstIssueRef(argv)
+	ref := d.firstIssueRef(argv)
 	if ref == nil {
 		return ""
 	}
@@ -264,11 +274,21 @@ func (d *Dispatcher) commitScopeArgvHint(argv []string) string {
 	return p
 }
 
-// issueRef is the parsed shape of a GitHub issue reference.
+// Platform tags which forge an issue ref resolves against.
+type Platform string
+
+const (
+	PlatformGitHub  Platform = "github"
+	PlatformForgejo Platform = "forgejo"
+)
+
+// issueRef is the parsed shape of an issue reference. Empty Platform
+// means shortform - resolveDispatchIssue picks a forge.
 type issueRef struct {
-	Owner  string
-	Repo   string
-	Number int
+	Owner    string
+	Repo     string
+	Number   int
+	Platform Platform
 }
 
 func (i issueRef) String() string {
@@ -281,38 +301,60 @@ var issueRefShortRE = regexp.MustCompile(`^([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)#(
 // issueRefURLRE matches https://github.com/owner/repo/issues/N.
 var issueRefURLRE = regexp.MustCompile(`^https?://github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/issues/(\d+)/?$`)
 
-// parseIssueRef accepts the two reference forms and returns the parts.
-func parseIssueRef(s string) (*issueRef, error) {
+// forgejoURLRE matches <ForgejoBaseURL>/owner/repo/issues/N. Built
+// dynamically because the base URL is host-configurable.
+func forgejoURLRE(baseURL string) *regexp.Regexp {
+	return regexp.MustCompile(`^` + regexp.QuoteMeta(strings.TrimRight(baseURL, "/")) +
+		`/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/issues/(\d+)/?$`)
+}
+
+// parseIssueRef accepts the supported reference forms. Forgejo URLs
+// require d.cfg.ForgejoBaseURL to be set.
+func (d *Dispatcher) parseIssueRef(s string) (*issueRef, error) {
 	s = strings.TrimSpace(s)
-	for _, re := range []*regexp.Regexp{issueRefShortRE, issueRefURLRE} {
-		if m := re.FindStringSubmatch(s); m != nil {
-			n := 0
-			if _, err := fmt.Sscanf(m[3], "%d", &n); err != nil {
-				return nil, fmt.Errorf("dispatch: parse issue number in %q: %w", s, err)
-			}
-			if n <= 0 {
-				return nil, fmt.Errorf("dispatch: issue number must be positive: %q", s)
-			}
-			return &issueRef{Owner: m[1], Repo: m[2], Number: n}, nil
+	if m := issueRefShortRE.FindStringSubmatch(s); m != nil {
+		return buildRef(m, "", s)
+	}
+	if m := issueRefURLRE.FindStringSubmatch(s); m != nil {
+		return buildRef(m, PlatformGitHub, s)
+	}
+	if d.cfg.ForgejoBaseURL != "" {
+		if m := forgejoURLRE(d.cfg.ForgejoBaseURL).FindStringSubmatch(s); m != nil {
+			return buildRef(m, PlatformForgejo, s)
 		}
 	}
-	return nil, fmt.Errorf("dispatch: not an issue reference (want owner/repo#N or https://github.com/owner/repo/issues/N): %q", s)
+	want := "owner/repo#N or https://github.com/owner/repo/issues/N"
+	if d.cfg.ForgejoBaseURL != "" {
+		want += " or " + strings.TrimRight(d.cfg.ForgejoBaseURL, "/") + "/owner/repo/issues/N"
+	}
+	return nil, fmt.Errorf("dispatch: not an issue reference (want %s): %q", want, s)
+}
+
+func buildRef(m []string, platform Platform, s string) (*issueRef, error) {
+	n := 0
+	if _, err := fmt.Sscanf(m[3], "%d", &n); err != nil {
+		return nil, fmt.Errorf("dispatch: parse issue number in %q: %w", s, err)
+	}
+	if n <= 0 {
+		return nil, fmt.Errorf("dispatch: issue number must be positive: %q", s)
+	}
+	return &issueRef{Owner: m[1], Repo: m[2], Number: n, Platform: platform}, nil
 }
 
 // firstIssueRef scans argv for the first arg that parses as an issue ref.
 // Used by the CommitScopeArgvHint to bind the audit row to the target
-func firstIssueRef(argv []string) *issueRef {
+func (d *Dispatcher) firstIssueRef(argv []string) *issueRef {
 	for _, a := range argv {
-		if ref, err := parseIssueRef(a); err == nil {
+		if ref, err := d.parseIssueRef(a); err == nil {
 			return ref
 		}
 	}
 	return nil
 }
 
-// ghIssue is the subset of the GitHub REST issues response dispatch
-// consumes. Fetched via `gh api /repos/{owner}/{repo}/issues/{N}` rather
-type ghIssue struct {
+// Issue is the platform-neutral fetch result. GitHub and Forgejo share
+// the same JSON field names so one struct covers both.
+type Issue struct {
 	Number int    `json:"number"`
 	Title  string `json:"title"`
 	Body   string `json:"body"`
@@ -320,17 +362,20 @@ type ghIssue struct {
 	URL    string `json:"html_url"`
 }
 
+// ghIssue keeps the internal name for older call sites.
+type ghIssue = Issue
+
 // resolveDispatchIssue parses the ref, refuses non-allowed-owner and
 // non-open issues, and returns both the ref and the fetched issue. Shared
 func (d *Dispatcher) resolveDispatchIssue(ctx context.Context, raw string) (*issueRef, *ghIssue, error) {
-	ref, err := parseIssueRef(raw)
+	ref, err := d.parseIssueRef(raw)
 	if err != nil {
 		return nil, nil, err
 	}
 	if ref.Owner != d.cfg.AllowedOwner {
 		return nil, nil, fmt.Errorf("dispatch: refusing to dispatch outside %s/* (got %s)", d.cfg.AllowedOwner, ref.Owner)
 	}
-	issue, err := d.fetchIssue(ctx, ref)
+	issue, err := d.fetchIssueForRef(ctx, ref)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -338,6 +383,38 @@ func (d *Dispatcher) resolveDispatchIssue(ctx context.Context, raw string) (*iss
 		return nil, nil, fmt.Errorf("dispatch: refusing to dispatch against non-open issue %s (state=%s)", ref, issue.State)
 	}
 	return ref, issue, nil
+}
+
+// fetchIssueForRef routes to the matching forge. Shortform refs prefer
+// Forgejo when configured and fall back to GitHub on 404.
+func (d *Dispatcher) fetchIssueForRef(ctx context.Context, ref *issueRef) (*ghIssue, error) {
+	switch ref.Platform {
+	case PlatformGitHub:
+		return d.fetchIssue(ctx, ref)
+	case PlatformForgejo:
+		return d.cfg.FetchForgejoIssue(ctx, ref.Owner, ref.Repo, ref.Number)
+	}
+	if d.cfg.FetchForgejoIssue != nil {
+		issue, err := d.cfg.FetchForgejoIssue(ctx, ref.Owner, ref.Repo, ref.Number)
+		if err == nil {
+			ref.Platform = PlatformForgejo
+			return issue, nil
+		}
+		if !isNotFound(err) {
+			return nil, err
+		}
+	}
+	issue, err := d.fetchIssue(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	ref.Platform = PlatformGitHub
+	return issue, nil
+}
+
+// isNotFound matches host-wrapped 404 errors so we can fall back forges.
+func isNotFound(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "404")
 }
 
 func (d *Dispatcher) runHeadless(ctx context.Context, c *cli.Command) error {
@@ -505,12 +582,21 @@ func (d *Dispatcher) fetchIssue(ctx context.Context, ref *issueRef) (*ghIssue, e
 // standard git-workflow invariants (commit to main, close with closes #N,
 func seedPrompt(ref *issueRef, issue *ghIssue) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Work on GitHub issue %s.\n\n", ref)
+	fmt.Fprintf(&b, "Work on %s issue %s.\n\n", forgeName(ref.Platform), ref)
 	fmt.Fprintf(&b, "Title: %s\n", issue.Title)
 	fmt.Fprintf(&b, "URL:   %s\n\n", issue.URL)
 	fmt.Fprintf(&b, "Issue body:\n\n%s\n\n", strings.TrimSpace(issue.Body))
 	fmt.Fprintf(&b, "%s", dispatchFooter)
 	return b.String()
+}
+
+// forgeName renders the platform tag for prompts. Default is GitHub so
+// older un-tagged refs keep their existing prompt.
+func forgeName(p Platform) string {
+	if p == PlatformForgejo {
+		return "Forgejo"
+	}
+	return "GitHub"
 }
 
 const dispatchFooter = `Workflow rules (from AGENTS.md):

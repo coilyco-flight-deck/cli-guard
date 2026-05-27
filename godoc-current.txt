@@ -378,6 +378,14 @@ type Config struct {
 	// This is the security claim, not a knob: dispatch refuses anything
 	AllowedOwner string
 
+	// ForgejoBaseURL enables Forgejo issue refs when set (scheme://host).
+	// Requires FetchForgejoIssue.
+	ForgejoBaseURL string
+
+	// FetchForgejoIssue resolves a Forgejo issue. 404-shaped errors
+	// (message contains "404") fall back to GitHub for shortform refs.
+	FetchForgejoIssue func(ctx context.Context, owner, repo string, number int) (*Issue, error)
+
 	// RepoPath resolves a repo name to its expected local checkout. The
 	// consumer owns the workspace layout. Required.
 	RepoPath func(repo string) (string, error)
@@ -437,6 +445,23 @@ type Event struct {
 }
     Event is the summary handed to Config.Notify when a dispatch completes.
 
+type Issue struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	Body   string `json:"body"`
+	State  string `json:"state"`
+	URL    string `json:"html_url"`
+}
+    Issue is the platform-neutral fetch result. GitHub and Forgejo share the
+    same JSON field names so one struct covers both.
+
+type Platform string
+    Platform tags which forge an issue ref resolves against.
+
+const (
+	PlatformGitHub  Platform = "github"
+	PlatformForgejo Platform = "forgejo"
+)
 
 ## github.com/coilysiren/cli-guard/egress
 

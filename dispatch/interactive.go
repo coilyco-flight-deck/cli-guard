@@ -210,8 +210,8 @@ Soft-fails to a copy-paste fallback if Warp / open are unavailable.`,
 func interactivePrompt(ref *issueRef, issue *ghIssue, noWorktree bool, repoPath string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b,
-		"Work on issue %s. First action: run `coily ops gh issue view %s --comments` and read the full body and comment thread before doing anything else.",
-		ref, issue.URL)
+		"Work on issue %s. First action: %s and read the full body and comment thread before doing anything else.",
+		ref, firstActionHint(ref, issue))
 	if !noWorktree {
 		branch := dispatchWorktreeBranch(ref.Number)
 		fmt.Fprintf(&b,
@@ -219,6 +219,16 @@ func interactivePrompt(ref *issueRef, issue *ghIssue, noWorktree bool, repoPath 
 			branch, repoPath, branch, repoPath)
 	}
 	return b.String()
+}
+
+// firstActionHint returns the platform-appropriate "read the issue"
+// command the dispatched session runs before doing anything else.
+func firstActionHint(ref *issueRef, issue *ghIssue) string {
+	if ref.Platform == PlatformForgejo {
+		return fmt.Sprintf("run `coily ops forgejo issue view --repo %s/%s --number %d` (URL: %s)",
+			ref.Owner, ref.Repo, ref.Number, issue.URL)
+	}
+	return fmt.Sprintf("run `coily ops gh issue view %s --comments`", issue.URL)
 }
 
 // interactiveTitleLine is the self-identifying header the shim echoes in

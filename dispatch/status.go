@@ -283,7 +283,7 @@ func (d *Dispatcher) pickStatusEntryByPID(pid int) (*logEntry, dispatchMeta, boo
 }
 
 func (d *Dispatcher) pickStatusEntryByRef(raw string) (*logEntry, dispatchMeta, bool, error) {
-	ref, err := parseIssueRef(raw)
+	ref, err := d.parseIssueRef(raw)
 	if err != nil {
 		return nil, dispatchMeta{}, false, err
 	}
