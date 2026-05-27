@@ -18,6 +18,67 @@ func lookFunc(m map[string]string) LookPath {
 	}
 }
 
+func TestExfilExpansion(t *testing.T) {
+	cases := []struct {
+		name string
+		seg  string
+		want string
+	}{
+		{"echo literal", "echo hello world", ""},
+		{"echo quoted literal", `echo "hello"`, ""},
+		{"echo safe var bare", "echo $HOME", ""},
+		{"echo safe var braced", "echo ${HOME}", ""},
+		{"echo safe var quoted", `echo "user: $USER"`, ""},
+		{"echo shell metavar", "echo $$ pid", ""},
+		{"echo positional", "echo $1 $2", ""},
+		{"echo question", "echo $?", ""},
+		{"echo bare secret", "echo $SECRET", "echo"},
+		{"echo braced secret", "echo ${AWS_SECRET_ACCESS_KEY}", "echo"},
+		{"echo command sub", "echo $(cat /etc/passwd)", "echo"},
+		{"echo backtick sub", "echo `whoami`", "echo"},
+		{"echo mixed safe and unsafe", "echo $HOME $TOKEN", "echo"},
+		{"printf literal", `printf "hello\n"`, ""},
+		{"printf safe", `printf "%s\n" $HOME`, ""},
+		{"printf secret", `printf "%s" $API_KEY`, "printf"},
+		{"non-exfil command", "ls $SECRET", ""},
+		{"echo no args", "echo", ""},
+		{"echo trailing dollar", "echo abc$", "echo"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := exfilExpansion(tc.seg)
+			if got != tc.want {
+				t.Errorf("exfilExpansion(%q) = %q, want %q", tc.seg, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPreToolUse_BlocksEchoExfil(t *testing.T) {
+	payload := Payload{
+		ToolName:  "Bash",
+		ToolInput: map[string]any{"command": "echo $AWS_SECRET_ACCESS_KEY"},
+	}
+	d := PreToolUse(payload, "test", nil, nil, lookFunc(nil))
+	if !d.Block {
+		t.Fatalf("expected block, got pass-through")
+	}
+	if !strings.Contains(d.Message, "blocked `echo` with variable expansion") {
+		t.Errorf("wrong message: %q", d.Message)
+	}
+}
+
+func TestPreToolUse_AllowsEchoSafeVar(t *testing.T) {
+	payload := Payload{
+		ToolName:  "Bash",
+		ToolInput: map[string]any{"command": "echo $HOME"},
+	}
+	d := PreToolUse(payload, "test", nil, nil, lookFunc(nil))
+	if d.Block {
+		t.Errorf("expected pass-through for safe var, got Block: %q", d.Message)
+	}
+}
+
 func TestPreToolUse_PassThroughOnNonBashOrEmpty(t *testing.T) {
 	routes := []Route{{Token: "gh", Hint: "use guard ops gh"}}
 	cases := []struct {

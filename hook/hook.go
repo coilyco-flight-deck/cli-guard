@@ -102,6 +102,11 @@ func evaluateSegment(seg, source, cwd string, integrity map[string][]string, rou
 			"%s hook: blocked interpreter `%s`. Running arbitrary code through an interpreter defeats the command allowlist. This deny holds no matter the spelling: bare, with `-c`, piped behind an allowed command, by absolute path, or via an executable shebang script.",
 			source, name)}
 	}
+	if name := exfilExpansion(seg); name != "" {
+		return Decision{Block: true, Message: fmt.Sprintf(
+			"%s hook: blocked `%s` with variable expansion or command substitution. The shell expands the value before the guard sees the command, so a non-allowlisted env var or $() / backtick substitution can leak secrets to stdout. Safe expansions: $HOME, $PWD, $USER, $SHELL, $TERM, $LANG, $LC_ALL, $LOGNAME, $HOSTNAME, $OSTYPE. Use a wrapper that audits the value.",
+			source, name)}
+	}
 	if scratchExec(token, cwd) {
 		return Decision{Block: true, Message: fmt.Sprintf(
 			"%s hook: blocked execution of `%s` from a writable scratch directory. A file under /tmp (or a similar scratch dir) can carry an interpreter shebang, so the kernel runs arbitrary code the moment it is exec'd - the guard never sees the interpreter token. Writing scratch files to /tmp stays allowed; executing them does not.",
@@ -250,6 +255,113 @@ func interpreterName(token string) string {
 		return base
 	}
 	return ""
+}
+
+// exfilCommands print arguments verbatim; shell-expanded args leak
+// the expansion to stdout before the guard ever sees the value.
+var exfilCommands = map[string]bool{
+	"echo":   true,
+	"printf": true,
+}
+
+// safeExpansionNames lists env vars whose values are not secret and
+// are routinely echoed for debugging. Their expansion is allowed.
+var safeExpansionNames = map[string]bool{
+	"HOME": true, "PWD": true, "USER": true, "SHELL": true,
+	"TERM": true, "LANG": true, "LC_ALL": true,
+	"LOGNAME": true, "HOSTNAME": true, "OSTYPE": true,
+}
+
+// exfilExpansion returns the exfil command name on a blocking match,
+// "" otherwise. Shell metavars and positional params pass.
+func exfilExpansion(seg string) string {
+	token := LeadingToken(seg)
+	if !exfilCommands[token] {
+		return ""
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(seg, token))
+	if rest == "" {
+		return ""
+	}
+	if strings.Contains(rest, "$(") || strings.Contains(rest, "`") {
+		return token
+	}
+	if hasUnsafeVarExpansion(rest) {
+		return token
+	}
+	return ""
+}
+
+// hasUnsafeVarExpansion returns true when s contains a $NAME or
+// ${NAME} expansion whose name is not in safeExpansionNames.
+func hasUnsafeVarExpansion(s string) bool {
+	for i := 0; i < len(s); {
+		idx := strings.IndexByte(s[i:], '$')
+		if idx < 0 {
+			return false
+		}
+		i += idx + 1
+		if i >= len(s) {
+			return true
+		}
+		next, blocked := readExpansion(s, i)
+		if blocked {
+			return true
+		}
+		i = next
+	}
+	return false
+}
+
+// readExpansion parses one $-expansion starting at i (just past the
+// $). Returns the new index and whether the name is non-safe.
+func readExpansion(s string, i int) (int, bool) {
+	braced := i < len(s) && s[i] == '{'
+	if braced {
+		i++
+	}
+	if i < len(s) && isDigit(s[i]) {
+		return skipPositional(s, i, braced), false
+	}
+	nameEnd := scanName(s, i)
+	if nameEnd == i {
+		return nameEnd, false
+	}
+	if !safeExpansionNames[s[i:nameEnd]] {
+		return nameEnd, true
+	}
+	return skipBraceClose(s, nameEnd, braced), false
+}
+
+func scanName(s string, i int) int {
+	for i < len(s) && isNameChar(s[i]) {
+		i++
+	}
+	return i
+}
+
+func skipPositional(s string, i int, braced bool) int {
+	i++
+	return skipBraceClose(s, i, braced)
+}
+
+func skipBraceClose(s string, i int, braced bool) int {
+	if !braced {
+		return i
+	}
+	for i < len(s) && s[i] != '}' {
+		i++
+	}
+	if i < len(s) {
+		i++
+	}
+	return i
+}
+
+func isDigit(c byte) bool { return c >= '0' && c <= '9' }
+
+func isNameChar(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'
 }
 
 // scratchExecRoots are filesystem prefixes that are world-writable
