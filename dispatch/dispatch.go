@@ -176,19 +176,24 @@ mode subverbs:
                                   "Work on issue <ref>". Operator has
                                   eyes on it.
 
-It also carries two maintenance verbs:
+It also carries three maintenance verbs:
 
   %s dispatch reap                Remove dispatch worktrees whose branch
                                   is already merged into main.
   %s dispatch status              Show pid + log tail for a headless
                                   dispatch (most recent, by ref, or by pid).
+  %s dispatch registry            List active sidequests (headless dispatches
+                                  whose pid is still alive), so a parent agent
+                                  or sibling sidequest can see who is editing
+                                  what before writing shared paths.
 
-Bare 'dispatch <ref>' errors. Pick a mode.`, d.cfg.AllowedOwner, bin, bin, bin, bin),
+Bare 'dispatch <ref>' errors. Pick a mode.`, d.cfg.AllowedOwner, bin, bin, bin, bin, bin),
 		Commands: []*cli.Command{
 			d.headlessCommand(),
 			d.interactiveCommand(),
 			d.reapCommand(),
 			d.statusCommand(),
+			d.registryCommand(),
 		},
 		Action: func(_ context.Context, _ *cli.Command) error {
 			return fmt.Errorf("dispatch: specify mode: interactive | headless (see `%s dispatch --help`)", bin)
@@ -470,10 +475,11 @@ func (d *Dispatcher) runHeadless(ctx context.Context, c *cli.Command) error {
 	// Persist pid + spawn time alongside the log so `dispatch status`
 	// can render RUNNING/EXITED without scraping ps. Soft-fail: a missed
 	if err := writeDispatchMeta(logPath, dispatchMeta{
-		PID:       pid,
-		StartedAt: time.Now().UTC(),
-		Ref:       ref.String(),
-		URL:       issue.URL,
+		PID:           pid,
+		StartedAt:     time.Now().UTC(),
+		Ref:           ref.String(),
+		URL:           issue.URL,
+		ParentSession: os.Getenv("CLAUDE_CODE_SESSION_ID"),
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "dispatch headless: could not write status sidecar (%v); `dispatch status` will report pid unknown.\n", err)
 	}

@@ -24,13 +24,15 @@ import (
 // spec. Overridable per call via --tail.
 const dispatchStatusTailLines = 15
 
-// dispatchMeta is the sidecar JSON written next to a headless dispatch
-// log so `dispatch status` can render pid + spawn time + ref without
+// dispatchMeta is the sidecar JSON next to a headless dispatch log.
+// ParentSession + PathsClaimed back the sidequest registry (cli-guard#20).
 type dispatchMeta struct {
-	PID       int       `json:"pid"`
-	StartedAt time.Time `json:"started_at"`
-	Ref       string    `json:"ref"`
-	URL       string    `json:"url"`
+	PID           int       `json:"pid"`
+	StartedAt     time.Time `json:"started_at"`
+	Ref           string    `json:"ref"`
+	URL           string    `json:"url"`
+	ParentSession string    `json:"parent_session,omitempty"`
+	PathsClaimed  []string  `json:"paths_claimed,omitempty"`
 }
 
 // dispatchMetaSuffix is the suffix appended to a headless log path to
