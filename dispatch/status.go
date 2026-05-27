@@ -94,6 +94,11 @@ func (d *Dispatcher) walkDispatchLogs(filterRepo string, filterNumber int) ([]lo
 	if err != nil {
 		return nil, err
 	}
+	return walkLogsAt(root, filterRepo, filterNumber)
+}
+
+// walkLogsAt is the LogRoot-string variant used by the public Registry.
+func walkLogsAt(root, filterRepo string, filterNumber int) ([]logEntry, error) {
 	repos, err := os.ReadDir(root)
 	if os.IsNotExist(err) {
 		return nil, nil

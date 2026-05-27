@@ -17,8 +17,8 @@ import (
 // registry.go is the active-sidequests view over dispatchMeta sidecars.
 // See coilysiren/cli-guard#20 and coilysiren/coily#119.
 
-// registryEntry is one active sidequest as rendered to operators.
-type registryEntry struct {
+// Sidequest is one active headless dispatch as exposed to consumers.
+type Sidequest struct {
 	PID           int       `json:"pid"`
 	Ref           string    `json:"ref"`
 	URL           string    `json:"url,omitempty"`
@@ -83,13 +83,27 @@ func (d *Dispatcher) runRegistryList(_ context.Context, c *cli.Command, w io.Wri
 	return writeRegistryText(w, entries)
 }
 
-// collectActiveSidequests returns dispatchMetas with alive PIDs, oldest first.
-func (d *Dispatcher) collectActiveSidequests() ([]registryEntry, error) {
-	logs, err := d.walkDispatchLogs("", 0)
+// Registry is the public read-only view over the sidequest surface.
+// Downstream hosts use this rather than shelling out to each other.
+type Registry struct {
+	logRoot string
+}
+
+// NewRegistry binds a Registry to a host-supplied LogRoot.
+func NewRegistry(logRoot string) *Registry {
+	return &Registry{logRoot: logRoot}
+}
+
+// Active returns every active sidequest (alive PID), oldest first.
+func (r *Registry) Active() ([]Sidequest, error) {
+	if r == nil || r.logRoot == "" {
+		return nil, nil
+	}
+	logs, err := walkLogsAt(r.logRoot, "", 0)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]registryEntry, 0, len(logs))
+	out := make([]Sidequest, 0, len(logs))
 	for _, e := range logs {
 		m, ok := readDispatchMeta(e.Path)
 		if !ok {
@@ -98,7 +112,7 @@ func (d *Dispatcher) collectActiveSidequests() ([]registryEntry, error) {
 		if !processRunning(m.PID) {
 			continue
 		}
-		out = append(out, registryEntry{
+		out = append(out, Sidequest{
 			PID:           m.PID,
 			Ref:           m.Ref,
 			URL:           m.URL,
@@ -110,6 +124,25 @@ func (d *Dispatcher) collectActiveSidequests() ([]registryEntry, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].StartedAt.Before(out[j].StartedAt) })
 	return out, nil
+}
+
+// Conflicts returns every (sidequest, claim) pair overlapping absPath.
+func (r *Registry) Conflicts(absPath string) ([]Conflict, error) {
+	entries, err := r.Active()
+	if err != nil {
+		return nil, err
+	}
+	return findConflicts(absPath, entries), nil
+}
+
+// collectActiveSidequests is the Dispatcher-facing adapter; cli-side
+// verbs keep the same callsite.
+func (d *Dispatcher) collectActiveSidequests() ([]Sidequest, error) {
+	root, err := d.cfg.LogRoot()
+	if err != nil {
+		return nil, err
+	}
+	return NewRegistry(root).Active()
 }
 
 // writeJSON emits indented JSON. Used for both list and check output.
@@ -146,8 +179,8 @@ func parseClaims(raw string) ([]string, error) {
 	return out, nil
 }
 
-// claimConflict is one (sidequest, claim) pair overlapping the query.
-type claimConflict struct {
+// Conflict is one (sidequest, claim) pair overlapping the query.
+type Conflict struct {
 	PID    int    `json:"pid"`
 	Ref    string `json:"ref"`
 	Claim  string `json:"claim"`
@@ -213,15 +246,15 @@ func (d *Dispatcher) runRegistryCheck(_ context.Context, c *cli.Command, w io.Wr
 }
 
 // findConflicts returns every (sidequest, claim) overlap for path.
-func findConflicts(path string, entries []registryEntry) []claimConflict {
-	var out []claimConflict
+func findConflicts(path string, entries []Sidequest) []Conflict {
+	var out []Conflict
 	for _, e := range entries {
 		for _, claim := range e.PathsClaimed {
 			reason := matchReason(path, claim)
 			if reason == "" {
 				continue
 			}
-			out = append(out, claimConflict{
+			out = append(out, Conflict{
 				PID: e.PID, Ref: e.Ref, Claim: claim, Path: path, Reason: reason,
 			})
 		}
@@ -239,7 +272,7 @@ func matchReason(path, claim string) string {
 	return ""
 }
 
-func writeRegistryText(w io.Writer, entries []registryEntry) error {
+func writeRegistryText(w io.Writer, entries []Sidequest) error {
 	if len(entries) == 0 {
 		_, err := fmt.Fprintln(w, "no active sidequests")
 		return err

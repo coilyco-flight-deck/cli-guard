@@ -48,6 +48,41 @@ func TestDispatchHasRegistrySubverb(t *testing.T) {
 	t.Fatalf("registry subverb not wired into dispatch command tree")
 }
 
+// TestRegistryPublicAPI exercises NewRegistry/Active/Conflicts.
+func TestRegistryPublicAPI(t *testing.T) {
+	root := t.TempDir()
+	livePID := os.Getpid()
+	writeFakeDispatch(t, root, "coily", 119, "20260527-130000", "", &dispatchMeta{
+		PID:          livePID,
+		StartedAt:    time.Unix(1700000000, 0).UTC(),
+		Ref:          "coilysiren/coily#119",
+		PathsClaimed: []string{"/work/skills/tooling-foo"},
+	})
+	r := NewRegistry(root)
+	active, err := r.Active()
+	if err != nil || len(active) != 1 || active[0].PID != livePID {
+		t.Fatalf("Active: want 1 sidequest, got %v err=%v", active, err)
+	}
+	conflicts, err := r.Conflicts("/work/skills/tooling-foo/SKILL.md")
+	if err != nil || len(conflicts) != 1 || conflicts[0].Reason != "ancestor" {
+		t.Fatalf("Conflicts ancestor: want 1 reason=ancestor, got %v err=%v", conflicts, err)
+	}
+	clean, err := r.Conflicts("/work/elsewhere")
+	if err != nil || len(clean) != 0 {
+		t.Fatalf("Conflicts clean: want empty, got %v err=%v", clean, err)
+	}
+	if nilR := (*Registry)(nil); true {
+		got, err := nilR.Active()
+		if err != nil || got != nil {
+			t.Fatalf("nil registry Active: want (nil,nil), got (%v,%v)", got, err)
+		}
+	}
+	emptyRoot, err := NewRegistry("").Active()
+	if err != nil || emptyRoot != nil {
+		t.Fatalf("empty logRoot: want (nil,nil), got (%v,%v)", emptyRoot, err)
+	}
+}
+
 // TestRegistryListEmpty proves an empty log root renders the no-entries
 // line rather than erroring.
 func TestRegistryListEmpty(t *testing.T) {
@@ -254,7 +289,7 @@ func TestRegistryListJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("registry list --json: %v", err)
 	}
-	var got []registryEntry
+	var got []Sidequest
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("parse JSON output: %v\n%s", err, out)
 	}

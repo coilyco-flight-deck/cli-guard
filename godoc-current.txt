@@ -421,6 +421,15 @@ type Config struct {
     Config carries the host-specific seams the dispatch package refuses to
     hard-code. Required fields are noted; everything else has a documented
 
+type Conflict struct {
+	PID    int    `json:"pid"`
+	Ref    string `json:"ref"`
+	Claim  string `json:"claim"`
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+    Conflict is one (sidequest, claim) pair overlapping the query.
+
 type Dispatcher struct {
 	// Has unexported fields.
 }
@@ -462,6 +471,32 @@ const (
 	PlatformGitHub  Platform = "github"
 	PlatformForgejo Platform = "forgejo"
 )
+type Registry struct {
+	// Has unexported fields.
+}
+    Registry is the public read-only view over the sidequest surface. Downstream
+    hosts use this rather than shelling out to each other.
+
+func NewRegistry(logRoot string) *Registry
+    NewRegistry binds a Registry to a host-supplied LogRoot.
+
+func (r *Registry) Active() ([]Sidequest, error)
+    Active returns every active sidequest (alive PID), oldest first.
+
+func (r *Registry) Conflicts(absPath string) ([]Conflict, error)
+    Conflicts returns every (sidequest, claim) pair overlapping absPath.
+
+type Sidequest struct {
+	PID           int       `json:"pid"`
+	Ref           string    `json:"ref"`
+	URL           string    `json:"url,omitempty"`
+	StartedAt     time.Time `json:"started_at"`
+	ParentSession string    `json:"parent_session,omitempty"`
+	PathsClaimed  []string  `json:"paths_claimed,omitempty"`
+	LogPath       string    `json:"log_path"`
+}
+    Sidequest is one active headless dispatch as exposed to consumers.
+
 
 ## github.com/coilysiren/cli-guard/egress
 
