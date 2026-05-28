@@ -21,7 +21,7 @@ func TestInteractivePrompt_RefAndFirstAction(t *testing.T) {
 		URL:    "https://github.com/coilysiren/coily/issues/270",
 		State:  "open",
 	}
-	got := interactivePrompt(ref, issue, false, "/repo/coily")
+	got := interactivePrompt(ref, issue, false, "/repo/coily", PostureWatch)
 
 	if !strings.HasPrefix(got, "Work on issue coilysiren/coily#270.") {
 		t.Errorf("interactivePrompt prefix = %q, want \"Work on issue coilysiren/coily#270.\" lead", got)
@@ -49,7 +49,7 @@ func TestInteractivePrompt_MergeBack(t *testing.T) {
 		State:  "open",
 	}
 
-	withWorktree := interactivePrompt(ref, issue, false, "/repo/coily")
+	withWorktree := interactivePrompt(ref, issue, false, "/repo/coily", PostureWatch)
 	for _, want := range []string{
 		"dispatch/issue-300",
 		"merge that branch into `main`",
@@ -62,7 +62,7 @@ func TestInteractivePrompt_MergeBack(t *testing.T) {
 		}
 	}
 
-	noWorktree := interactivePrompt(ref, issue, true, "/repo/coily")
+	noWorktree := interactivePrompt(ref, issue, true, "/repo/coily", PostureWatch)
 	if strings.Contains(noWorktree, "force-push") || strings.Contains(noWorktree, "\n") {
 		t.Errorf("--no-worktree prompt must stay single-line with no merge-back, got %q", noWorktree)
 	}

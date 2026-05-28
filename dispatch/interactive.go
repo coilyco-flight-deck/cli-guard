@@ -151,6 +151,14 @@ Defaults to a new tab inside the active window (--surface tab). Pass
 --surface window to fall back to the launch path which opens a fresh
 Warp window instead.
 
+Consult posture is orthogonal to the surface and selected with
+--posture (watch | consult, default watch). watch is the historical
+behavior: the agent proceeds in auto mode and treats the PR / merge as
+the review gate. consult raises the interruption budget - the dispatched
+agent is encouraged to pause and surface real judgment calls to the
+reachable operator instead of guessing. It is a soft expectation
+injected into the prompt, not a hard read-only stop like plan mode.
+
 Hands control back immediately. The dispatched session runs in the
 foreground in its own Warp tab or window. If you need an AFK
 fire-and-forget run, use 'dispatch headless'.
@@ -185,6 +193,11 @@ Soft-fails to a copy-paste fallback if Warp / open are unavailable.`,
 				Name:  "no-worktree",
 				Usage: "skip git worktree creation and cd the dispatched session straight into the bare repo checkout. Escape hatch for sessions that must work against the canonical tree; concurrent dispatches into the same repo will race on the working tree.",
 			},
+			&cli.StringFlag{
+				Name:  "posture",
+				Usage: "consult posture injected into the seeded prompt. `watch` (default, proceed in auto mode, PR is the review gate) or `consult` (encouraged to pause and surface judgment calls to the reachable operator - a soft expectation, not a hard stop like plan mode).",
+				Value: string(PostureWatch),
+			},
 		},
 		Action: d.cfg.Wrap(verb.Spec{
 			Name:       "dispatch.interactive",
@@ -195,6 +208,7 @@ Soft-fails to a copy-paste fallback if Warp / open are unavailable.`,
 					"--launch-name": c.String("launch-name"),
 					"--channel":     c.String("channel"),
 					"--surface":     c.String("surface"),
+					"--posture":     c.String("posture"),
 				}, c.Args().Slice()
 			},
 			CommitScopeArgvHint: d.commitScopeArgvHint,
@@ -207,8 +221,11 @@ Soft-fails to a copy-paste fallback if Warp / open are unavailable.`,
 
 // interactivePrompt is the prompt the shim execs claude with. Embeds the
 // first-action instruction so the dispatched agent fetches issue body +
-func interactivePrompt(ref *issueRef, issue *ghIssue, noWorktree bool, repoPath string) string {
+func interactivePrompt(ref *issueRef, issue *ghIssue, noWorktree bool, repoPath string, posture Posture) string {
 	var b strings.Builder
+	if preamble := posturePreamble(posture); preamble != "" {
+		fmt.Fprintf(&b, "%s\n\n", preamble)
+	}
 	fmt.Fprintf(&b,
 		"Work on issue %s. First action: %s and read the full body and comment thread before doing anything else.",
 		ref, firstActionHint(ref, issue))
@@ -264,18 +281,16 @@ func (d *Dispatcher) runInteractive(ctx context.Context, c *cli.Command) error {
 	launchName := c.String("launch-name")
 	channel := c.String("channel")
 	surface := c.String("surface")
+	posture, err := parseInteractivePosture(c.String("posture"))
+	if err != nil {
+		return fmt.Errorf("dispatch interactive: %w", err)
+	}
 	repoPath, _ := d.cfg.RepoPath(ref.Repo)
-	prompt := interactivePrompt(ref, issue, noWorktree, repoPath)
+	prompt := interactivePrompt(ref, issue, noWorktree, repoPath, posture)
 	titleLine := interactiveTitleLine(ref, issue)
 
-	// Reap merged worktrees from prior dispatches before creating this
-	// one, so worktree sprawl stays self-limiting. Soft-fail: a reaper
 	if !c.Bool("dry-run") {
-		if removed, reapErr := d.reapDispatchWorktrees(ctx); reapErr != nil {
-			fmt.Fprintf(os.Stderr, "dispatch interactive: worktree reap skipped (%v)\n", reapErr)
-		} else if len(removed) > 0 {
-			fmt.Fprintf(os.Stderr, "dispatch interactive: reaped %d merged worktree(s)\n", len(removed))
-		}
+		d.reapBeforeInteractiveDispatch(ctx)
 	}
 
 	url, err := dispatchURL(channel, surface, launchName)
@@ -299,17 +314,7 @@ func (d *Dispatcher) runInteractive(ctx context.Context, c *cli.Command) error {
 	}
 
 	if c.Bool("dry-run") {
-		entryJSON, _ := json.MarshalIndent(entry, "", "  ")
-		fmt.Printf("# dispatch interactive (dry-run)\n")
-		fmt.Printf("issue:        %s\n", ref)
-		fmt.Printf("url:          %s\n", issue.URL)
-		fmt.Printf("cwd:          %s\n", cwd)
-		fmt.Printf("queue-dir:    %s\n", queueDir)
-		fmt.Printf("channel:      %s\n", channel)
-		fmt.Printf("surface:      %s\n", surface)
-		fmt.Printf("dispatch-url: %s\n", url)
-		fmt.Printf("----- title -----\n%s\n----- end -----\n", titleLine)
-		fmt.Printf("----- queue entry -----\n%s\n----- end -----\n", string(entryJSON))
+		printInteractiveDryRun(ref, issue, entry, queueDir, channel, surface, string(posture), url, titleLine)
 		return nil
 	}
 
@@ -330,6 +335,33 @@ func (d *Dispatcher) runInteractive(ctx context.Context, c *cli.Command) error {
 	}
 	d.notify(Event{Mode: "interactive", Ref: ref.String(), Title: strings.TrimSpace(issue.Title), URL: issue.URL, Cwd: cwd})
 	return nil
+}
+
+// reapBeforeInteractiveDispatch removes merged worktrees from prior
+// dispatches so sprawl stays self-limiting. Soft-fail: must not block.
+func (d *Dispatcher) reapBeforeInteractiveDispatch(ctx context.Context) {
+	if removed, reapErr := d.reapDispatchWorktrees(ctx); reapErr != nil {
+		fmt.Fprintf(os.Stderr, "dispatch interactive: worktree reap skipped (%v)\n", reapErr)
+	} else if len(removed) > 0 {
+		fmt.Fprintf(os.Stderr, "dispatch interactive: reaped %d merged worktree(s)\n", len(removed))
+	}
+}
+
+// printInteractiveDryRun renders the resolved interactive dispatch plan
+// without writing the queue entry or firing open.
+func printInteractiveDryRun(ref *issueRef, issue *ghIssue, entry dispatchQueueEntry, queueDir, channel, surface, posture, url, titleLine string) {
+	entryJSON, _ := json.MarshalIndent(entry, "", "  ")
+	fmt.Printf("# dispatch interactive (dry-run)\n")
+	fmt.Printf("issue:        %s\n", ref)
+	fmt.Printf("url:          %s\n", issue.URL)
+	fmt.Printf("cwd:          %s\n", entry.Cwd)
+	fmt.Printf("queue-dir:    %s\n", queueDir)
+	fmt.Printf("channel:      %s\n", channel)
+	fmt.Printf("surface:      %s\n", surface)
+	fmt.Printf("posture:      %s\n", posture)
+	fmt.Printf("dispatch-url: %s\n", url)
+	fmt.Printf("----- title -----\n%s\n----- end -----\n", titleLine)
+	fmt.Printf("----- queue entry -----\n%s\n----- end -----\n", string(entryJSON))
 }
 
 // writeDispatchQueueEntry writes a single JSON file to dir named

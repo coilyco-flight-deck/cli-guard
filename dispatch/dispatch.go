@@ -608,6 +608,7 @@ func (d *Dispatcher) fetchIssue(ctx context.Context, ref *issueRef) (*ghIssue, e
 // standard git-workflow invariants (commit to main, close with closes #N,
 func seedPrompt(ref *issueRef, issue *ghIssue) string {
 	var b strings.Builder
+	fmt.Fprintf(&b, "%s\n\n", posturePreamble(PostureHeadless))
 	fmt.Fprintf(&b, "Work on %s issue %s.\n\n", forgeName(ref.Platform), ref)
 	fmt.Fprintf(&b, "Title: %s\n", issue.Title)
 	fmt.Fprintf(&b, "URL:   %s\n\n", issue.URL)
