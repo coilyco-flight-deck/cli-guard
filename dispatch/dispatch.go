@@ -168,14 +168,16 @@ func (d *Dispatcher) Command() *cli.Command {
 %s/* org or any issue that is not open, then hands off to one of four
 surface subverbs:
 
-  %s dispatch headless    <ref>   Spawn a detached claude -p in the
-                                  local checkout, log to a file, return
-                                  immediately. AFK queue work, never
-                                  consults. The PR is the review gate.
-  %s dispatch interactive <ref>   Open a new tab cwd'd into the repo with
-                                  claude pre-submitted with
-                                  "Work on issue <ref>". Auto mode; the
-                                  operator may watch but is not consulted.
+  %s dispatch headless    <ref>   Spawn a detached claude -p in a
+                                  per-issue worktree+branch, log to a
+                                  file, return immediately. AFK queue
+                                  work, never consults. Lands by merging
+                                  its branch into main when green.
+  %s dispatch interactive <ref>   Open a new tab cwd'd into the canonical
+                                  checkout (default branch, no worktree)
+                                  with claude pre-submitted "Work on issue
+                                  <ref>". Auto mode; the operator may watch
+                                  but is not consulted.
   %s dispatch consult     <ref>   Like interactive, but with a raised
                                   interruption budget: the agent is
                                   encouraged to surface real judgment
@@ -223,7 +225,10 @@ func (d *Dispatcher) headlessCommand() *cli.Command {
 		Description: fmt.Sprintf(`headless resolves a GitHub issue reference, refuses anything outside the
 %s/* org or any issue that is not open, seeds a prompt from the issue
 title and body plus the standard git-workflow footer, then spawns
-claude -p inside the matching local checkout.
+claude -p inside a per-issue git worktree branched off the canonical
+checkout. Concurrent headless dispatches into one repo each get their
+own working tree and index, so they never corrupt each other - the
+worker lands by merging its branch into main when the work is green.
 
 The child is fully detached: it runs in a new session with its own
 process group, its stdio goes to a per-dispatch log file rather than the
@@ -453,7 +458,8 @@ type detachedSpec struct {
 	// mode labels output and the audit Event ("headless" | "cascade").
 	mode string
 	// prompt builds the seeded prompt fed to the detached claude -p.
-	prompt func(*issueRef, *ghIssue) string
+	// repoPath is the canonical checkout the worker merges its branch into.
+	prompt func(ref *issueRef, issue *ghIssue, repoPath string) string
 	// extraEnv is appended to the child env. Carries the cascade depth
 	// budget so nested dispatches can enforce the recursion floor.
 	extraEnv []string
@@ -479,18 +485,39 @@ func (d *Dispatcher) runDetached(ctx context.Context, c *cli.Command, spec detac
 			spec.mode, repoPath, ref.Owner, ref.Repo, repoPath)
 	}
 
-	prompt := spec.prompt(ref, issue)
+	prompt := spec.prompt(ref, issue, repoPath)
 	permMode := c.String("permission-mode")
 	allowedTools := c.String("allowed-tools")
 
-	if c.Bool("dry-run") {
-		return printDetachedDryRun(spec.mode, c, ref, issue, repoPath, permMode, allowedTools, prompt)
+	// Detached surfaces each get their own worktree+branch so concurrent
+	// workers never share a working tree (coilysiren/coily#145).
+	if !c.Bool("dry-run") {
+		d.reapBeforeDetachedDispatch(ctx, spec.mode)
+	}
+	cwd, err := d.resolveDetachedCwd(ctx, repoPath, ref, c.Bool("dry-run"))
+	if err != nil {
+		return fmt.Errorf("dispatch %s: %w", spec.mode, err)
 	}
 
-	// Pre-trust the checkout so the detached child never stalls on the
+	if c.Bool("dry-run") {
+		return printDetachedDryRun(spec.mode, c, ref, issue, cwd, permMode, allowedTools, prompt)
+	}
+
+	return d.spawnDetachedWorker(c, spec, ref, issue, cwd, prompt, permMode, allowedTools)
+}
+
+// spawnDetachedWorker pre-trusts the worktree, spawns the detached child,
+// and records the status sidecar. Split out to keep runDetached's complexity down.
+func (d *Dispatcher) spawnDetachedWorker(c *cli.Command, spec detachedSpec, ref *issueRef, issue *ghIssue, cwd, prompt, permMode, allowedTools string) error {
+	// Pre-trust the worktree so the detached child never stalls on the
 	// folder-trust prompt. Soft-fail.
-	if err := d.ensureClaudeFolderTrust(repoPath); err != nil {
-		fmt.Fprintf(os.Stderr, "dispatch %s: could not pre-trust %s (%v).\n", spec.mode, repoPath, err)
+	if err := d.ensureClaudeFolderTrust(cwd); err != nil {
+		fmt.Fprintf(os.Stderr, "dispatch %s: could not pre-trust %s (%v).\n", spec.mode, cwd, err)
+	}
+
+	claims, err := parseClaims(c.String("claims"))
+	if err != nil {
+		return fmt.Errorf("dispatch %s: --claims: %w", spec.mode, err)
 	}
 
 	bin, argv := buildDispatchClaudeArgv(c.String("claude-bin"), prompt, permMode, allowedTools)
@@ -499,16 +526,12 @@ func (d *Dispatcher) runDetached(ctx context.Context, c *cli.Command, spec detac
 	if err != nil {
 		return fmt.Errorf("dispatch %s: resolve log path: %w", spec.mode, err)
 	}
-	pid, err := d.cfg.SpawnDetached(repoPath, logPath, bin, argv, detachedEnv(d.cfg.Runner.Env, spec.extraEnv))
+	pid, err := d.cfg.SpawnDetached(cwd, logPath, bin, argv, detachedEnv(d.cfg.Runner.Env, spec.extraEnv))
 	if err != nil {
 		return fmt.Errorf("dispatch %s: %w", spec.mode, err)
 	}
 	// Persist pid + spawn time alongside the log so `dispatch status`
 	// can render RUNNING/EXITED without scraping ps. Soft-fail: a missed
-	claims, err := parseClaims(c.String("claims"))
-	if err != nil {
-		return fmt.Errorf("dispatch %s: --claims: %w", spec.mode, err)
-	}
 	if err := writeDispatchMeta(logPath, dispatchMeta{
 		PID:           pid,
 		StartedAt:     time.Now().UTC(),
@@ -520,10 +543,10 @@ func (d *Dispatcher) runDetached(ctx context.Context, c *cli.Command, spec detac
 		fmt.Fprintf(os.Stderr, "dispatch %s: could not write status sidecar (%v); `dispatch status` will report pid unknown.\n", spec.mode, err)
 	}
 	fmt.Printf("dispatch %s: spawned claude for %s (pid %d)\n", spec.mode, ref, pid)
-	fmt.Printf("  cwd: %s\n", repoPath)
+	fmt.Printf("  cwd: %s\n", cwd)
 	fmt.Printf("  log: %s\n", logPath)
 	fmt.Printf("  detached - survives this terminal closing. Follow with: tail -f %s\n", logPath)
-	d.notify(Event{Mode: spec.mode, Ref: ref.String(), Title: strings.TrimSpace(issue.Title), URL: issue.URL, Cwd: repoPath, PID: pid})
+	d.notify(Event{Mode: spec.mode, Ref: ref.String(), Title: strings.TrimSpace(issue.Title), URL: issue.URL, Cwd: cwd, PID: pid})
 	return nil
 }
 
@@ -540,7 +563,7 @@ func detachedEnv(base, extra []string) []string {
 }
 
 // printDetachedDryRun renders the resolved dispatch plan without spawning.
-func printDetachedDryRun(mode string, c *cli.Command, ref *issueRef, issue *Issue, repoPath, permMode, allowedTools, prompt string) error {
+func printDetachedDryRun(mode string, c *cli.Command, ref *issueRef, issue *Issue, cwd, permMode, allowedTools, prompt string) error {
 	claims, err := parseClaims(c.String("claims"))
 	if err != nil {
 		return fmt.Errorf("dispatch %s: --claims: %w", mode, err)
@@ -548,7 +571,7 @@ func printDetachedDryRun(mode string, c *cli.Command, ref *issueRef, issue *Issu
 	fmt.Printf("# dispatch %s (dry-run)\n", mode)
 	fmt.Printf("issue:           %s\n", ref)
 	fmt.Printf("url:             %s\n", issue.URL)
-	fmt.Printf("cwd:             %s\n", repoPath)
+	fmt.Printf("cwd:             %s\n", cwd)
 	fmt.Printf("permission-mode: %s\n", permMode)
 	fmt.Printf("allowed-tools:   %s\n", allowedTools)
 	fmt.Printf("claims:          %s\n", strings.Join(claims, ","))
@@ -649,16 +672,16 @@ func (d *Dispatcher) fetchIssue(ctx context.Context, ref *issueRef) (*ghIssue, e
 	return &issue, nil
 }
 
-// seedPrompt composes the prompt fed to claude -p. Footer carries the
-// standard git-workflow invariants (commit to main, close with closes #N,
-func seedPrompt(ref *issueRef, issue *ghIssue) string {
+// seedPrompt composes the prompt fed to claude -p. repoPath is the
+// canonical checkout the worker merges its worktree branch into.
+func seedPrompt(ref *issueRef, issue *ghIssue, repoPath string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n\n", headlessPreamble)
 	fmt.Fprintf(&b, "Work on %s issue %s.\n\n", forgeName(ref.Platform), ref)
 	fmt.Fprintf(&b, "Title: %s\n", issue.Title)
 	fmt.Fprintf(&b, "URL:   %s\n\n", issue.URL)
 	fmt.Fprintf(&b, "Issue body:\n\n%s\n\n", strings.TrimSpace(issue.Body))
-	fmt.Fprintf(&b, "%s", dispatchFooter)
+	fmt.Fprintf(&b, "%s", detachedWorktreeFooter(repoPath, ref.Number))
 	return b.String()
 }
 
@@ -671,11 +694,16 @@ func forgeName(p Platform) string {
 	return "GitHub"
 }
 
-const dispatchFooter = `Workflow rules (from AGENTS.md):
-- Commit to main directly. Push after each commit. No PRs unless asked.
-- Run tests, linters, and builds without asking. Fix failures.
-- Never use --no-verify.
-- Close the issue with a commit trailer: closes #` + `<N>` + ` (or fixes / resolves).
-- If ` + "`git push origin main`" + ` is rejected as non-fast-forward (a sibling worker pushed first), run ` + "`git pull --rebase origin main`" + `, re-run tests/build, then push again. Repeat until it lands. Resolve any rebase conflicts yourself. Never force-push.
-- Cwd is the target repo. Stay inside it.
-`
+// detachedWorktreeFooter renders the git-workflow footer for a detached
+// worker: commit to its branch, then merge into main from repoPath.
+func detachedWorktreeFooter(repoPath string, number int) string {
+	branch := dispatchWorktreeBranch(number)
+	return fmt.Sprintf("Workflow rules (from AGENTS.md):\n"+
+		"- You are in a git worktree on branch `%s`, isolated from the canonical checkout so concurrent workers in this repo never share a working tree or index. Commit your work to this branch.\n"+
+		"- Run tests, linters, and builds without asking. Fix failures. Never use --no-verify.\n"+
+		"- When the work is complete and verified (tests, linters, builds green), land it: run `git -C %s merge %s` then `git -C %s push origin main`. Resolve any merge conflicts yourself. Never force-push.\n"+
+		"- If `git push origin main` is rejected as non-fast-forward (a sibling worker pushed first), run `git -C %s pull --rebase origin main`, re-run tests/build, then merge and push again. Repeat until it lands.\n"+
+		"- Close the issue with a commit trailer: closes #<N> (or fixes / resolves).\n"+
+		"- Leave the worktree directory in place - the next `coily dispatch` reaps it once the merge lands.\n",
+		branch, repoPath, branch, repoPath, repoPath)
+}

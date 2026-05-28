@@ -21,7 +21,7 @@ func TestInteractivePrompt_RefAndFirstAction(t *testing.T) {
 		URL:    "https://github.com/coilysiren/coily/issues/270",
 		State:  "open",
 	}
-	got := interactivePrompt(ref, issue, false, "/repo/coily", "")
+	got := interactivePrompt(ref, issue, "")
 
 	if !strings.HasPrefix(got, "Work on issue coilysiren/coily#270.") {
 		t.Errorf("interactivePrompt prefix = %q, want \"Work on issue coilysiren/coily#270.\" lead", got)
@@ -38,33 +38,41 @@ func TestInteractivePrompt_RefAndFirstAction(t *testing.T) {
 	}
 }
 
-// TestInteractivePrompt_MergeBack pins the worktree-mode contract: the
-// prompt must tell the dispatched agent to land its branch on main
-func TestInteractivePrompt_MergeBack(t *testing.T) {
+// TestInteractivePrompt_MainMode pins the supervised-surface contract
+// (coily#145): main-mode prompt, no worktree-merge instructions.
+func TestInteractivePrompt_MainMode(t *testing.T) {
 	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 300}
 	issue := &ghIssue{
 		Number: 300,
-		Title:  "close the worktree lifecycle",
+		Title:  "invert the surface-to-isolation mapping",
 		URL:    "https://github.com/coilysiren/coily/issues/300",
 		State:  "open",
 	}
 
-	withWorktree := interactivePrompt(ref, issue, false, "/repo/coily", "")
+	got := interactivePrompt(ref, issue, "")
 	for _, want := range []string{
-		"dispatch/issue-300",
-		"merge that branch into `main`",
-		"push origin main",
-		"Never force-push",
-		"/repo/coily",
+		"canonical checkout on the default branch",
+		"there is no worktree",
+		"closes #300",
 	} {
-		if !strings.Contains(withWorktree, want) {
-			t.Errorf("worktree-mode prompt missing %q, got %q", want, withWorktree)
+		if !strings.Contains(got, want) {
+			t.Errorf("main-mode prompt missing %q, got %q", want, got)
+		}
+	}
+	for _, absent := range []string{
+		"dispatch/issue-300",
+		"merge that branch",
+		"Never force-push",
+	} {
+		if strings.Contains(got, absent) {
+			t.Errorf("main-mode prompt must not mention worktree-merge %q, got %q", absent, got)
 		}
 	}
 
-	noWorktree := interactivePrompt(ref, issue, true, "/repo/coily", "")
-	if strings.Contains(noWorktree, "force-push") || strings.Contains(noWorktree, "\n") {
-		t.Errorf("--no-worktree prompt must stay single-line with no merge-back, got %q", noWorktree)
+	// The consult preamble leads the prompt when supplied.
+	withPreamble := interactivePrompt(ref, issue, consultPreamble)
+	if !strings.HasPrefix(withPreamble, consultPreamble) {
+		t.Errorf("consult prompt should lead with the consult preamble, got %q", withPreamble)
 	}
 }
 

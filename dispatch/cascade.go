@@ -137,23 +137,23 @@ func (d *Dispatcher) runCascade(ctx context.Context, c *cli.Command) error {
 	}
 	return d.runDetached(ctx, c, detachedSpec{
 		mode: "cascade",
-		prompt: func(ref *issueRef, issue *ghIssue) string {
-			return cascadeSeedPrompt(ref, issue, budget)
+		prompt: func(ref *issueRef, issue *ghIssue, repoPath string) string {
+			return cascadeSeedPrompt(ref, issue, repoPath, budget)
 		},
 		extraEnv: []string{fmt.Sprintf("%s=%d", envCascadeDepth, budget)},
 	})
 }
 
 // cascadeSeedPrompt composes the prompt for a cascade worker holding the
-// given depth budget. The budget-dependent leaf rules keep the tree bounded.
-func cascadeSeedPrompt(ref *issueRef, issue *ghIssue, budget int) string {
+// given depth budget. repoPath is the checkout it merges its branch into.
+func cascadeSeedPrompt(ref *issueRef, issue *ghIssue, repoPath string, budget int) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n\n", cascadePreamble(budget))
 	fmt.Fprintf(&b, "Work on %s issue %s.\n\n", forgeName(ref.Platform), ref)
 	fmt.Fprintf(&b, "Title: %s\n", issue.Title)
 	fmt.Fprintf(&b, "URL:   %s\n\n", issue.URL)
 	fmt.Fprintf(&b, "Issue body:\n\n%s\n\n", strings.TrimSpace(issue.Body))
-	fmt.Fprintf(&b, "%s", cascadeFooter)
+	fmt.Fprintf(&b, "%s", cascadeWorktreeFooter(repoPath, ref.Number))
 	return b.String()
 }
 
@@ -174,14 +174,18 @@ func cascadePreamble(budget int) string {
 	return b.String()
 }
 
-// cascadeFooter is the cascade-specific workflow footer. Unlike headless,
-// an orchestrator does not close this issue - the work lands in the leaves.
-const cascadeFooter = `Workflow rules (from AGENTS.md):
-- Commit to main directly. Push after each commit. No PRs unless asked.
-- Run tests, linters, and builds without asking. Fix failures. Never use --no-verify.
-- If ` + "`git push origin main`" + ` is rejected as non-fast-forward (a sibling worker pushed first), run ` + "`git pull --rebase origin main`" + `, re-run tests/build, then push again. Repeat until it lands. Resolve any rebase conflicts yourself. Never force-push.
-- If you do the work directly (no fan-out), close this issue with a commit trailer: closes #` + `<N>` + `.
-- If you fan out, do NOT close this issue: it stays open until the spawned leaves land their own work and close their own sub-issues. Leave a summary comment instead.
-- Use ` + "`coily dispatch registry list`" + ` to see sibling sidequests before writing shared paths.
-- Cwd is the target repo. Stay inside it.
-`
+// cascadeWorktreeFooter is the cascade-specific workflow footer: like
+// headless, but does not close the issue on fan-out. coilysiren/coily#145.
+func cascadeWorktreeFooter(repoPath string, number int) string {
+	branch := dispatchWorktreeBranch(number)
+	return fmt.Sprintf("Workflow rules (from AGENTS.md):\n"+
+		"- You are in a git worktree on branch `%s`, isolated from sibling workers so concurrent workers in this repo never share a working tree or index. Commit work you do directly to this branch.\n"+
+		"- Run tests, linters, and builds without asking. Fix failures. Never use --no-verify.\n"+
+		"- To land work you do directly (no fan-out): run `git -C %s merge %s` then `git -C %s push origin main`. Resolve any merge conflicts yourself. Never force-push.\n"+
+		"- If `git push origin main` is rejected as non-fast-forward (a sibling worker pushed first), run `git -C %s pull --rebase origin main`, re-run tests/build, then merge and push again. Repeat until it lands.\n"+
+		"- If you do the work directly (no fan-out), close this issue with a commit trailer: closes #<N>.\n"+
+		"- If you fan out, do NOT close this issue: it stays open until the spawned leaves land their own work and close their own sub-issues. Leave a summary comment instead. Your worktree branch may stay empty - that is fine, it reaps once merged (an empty branch is already an ancestor of main).\n"+
+		"- Use `coily dispatch registry list` to see sibling sidequests before writing shared paths.\n"+
+		"- Leave the worktree directory in place - the next `coily dispatch` reaps it once the branch merges into main.\n",
+		branch, repoPath, branch, repoPath, repoPath)
+}

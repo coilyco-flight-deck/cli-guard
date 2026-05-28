@@ -41,7 +41,7 @@ func TestInteractivePrompt_ConsultSurface(t *testing.T) {
 		URL:    "https://github.com/coilysiren/coily/issues/144",
 		State:  "open",
 	}
-	got := interactivePrompt(ref, issue, false, "/repo/coily", consultPreamble)
+	got := interactivePrompt(ref, issue, consultPreamble)
 	if !strings.HasPrefix(got, "You are in auto mode.") {
 		t.Errorf("consult prompt should lead with the consult preamble, got %q", got)
 	}
@@ -60,7 +60,7 @@ func TestInteractivePrompt_InteractiveSurface(t *testing.T) {
 		URL:    "https://github.com/coilysiren/coily/issues/144",
 		State:  "open",
 	}
-	got := interactivePrompt(ref, issue, false, "/repo/coily", "")
+	got := interactivePrompt(ref, issue, "")
 	if !strings.HasPrefix(got, "Work on issue coilysiren/coily#144.") {
 		t.Errorf("interactive prompt should lead with the work instruction, got %q", got)
 	}
@@ -76,7 +76,7 @@ func TestSeedPrompt_HeadlessPreamble(t *testing.T) {
 		URL:    "https://forgejo.coilysiren.me/coilysiren/coily/issues/144",
 		State:  "open",
 	}
-	got := seedPrompt(ref, issue)
+	got := seedPrompt(ref, issue, "/repo/coily")
 	if !strings.HasPrefix(got, "Complete this work end to end") {
 		t.Errorf("headless seed prompt should lead with the headless preamble, got %q", got)
 	}

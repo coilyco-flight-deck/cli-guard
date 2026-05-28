@@ -85,49 +85,6 @@ func defaultOpenLaunch(ctx context.Context, runner *shell.Runner, url string) er
 	return runner.Exec(ctx, "open", url)
 }
 
-// defaultWorktreeAdd runs `git -C <repoPath> worktree add -B <branch>
-// <worktreePath>` through the shell runner. Default for
-func defaultWorktreeAdd(ctx context.Context, runner *shell.Runner, repoPath, branch, worktreePath string) error {
-	_, err := runner.Capture(ctx, "git", "-C", repoPath, "worktree", "add", "-B", branch, worktreePath)
-	return err
-}
-
-// dispatchWorktreePath returns the worktree path for a given repo + issue
-// number. Format: <WorktreeRoot>/<repo>/issue-<N>.
-func (d *Dispatcher) dispatchWorktreePath(repo string, number int) (string, error) {
-	root, err := d.cfg.WorktreeRoot()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(root, repo, fmt.Sprintf("issue-%d", number)), nil
-}
-
-// dispatchWorktreeBranch returns the branch name for a given issue
-// number. Format: dispatch/issue-<N>. Predictable so re-dispatching the
-func dispatchWorktreeBranch(number int) string {
-	return fmt.Sprintf("dispatch/issue-%d", number)
-}
-
-// ensureDispatchWorktree returns worktreePath after guaranteeing a git
-// worktree exists there. Idempotent: if a `.git` entry already lives at
-func (d *Dispatcher) ensureDispatchWorktree(ctx context.Context, repoPath string, ref *issueRef) (string, error) {
-	worktreePath, err := d.dispatchWorktreePath(ref.Repo, ref.Number)
-	if err != nil {
-		return "", fmt.Errorf("resolve worktree path: %w", err)
-	}
-	if _, err := os.Stat(filepath.Join(worktreePath, ".git")); err == nil {
-		return worktreePath, nil
-	}
-	if err := os.MkdirAll(filepath.Dir(worktreePath), 0o755); err != nil {
-		return "", fmt.Errorf("mkdir worktree parent: %w", err)
-	}
-	branch := dispatchWorktreeBranch(ref.Number)
-	if err := d.cfg.WorktreeAdd(ctx, d.cfg.Runner, repoPath, branch, worktreePath); err != nil {
-		return "", fmt.Errorf("git worktree add -B %s %s (in %s): %w", branch, worktreePath, repoPath, err)
-	}
-	return worktreePath, nil
-}
-
 // interactiveSurfaceSpec is the per-surface bit that differs between the two
 // live-tab surfaces (interactive, consult). Flags and placement are shared.
 type interactiveSurfaceSpec struct {
@@ -152,10 +109,16 @@ func (d *Dispatcher) interactiveCommand() *cli.Command {
 queue entry under the queue dir carrying ref, title, cwd, and prompt
 (mode 0600), then fires open warppreview://tab_config/<launch-name> to
 trigger the agentic-os shim that pops the queue, echoes the title
-header, and execs claude inside the local checkout.
+header, and execs claude inside the canonical checkout on the default
+branch. Supervised work is what-you-see-is-what-ships: no worktree, no
+auto-merge dance - the session commits to main directly while the
+operator watches.
 
 Concurrent dispatches land in separate Warp tabs without racing on a
-single scratch path - the FIFO queue gives each shim its own entry.
+single scratch path - the FIFO queue gives each shim its own entry. They
+do share the canonical working tree, so this surface assumes the
+operator paces it serially (the detached surfaces - headless, cascade -
+get an isolated worktree per issue instead).
 
 Defaults to Warp Preview (--channel preview). Pass --channel stable to
 target Warp Stable instead.
@@ -191,9 +154,9 @@ viable designs with no clear winner - and wait for the operator rather
 than guess. It is a soft expectation, not a hard read-only stop like
 plan mode: the agent keeps moving on everything that does not need them.
 
-Placement, queue seam, worktree handling, and Warp fire are identical to
-'dispatch interactive' - see that surface for the --channel / --surface /
---no-worktree details. The only difference is the prompt preamble.
+Placement, queue seam, and Warp fire are identical to 'dispatch
+interactive' - see that surface for the --channel / --surface details.
+The only difference is the prompt preamble.
 
 Use this when the operator wants a say mid-flight without a hard plan-mode
 gate. For a run that never consults, use 'dispatch interactive' (watch)
@@ -235,10 +198,6 @@ func (d *Dispatcher) interactiveSurfaceCommand(s interactiveSurfaceSpec) *cli.Co
 				Usage: "URI path that picks tab vs window fire. `tab` (default, opens a new tab) or `window` (fallback, opens a fresh window).",
 				Value: defaultDispatchSurface,
 			},
-			&cli.BoolFlag{
-				Name:  "no-worktree",
-				Usage: "skip git worktree creation and cd the dispatched session straight into the bare repo checkout. Escape hatch for sessions that must work against the canonical tree; concurrent dispatches into the same repo will race on the working tree.",
-			},
 		},
 		Action: d.cfg.Wrap(verb.Spec{
 			Name:       "dispatch." + s.name,
@@ -259,9 +218,9 @@ func (d *Dispatcher) interactiveSurfaceCommand(s interactiveSurfaceSpec) *cli.Co
 	}
 }
 
-// interactivePrompt is the prompt the shim execs claude with. Embeds the
-// first-action instruction so the dispatched agent fetches issue body +
-func interactivePrompt(ref *issueRef, issue *ghIssue, noWorktree bool, repoPath string, preamble string) string {
+// interactivePrompt is the prompt the shim execs claude with. Supervised
+// surfaces run directly on the default branch, no worktree (coily#145).
+func interactivePrompt(ref *issueRef, issue *ghIssue, preamble string) string {
 	var b strings.Builder
 	if preamble != "" {
 		fmt.Fprintf(&b, "%s\n\n", preamble)
@@ -269,12 +228,9 @@ func interactivePrompt(ref *issueRef, issue *ghIssue, noWorktree bool, repoPath 
 	fmt.Fprintf(&b,
 		"Work on issue %s. First action: %s and read the full body and comment thread before doing anything else.",
 		ref, firstActionHint(ref, issue))
-	if !noWorktree {
-		branch := dispatchWorktreeBranch(ref.Number)
-		fmt.Fprintf(&b,
-			"\n\nThis session runs in a git worktree on branch `%s`. When the work is complete and verified (tests, linters, and builds green), land it autonomously without checking in first: merge that branch into `main` and push. Run `git -C %s merge %s` then `git -C %s push origin main`. Resolve any merge conflicts yourself. Never force-push. Leave the worktree directory in place - the next `coily dispatch` reaps it once the merge lands.",
-			branch, repoPath, branch, repoPath)
-	}
+	fmt.Fprintf(&b,
+		"\n\nThis session runs directly in the canonical checkout on the default branch - there is no worktree. Commit and push to `main` as you go; the operator is supervising, so what-you-see-is-what-ships. Close the issue with a commit trailer: closes #%d (or fixes / resolves).",
+		ref.Number)
 	return b.String()
 }
 
@@ -294,18 +250,6 @@ func interactiveTitleLine(ref *issueRef, issue *ghIssue) string {
 	return fmt.Sprintf("%s: %s", ref, strings.TrimSpace(issue.Title))
 }
 
-// resolveDispatchCwd returns the directory the dispatched session should
-// run in. With --no-worktree, that's the bare repo checkout. Otherwise
-func (d *Dispatcher) resolveDispatchCwd(ctx context.Context, repoPath string, ref *issueRef, noWorktree, dryRun bool) (string, error) {
-	if noWorktree {
-		return repoPath, nil
-	}
-	if dryRun {
-		return d.dispatchWorktreePath(ref.Repo, ref.Number)
-	}
-	return d.ensureDispatchWorktree(ctx, repoPath, ref)
-}
-
 // runInteractive is the shared body for the two live-tab surfaces. surfaceName
 // labels output and the audit Event; preamble leads the seeded prompt.
 func (d *Dispatcher) runInteractive(ctx context.Context, c *cli.Command, surfaceName, preamble string) error {
@@ -318,29 +262,23 @@ func (d *Dispatcher) runInteractive(ctx context.Context, c *cli.Command, surface
 		return err
 	}
 
-	noWorktree := c.Bool("no-worktree")
 	queueDir := c.String("queue-dir")
 	launchName := c.String("launch-name")
 	channel := c.String("channel")
 	warpSurface := c.String("surface")
-	repoPath, _ := d.cfg.RepoPath(ref.Repo)
-	prompt := interactivePrompt(ref, issue, noWorktree, repoPath, preamble)
+	prompt := interactivePrompt(ref, issue, preamble)
 	titleLine := interactiveTitleLine(ref, issue)
-
-	if !c.Bool("dry-run") {
-		d.reapBeforeInteractiveDispatch(ctx, surfaceName)
-	}
 
 	url, err := dispatchURL(channel, warpSurface, launchName)
 	if err != nil {
 		return fmt.Errorf("dispatch %s: %w", surfaceName, err)
 	}
 
-	// Each dispatch lands in its own git worktree branched off main, so
-	// concurrent dispatches into the same repo never collide on a shared
-	cwd, err := d.resolveDispatchCwd(ctx, repoPath, ref, noWorktree, c.Bool("dry-run"))
+	// Supervised surfaces run directly in the canonical checkout on the
+	// default branch - no worktree. Isolation is for detached surfaces.
+	cwd, err := d.cfg.RepoPath(ref.Repo)
 	if err != nil {
-		return fmt.Errorf("dispatch %s: %w", surfaceName, err)
+		return fmt.Errorf("dispatch %s: resolve local repo path: %w", surfaceName, err)
 	}
 
 	entry := dispatchQueueEntry{
@@ -373,16 +311,6 @@ func (d *Dispatcher) runInteractive(ctx context.Context, c *cli.Command, surface
 	}
 	d.notify(Event{Mode: surfaceName, Ref: ref.String(), Title: strings.TrimSpace(issue.Title), URL: issue.URL, Cwd: cwd})
 	return nil
-}
-
-// reapBeforeInteractiveDispatch removes merged worktrees from prior
-// dispatches so sprawl stays self-limiting. Soft-fail: must not block.
-func (d *Dispatcher) reapBeforeInteractiveDispatch(ctx context.Context, surfaceName string) {
-	if removed, reapErr := d.reapDispatchWorktrees(ctx); reapErr != nil {
-		fmt.Fprintf(os.Stderr, "dispatch %s: worktree reap skipped (%v)\n", surfaceName, reapErr)
-	} else if len(removed) > 0 {
-		fmt.Fprintf(os.Stderr, "dispatch %s: reaped %d merged worktree(s)\n", surfaceName, len(removed))
-	}
 }
 
 // printInteractiveDryRun renders the resolved live-tab dispatch plan without

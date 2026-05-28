@@ -82,7 +82,7 @@ func TestSeedPrompt_IncludesIssueAndFooter(t *testing.T) {
 		State:  "OPEN",
 		URL:    "https://github.com/coilysiren/coily/issues/136",
 	}
-	got := seedPrompt(ref, issue)
+	got := seedPrompt(ref, issue, "/repo/coily")
 	for _, want := range []string{
 		"coilysiren/coily#136",
 		"coily dispatch",
@@ -94,6 +94,9 @@ func TestSeedPrompt_IncludesIssueAndFooter(t *testing.T) {
 		"pull --rebase",
 		"non-fast-forward",
 		"force-push",
+		"worktree on branch `dispatch/issue-136`",
+		"git -C /repo/coily merge dispatch/issue-136",
+		"push origin main",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("seedPrompt missing %q in:\n%s", want, got)

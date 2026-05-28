@@ -12,8 +12,8 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// reap.go closes the worktree lifecycle opened by interactive.go.
-// ensureDispatchWorktree creates one git worktree per dispatched issue
+// reap.go closes the worktree lifecycle opened by worktree.go: it removes
+// detached-surface worktrees once their branch merges. coilysiren/coily#145.
 
 // defaultWorktreeReapable reports whether a dispatch worktree is safe to
 // remove: its branch is either gone (already cleaned up) or fully merged
@@ -123,7 +123,7 @@ func (d *Dispatcher) reapDispatchWorktrees(ctx context.Context) ([]string, error
 }
 
 // reapCommand is the explicit all-repos sweep. The same reaper runs
-// automatically at the start of every `dispatch interactive`, so this
+// automatically at the start of every detached dispatch.
 func (d *Dispatcher) reapCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "reap",
@@ -137,9 +137,9 @@ A worktree with an unmerged branch is left alone - that is in-flight
 work. A worktree with uncommitted changes is skipped with a warning
 rather than force-removed.
 
-The same sweep runs automatically at the start of every
-'dispatch interactive', so worktree sprawl is self-limiting; this verb
-is the explicit on-demand version.`,
+The same sweep runs automatically at the start of every detached
+dispatch ('dispatch headless' / 'dispatch cascade'), so worktree sprawl
+is self-limiting; this verb is the explicit on-demand version.`,
 		Action: func(ctx context.Context, _ *cli.Command) error {
 			removed, err := d.reapDispatchWorktrees(ctx)
 			if err != nil {
