@@ -128,14 +128,27 @@ func (d *Dispatcher) ensureDispatchWorktree(ctx context.Context, repoPath string
 	return worktreePath, nil
 }
 
-// interactiveCommand spins up a new Warp tab cwd'd into the target repo
-// with `claude "Work on issue <ref>"` already submitted as the first
+// interactiveSurfaceSpec is the per-surface bit that differs between the two
+// live-tab surfaces (interactive, consult). Flags and placement are shared.
+type interactiveSurfaceSpec struct {
+	// name is the subcommand, the audit verb suffix, and the Event.Mode label.
+	name string
+	// usage is the one-line help summary.
+	usage string
+	// description is the long help text.
+	description string
+	// preamble leads the seeded prompt: "" for interactive (watch),
+	// consultPreamble for consult.
+	preamble string
+}
+
+// interactiveCommand is the interactive surface: a live Warp tab in auto
+// mode, operator may watch but is not consulted (the old watch posture).
 func (d *Dispatcher) interactiveCommand() *cli.Command {
-	return &cli.Command{
-		Name:      "interactive",
-		Usage:     "Open a new Warp tab with `claude \"Work on issue <ref>\"` pre-submitted.",
-		ArgsUsage: "<owner/repo#N | issue-url>",
-		Description: `interactive validates the issue ref exists and is open, writes a JSON
+	return d.interactiveSurfaceCommand(interactiveSurfaceSpec{
+		name:  "interactive",
+		usage: "Open a new Warp tab with `claude \"Work on issue <ref>\"` pre-submitted.",
+		description: `interactive validates the issue ref exists and is open, writes a JSON
 queue entry under the queue dir carrying ref, title, cwd, and prompt
 (mode 0600), then fires open warppreview://tab_config/<launch-name> to
 trigger the agentic-os shim that pops the queue, echoes the title
@@ -151,19 +164,52 @@ Defaults to a new tab inside the active window (--surface tab). Pass
 --surface window to fall back to the launch path which opens a fresh
 Warp window instead.
 
-Consult posture is orthogonal to the surface and selected with
---posture (watch | consult, default watch). watch is the historical
-behavior: the agent proceeds in auto mode and treats the PR / merge as
-the review gate. consult raises the interruption budget - the dispatched
-agent is encouraged to pause and surface real judgment calls to the
-reachable operator instead of guessing. It is a soft expectation
-injected into the prompt, not a hard read-only stop like plan mode.
+Runs in auto mode: the agent proceeds and treats the PR / merge as the
+review gate. To raise the interruption budget so the agent surfaces
+real judgment calls and waits, use 'dispatch consult' instead.
 
 Hands control back immediately. The dispatched session runs in the
 foreground in its own Warp tab or window. If you need an AFK
 fire-and-forget run, use 'dispatch headless'.
 
 Soft-fails to a copy-paste fallback if Warp / open are unavailable.`,
+		preamble: "",
+	})
+}
+
+// consultCommand is the consult surface: interactive's placement (live Warp
+// tab, auto mode) with a raised interruption budget baked into the prompt.
+func (d *Dispatcher) consultCommand() *cli.Command {
+	return d.interactiveSurfaceCommand(interactiveSurfaceSpec{
+		name:  "consult",
+		usage: "Like interactive, but encouraged to pause and surface real judgment calls.",
+		description: `consult is the interactive surface (live Warp tab, auto mode, operator
+supervises) with a raised interruption budget baked into the seeded
+prompt. The dispatched agent is encouraged to surface real judgment
+calls - a naming choice, an irreversible schema or data decision, two
+viable designs with no clear winner - and wait for the operator rather
+than guess. It is a soft expectation, not a hard read-only stop like
+plan mode: the agent keeps moving on everything that does not need them.
+
+Placement, queue seam, worktree handling, and Warp fire are identical to
+'dispatch interactive' - see that surface for the --channel / --surface /
+--no-worktree details. The only difference is the prompt preamble.
+
+Use this when the operator wants a say mid-flight without a hard plan-mode
+gate. For a run that never consults, use 'dispatch interactive' (watch)
+or 'dispatch headless' (detached).`,
+		preamble: consultPreamble,
+	})
+}
+
+// interactiveSurfaceCommand builds a live-tab surface (interactive or consult)
+// from its spec. Only the prompt preamble and the labels differ.
+func (d *Dispatcher) interactiveSurfaceCommand(s interactiveSurfaceSpec) *cli.Command {
+	return &cli.Command{
+		Name:        s.name,
+		Usage:       s.usage,
+		ArgsUsage:   "<owner/repo#N | issue-url>",
+		Description: s.description,
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:  "dry-run",
@@ -193,14 +239,9 @@ Soft-fails to a copy-paste fallback if Warp / open are unavailable.`,
 				Name:  "no-worktree",
 				Usage: "skip git worktree creation and cd the dispatched session straight into the bare repo checkout. Escape hatch for sessions that must work against the canonical tree; concurrent dispatches into the same repo will race on the working tree.",
 			},
-			&cli.StringFlag{
-				Name:  "posture",
-				Usage: "consult posture injected into the seeded prompt. `watch` (default, proceed in auto mode, PR is the review gate) or `consult` (encouraged to pause and surface judgment calls to the reachable operator - a soft expectation, not a hard stop like plan mode).",
-				Value: string(PostureWatch),
-			},
 		},
 		Action: d.cfg.Wrap(verb.Spec{
-			Name:       "dispatch.interactive",
+			Name:       "dispatch." + s.name,
 			SkipPolicy: false,
 			ArgsFunc: func(c *cli.Command) (map[string]string, []string) {
 				return map[string]string{
@@ -208,12 +249,11 @@ Soft-fails to a copy-paste fallback if Warp / open are unavailable.`,
 					"--launch-name": c.String("launch-name"),
 					"--channel":     c.String("channel"),
 					"--surface":     c.String("surface"),
-					"--posture":     c.String("posture"),
 				}, c.Args().Slice()
 			},
 			CommitScopeArgvHint: d.commitScopeArgvHint,
 			Action: func(ctx context.Context, c *cli.Command) error {
-				return d.runInteractive(ctx, c)
+				return d.runInteractive(ctx, c, s.name, s.preamble)
 			},
 		}),
 	}
@@ -221,9 +261,9 @@ Soft-fails to a copy-paste fallback if Warp / open are unavailable.`,
 
 // interactivePrompt is the prompt the shim execs claude with. Embeds the
 // first-action instruction so the dispatched agent fetches issue body +
-func interactivePrompt(ref *issueRef, issue *ghIssue, noWorktree bool, repoPath string, posture Posture) string {
+func interactivePrompt(ref *issueRef, issue *ghIssue, noWorktree bool, repoPath string, preamble string) string {
 	var b strings.Builder
-	if preamble := posturePreamble(posture); preamble != "" {
+	if preamble != "" {
 		fmt.Fprintf(&b, "%s\n\n", preamble)
 	}
 	fmt.Fprintf(&b,
@@ -266,10 +306,12 @@ func (d *Dispatcher) resolveDispatchCwd(ctx context.Context, repoPath string, re
 	return d.ensureDispatchWorktree(ctx, repoPath, ref)
 }
 
-func (d *Dispatcher) runInteractive(ctx context.Context, c *cli.Command) error {
+// runInteractive is the shared body for the two live-tab surfaces. surfaceName
+// labels output and the audit Event; preamble leads the seeded prompt.
+func (d *Dispatcher) runInteractive(ctx context.Context, c *cli.Command, surfaceName, preamble string) error {
 	args := c.Args().Slice()
 	if len(args) != 1 {
-		return fmt.Errorf("dispatch interactive: pass exactly one issue reference (got %d args)", len(args))
+		return fmt.Errorf("dispatch %s: pass exactly one issue reference (got %d args)", surfaceName, len(args))
 	}
 	ref, issue, err := d.resolveDispatchIssue(ctx, args[0])
 	if err != nil {
@@ -280,29 +322,25 @@ func (d *Dispatcher) runInteractive(ctx context.Context, c *cli.Command) error {
 	queueDir := c.String("queue-dir")
 	launchName := c.String("launch-name")
 	channel := c.String("channel")
-	surface := c.String("surface")
-	posture, err := parseInteractivePosture(c.String("posture"))
-	if err != nil {
-		return fmt.Errorf("dispatch interactive: %w", err)
-	}
+	warpSurface := c.String("surface")
 	repoPath, _ := d.cfg.RepoPath(ref.Repo)
-	prompt := interactivePrompt(ref, issue, noWorktree, repoPath, posture)
+	prompt := interactivePrompt(ref, issue, noWorktree, repoPath, preamble)
 	titleLine := interactiveTitleLine(ref, issue)
 
 	if !c.Bool("dry-run") {
-		d.reapBeforeInteractiveDispatch(ctx)
+		d.reapBeforeInteractiveDispatch(ctx, surfaceName)
 	}
 
-	url, err := dispatchURL(channel, surface, launchName)
+	url, err := dispatchURL(channel, warpSurface, launchName)
 	if err != nil {
-		return fmt.Errorf("dispatch interactive: %w", err)
+		return fmt.Errorf("dispatch %s: %w", surfaceName, err)
 	}
 
 	// Each dispatch lands in its own git worktree branched off main, so
 	// concurrent dispatches into the same repo never collide on a shared
 	cwd, err := d.resolveDispatchCwd(ctx, repoPath, ref, noWorktree, c.Bool("dry-run"))
 	if err != nil {
-		return fmt.Errorf("dispatch interactive: %w", err)
+		return fmt.Errorf("dispatch %s: %w", surfaceName, err)
 	}
 
 	entry := dispatchQueueEntry{
@@ -314,51 +352,50 @@ func (d *Dispatcher) runInteractive(ctx context.Context, c *cli.Command) error {
 	}
 
 	if c.Bool("dry-run") {
-		printInteractiveDryRun(ref, issue, entry, queueDir, channel, surface, string(posture), url, titleLine)
+		printInteractiveDryRun(surfaceName, ref, issue, entry, queueDir, channel, warpSurface, url, titleLine)
 		return nil
 	}
 
 	// Pre-trust the cwd so the dispatched session never stalls on the
 	// folder-trust prompt. Soft-fail: a missed trust prime is a papercut.
 	if err := d.ensureClaudeFolderTrust(cwd); err != nil {
-		fmt.Fprintf(os.Stderr, "dispatch interactive: could not pre-trust %s (%v); the dispatched session may show the folder-trust prompt.\n", cwd, err)
+		fmt.Fprintf(os.Stderr, "dispatch %s: could not pre-trust %s (%v); the dispatched session may show the folder-trust prompt.\n", surfaceName, cwd, err)
 	}
 
 	queuePath, err := writeDispatchQueueEntry(queueDir, entry)
 	if err != nil {
-		return fmt.Errorf("dispatch interactive: write queue entry under %s: %w", queueDir, err)
+		return fmt.Errorf("dispatch %s: write queue entry under %s: %w", surfaceName, queueDir, err)
 	}
 
 	if err := d.cfg.OpenLaunch(ctx, d.cfg.Runner, url); err != nil {
-		printInteractiveFallback(ref, cwd, prompt, url, queuePath, err)
+		printInteractiveFallback(surfaceName, ref, cwd, prompt, url, queuePath, err)
 		return nil
 	}
-	d.notify(Event{Mode: "interactive", Ref: ref.String(), Title: strings.TrimSpace(issue.Title), URL: issue.URL, Cwd: cwd})
+	d.notify(Event{Mode: surfaceName, Ref: ref.String(), Title: strings.TrimSpace(issue.Title), URL: issue.URL, Cwd: cwd})
 	return nil
 }
 
 // reapBeforeInteractiveDispatch removes merged worktrees from prior
 // dispatches so sprawl stays self-limiting. Soft-fail: must not block.
-func (d *Dispatcher) reapBeforeInteractiveDispatch(ctx context.Context) {
+func (d *Dispatcher) reapBeforeInteractiveDispatch(ctx context.Context, surfaceName string) {
 	if removed, reapErr := d.reapDispatchWorktrees(ctx); reapErr != nil {
-		fmt.Fprintf(os.Stderr, "dispatch interactive: worktree reap skipped (%v)\n", reapErr)
+		fmt.Fprintf(os.Stderr, "dispatch %s: worktree reap skipped (%v)\n", surfaceName, reapErr)
 	} else if len(removed) > 0 {
-		fmt.Fprintf(os.Stderr, "dispatch interactive: reaped %d merged worktree(s)\n", len(removed))
+		fmt.Fprintf(os.Stderr, "dispatch %s: reaped %d merged worktree(s)\n", surfaceName, len(removed))
 	}
 }
 
-// printInteractiveDryRun renders the resolved interactive dispatch plan
-// without writing the queue entry or firing open.
-func printInteractiveDryRun(ref *issueRef, issue *ghIssue, entry dispatchQueueEntry, queueDir, channel, surface, posture, url, titleLine string) {
+// printInteractiveDryRun renders the resolved live-tab dispatch plan without
+// firing. surfaceName is the surface; warpSurface is the --surface tab/window.
+func printInteractiveDryRun(surfaceName string, ref *issueRef, issue *ghIssue, entry dispatchQueueEntry, queueDir, channel, warpSurface, url, titleLine string) {
 	entryJSON, _ := json.MarshalIndent(entry, "", "  ")
-	fmt.Printf("# dispatch interactive (dry-run)\n")
+	fmt.Printf("# dispatch %s (dry-run)\n", surfaceName)
 	fmt.Printf("issue:        %s\n", ref)
 	fmt.Printf("url:          %s\n", issue.URL)
 	fmt.Printf("cwd:          %s\n", entry.Cwd)
 	fmt.Printf("queue-dir:    %s\n", queueDir)
 	fmt.Printf("channel:      %s\n", channel)
-	fmt.Printf("surface:      %s\n", surface)
-	fmt.Printf("posture:      %s\n", posture)
+	fmt.Printf("surface:      %s\n", warpSurface)
 	fmt.Printf("dispatch-url: %s\n", url)
 	fmt.Printf("----- title -----\n%s\n----- end -----\n", titleLine)
 	fmt.Printf("----- queue entry -----\n%s\n----- end -----\n", string(entryJSON))
@@ -393,8 +430,8 @@ func writeDispatchQueueEntry(dir string, entry dispatchQueueEntry) (string, erro
 
 // printInteractiveFallback emits the exact command the operator can paste
 // in a manually-opened tab when the Warp URL fire fails. Soft-fail by
-func printInteractiveFallback(ref *issueRef, repoPath, prompt, url, queuePath string, openErr error) {
-	fmt.Fprintf(os.Stderr, "dispatch interactive: %s did not fire (%v).\n", url, openErr)
+func printInteractiveFallback(surfaceName string, ref *issueRef, repoPath, prompt, url, queuePath string, openErr error) {
+	fmt.Fprintf(os.Stderr, "dispatch %s: %s did not fire (%v).\n", surfaceName, url, openErr)
 	fmt.Fprintf(os.Stderr, "Queue entry left at %s for the shim to consume on retry.\n", queuePath)
 	fmt.Fprintf(os.Stderr, "Or paste this in a new tab cwd'd to %s:\n\n", repoPath)
 	fmt.Fprintf(os.Stderr, "  cd %s && claude %q\n\n", repoPath, prompt)

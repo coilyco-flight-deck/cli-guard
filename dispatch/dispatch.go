@@ -156,25 +156,31 @@ const defaultDispatchPermissionMode = "auto"
 // footer assumes. It covers the workflow that closes an issue: git
 const defaultDispatchAllowedTools = "Bash,Read,Edit,Write,Glob,Grep,TodoWrite"
 
-// Command returns the dispatch umbrella verb. It refuses bare invocation
-// and requires an explicit mode subverb (headless or interactive). The
+// Command returns the dispatch umbrella verb. It refuses bare invocation and
+// requires a surface subverb (headless | interactive | consult | cascade).
 func (d *Dispatcher) Command() *cli.Command {
 	bin := d.cfg.BinaryName
 	return &cli.Command{
 		Name:      "dispatch",
-		Usage:     "Fire claude against a real open issue. Mode required: headless | interactive | cascade.",
-		ArgsUsage: "<headless|interactive|cascade> <owner/repo#N | issue-url>",
+		Usage:     "Fire claude against a real open issue. Surface required: headless | interactive | consult | cascade.",
+		ArgsUsage: "<headless|interactive|consult|cascade> <owner/repo#N | issue-url>",
 		Description: fmt.Sprintf(`dispatch resolves a GitHub issue reference, refuses anything outside the
-%s/* org or any issue that is not open, then hands off to one of two
-mode subverbs:
+%s/* org or any issue that is not open, then hands off to one of four
+surface subverbs:
 
   %s dispatch headless    <ref>   Spawn a detached claude -p in the
                                   local checkout, log to a file, return
-                                  immediately. AFK queue work.
+                                  immediately. AFK queue work, never
+                                  consults. The PR is the review gate.
   %s dispatch interactive <ref>   Open a new tab cwd'd into the repo with
                                   claude pre-submitted with
-                                  "Work on issue <ref>". Operator has
-                                  eyes on it.
+                                  "Work on issue <ref>". Auto mode; the
+                                  operator may watch but is not consulted.
+  %s dispatch consult     <ref>   Like interactive, but with a raised
+                                  interruption budget: the agent is
+                                  encouraged to surface real judgment
+                                  calls and wait. A soft expectation,
+                                  not plan mode.
   %s dispatch cascade     <ref>   Like headless, but the worker may
                                   recursively dispatch its own sub-workers
                                   to split a too-large task. Bounded by a
@@ -191,17 +197,18 @@ It also carries three maintenance verbs:
                                   or sibling sidequest can see who is editing
                                   what before writing shared paths.
 
-Bare 'dispatch <ref>' errors. Pick a mode.`, d.cfg.AllowedOwner, bin, bin, bin, bin, bin, bin),
+Bare 'dispatch <ref>' errors. Pick a surface.`, d.cfg.AllowedOwner, bin, bin, bin, bin, bin, bin, bin),
 		Commands: []*cli.Command{
 			d.headlessCommand(),
 			d.interactiveCommand(),
+			d.consultCommand(),
 			d.cascadeCommand(),
 			d.reapCommand(),
 			d.statusCommand(),
 			d.registryCommand(),
 		},
 		Action: func(_ context.Context, _ *cli.Command) error {
-			return fmt.Errorf("dispatch: specify mode: interactive | headless | cascade (see `%s dispatch --help`)", bin)
+			return fmt.Errorf("dispatch: specify surface: headless | interactive | consult | cascade (see `%s dispatch --help`)", bin)
 		},
 	}
 }
@@ -646,7 +653,7 @@ func (d *Dispatcher) fetchIssue(ctx context.Context, ref *issueRef) (*ghIssue, e
 // standard git-workflow invariants (commit to main, close with closes #N,
 func seedPrompt(ref *issueRef, issue *ghIssue) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s\n\n", posturePreamble(PostureHeadless))
+	fmt.Fprintf(&b, "%s\n\n", headlessPreamble)
 	fmt.Fprintf(&b, "Work on %s issue %s.\n\n", forgeName(ref.Platform), ref)
 	fmt.Fprintf(&b, "Title: %s\n", issue.Title)
 	fmt.Fprintf(&b, "URL:   %s\n\n", issue.URL)

@@ -442,7 +442,7 @@ func New(cfg Config) (*Dispatcher, error)
 
 func (d *Dispatcher) Command() *cli.Command
     Command returns the dispatch umbrella verb. It refuses bare invocation and
-    requires an explicit mode subverb (headless or interactive). The
+    requires a surface subverb (headless | interactive | consult | cascade).
 
 type Event struct {
 	Mode  string // "headless" or "interactive"
@@ -470,27 +470,6 @@ type Platform string
 const (
 	PlatformGitHub  Platform = "github"
 	PlatformForgejo Platform = "forgejo"
-)
-type Posture string
-    Posture is the consult-posture axis: how readily a dispatched agent stops to
-    involve the operator. Orthogonal to surface. coily#130.
-
-const (
-	// PostureHeadless never consults: complete the work end to end. The
-	// posture the detached headless surface always runs under.
-	PostureHeadless Posture = "headless"
-
-	// PostureWatch proceeds in auto mode; operator may watch but is not
-	// consulted. Historical interactive behavior, default for that surface.
-	PostureWatch Posture = "watch"
-
-	// PostureConsult proceeds but with a raised interruption budget:
-	// encouraged to surface judgment calls. A soft expectation, not plan mode.
-	PostureConsult Posture = "consult"
-
-	// PostureCascade is the most autonomous posture: a detached worker
-	// allowed to recursively dispatch headless/cascade sub-workers. coily#130.
-	PostureCascade Posture = "cascade"
 )
 type Registry struct {
 	// Has unexported fields.

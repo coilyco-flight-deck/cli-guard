@@ -21,7 +21,7 @@ func TestInteractivePrompt_RefAndFirstAction(t *testing.T) {
 		URL:    "https://github.com/coilysiren/coily/issues/270",
 		State:  "open",
 	}
-	got := interactivePrompt(ref, issue, false, "/repo/coily", PostureWatch)
+	got := interactivePrompt(ref, issue, false, "/repo/coily", "")
 
 	if !strings.HasPrefix(got, "Work on issue coilysiren/coily#270.") {
 		t.Errorf("interactivePrompt prefix = %q, want \"Work on issue coilysiren/coily#270.\" lead", got)
@@ -49,7 +49,7 @@ func TestInteractivePrompt_MergeBack(t *testing.T) {
 		State:  "open",
 	}
 
-	withWorktree := interactivePrompt(ref, issue, false, "/repo/coily", PostureWatch)
+	withWorktree := interactivePrompt(ref, issue, false, "/repo/coily", "")
 	for _, want := range []string{
 		"dispatch/issue-300",
 		"merge that branch into `main`",
@@ -62,7 +62,7 @@ func TestInteractivePrompt_MergeBack(t *testing.T) {
 		}
 	}
 
-	noWorktree := interactivePrompt(ref, issue, true, "/repo/coily", PostureWatch)
+	noWorktree := interactivePrompt(ref, issue, true, "/repo/coily", "")
 	if strings.Contains(noWorktree, "force-push") || strings.Contains(noWorktree, "\n") {
 		t.Errorf("--no-worktree prompt must stay single-line with no merge-back, got %q", noWorktree)
 	}
@@ -226,36 +226,52 @@ func TestDispatchURL_RejectsUnknownSurface(t *testing.T) {
 	}
 }
 
-// TestDispatchBare_ErrorsWithModeGate pins the "no default mode" rule.
-// Bare `dispatch <ref>` must error and name the two valid modes; it must
-func TestDispatchBare_ErrorsWithModeGate(t *testing.T) {
+// TestDispatchBare_ErrorsWithSurfaceGate pins the "no default surface"
+// rule. Bare `dispatch <ref>` must error and name the four valid surfaces;
+func TestDispatchBare_ErrorsWithSurfaceGate(t *testing.T) {
 	d := newTestDispatcher(t)
 	cmd := d.Command()
 	err := cmd.Run(context.Background(), []string{"dispatch", "coilysiren/coily#270"})
 	if err == nil {
-		t.Fatal("bare dispatch <ref> should error with mode-gate, got nil")
+		t.Fatal("bare dispatch <ref> should error with surface-gate, got nil")
 	}
 	msg := err.Error()
-	for _, want := range []string{"specify mode", "interactive", "headless"} {
+	for _, want := range []string{"specify surface", "headless", "interactive", "consult", "cascade"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("dispatch bare error = %q, want substring %q", msg, want)
 		}
 	}
 }
 
-// TestDispatchHasModeSubverbs proves the headless + interactive subverbs
-// hang off the dispatch parent.
-func TestDispatchHasModeSubverbs(t *testing.T) {
+// TestDispatchHasSurfaceSubverbs proves all four surface subverbs hang off
+// the dispatch parent.
+func TestDispatchHasSurfaceSubverbs(t *testing.T) {
 	d := newTestDispatcher(t)
 	cmd := d.Command()
 	got := map[string]bool{}
 	for _, sub := range cmd.Commands {
 		got[sub.Name] = true
 	}
-	for _, want := range []string{"headless", "interactive"} {
+	for _, want := range []string{"headless", "interactive", "consult", "cascade"} {
 		if !got[want] {
 			t.Errorf("dispatch parent missing subverb %q (got %v)", want, got)
 		}
+	}
+}
+
+// TestDispatchInteractiveRejectsPostureFlag pins coily#144: --posture is gone,
+// so passing it to interactive must error as an unknown flag.
+func TestDispatchInteractiveRejectsPostureFlag(t *testing.T) {
+	d := newTestDispatcher(t)
+	cmd := d.Command()
+	err := cmd.Run(context.Background(), []string{
+		"dispatch", "interactive", "--posture", "consult", "coilysiren/coily#144",
+	})
+	if err == nil {
+		t.Fatal("dispatch interactive --posture should error (flag removed), got nil")
+	}
+	if !strings.Contains(err.Error(), "posture") {
+		t.Errorf("error = %q, want it to name the unknown --posture flag", err.Error())
 	}
 }
 
