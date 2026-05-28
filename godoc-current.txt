@@ -649,21 +649,21 @@ and token fingerprint, with method-aware write-through
 CONSTANTS
 
 const (
-	// TTL1Min covers fast-moving issue/PR/CI surfaces. Sized to absorb a
+	// TTLVolatile covers fast-moving issue/PR/CI surfaces. Sized to absorb a
 	// `watch -n 2` loop across ~10 repos (~10 calls/min, well under the
-	TTL1Min = 1 * time.Minute
+	TTLVolatile = 1 * time.Minute
 
-	// TTL10Min covers head-of-branch reads, ref/tree/content lookups,
+	// TTLBranchHead covers head-of-branch reads, ref/tree/content lookups,
 	// and search. Slower turnover than issues; long enough to collapse
-	TTL10Min = 10 * time.Minute
+	TTLBranchHead = 10 * time.Minute
 
-	// TTL1Hour covers repo-level metadata: the repo body, labels,
+	// TTLRepoMeta covers repo-level metadata: the repo body, labels,
 	// milestones, releases, tags, topics, languages, contributors,
-	TTL1Hour = 1 * time.Hour
+	TTLRepoMeta = 1 * time.Hour
 
-	// TTL25Hour covers the identity surface: user, org, teams. Picked
+	// TTLIdentity covers the identity surface: user, org, teams. Picked
 	// at 25 (not 24) hours so a daily cron always sees a miss across
-	TTL25Hour = 25 * time.Hour
+	TTLIdentity = 25 * time.Hour
 )
     Default TTLs by tier. Exported so callers and tests can reference the same
     constants the path-classifier uses internally.

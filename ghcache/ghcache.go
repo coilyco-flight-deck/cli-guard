@@ -18,21 +18,21 @@ import (
 // Default TTLs by tier. Exported so callers and tests can reference the
 // same constants the path-classifier uses internally.
 const (
-	// TTL1Min covers fast-moving issue/PR/CI surfaces. Sized to absorb a
+	// TTLVolatile covers fast-moving issue/PR/CI surfaces. Sized to absorb a
 	// `watch -n 2` loop across ~10 repos (~10 calls/min, well under the
-	TTL1Min = 1 * time.Minute
+	TTLVolatile = 1 * time.Minute
 
-	// TTL10Min covers head-of-branch reads, ref/tree/content lookups,
+	// TTLBranchHead covers head-of-branch reads, ref/tree/content lookups,
 	// and search. Slower turnover than issues; long enough to collapse
-	TTL10Min = 10 * time.Minute
+	TTLBranchHead = 10 * time.Minute
 
-	// TTL1Hour covers repo-level metadata: the repo body, labels,
+	// TTLRepoMeta covers repo-level metadata: the repo body, labels,
 	// milestones, releases, tags, topics, languages, contributors,
-	TTL1Hour = 1 * time.Hour
+	TTLRepoMeta = 1 * time.Hour
 
-	// TTL25Hour covers the identity surface: user, org, teams. Picked
+	// TTLIdentity covers the identity surface: user, org, teams. Picked
 	// at 25 (not 24) hours so a daily cron always sees a miss across
-	TTL25Hour = 25 * time.Hour
+	TTLIdentity = 25 * time.Hour
 )
 
 // get returns a ttlcache rooted under the gh-api-cache subdir. The
@@ -157,7 +157,7 @@ func classify(path string) time.Duration {
 		reT1ActionsRunsList.MatchString(p),
 		reT1ActionsRun.MatchString(p),
 		reT1ActionsRunJobs.MatchString(p):
-		return TTL1Min
+		return TTLVolatile
 
 	// Tier 2 - 10 minutes.
 	case reT2CommitsList.MatchString(p),
@@ -169,14 +169,14 @@ func classify(path string) time.Duration {
 		reT2GitTrees.MatchString(p),
 		reT2Contents.MatchString(p),
 		reT2SearchNonUsers.MatchString(p):
-		return TTL10Min
+		return TTLBranchHead
 
 	// Tier 3 - 1 hour.
 	case reT3RepoBase.MatchString(p),
 		reT3RepoLists.MatchString(p),
 		reT3LabelNamed.MatchString(p),
 		reT3ReleaseEntry.MatchString(p):
-		return TTL1Hour
+		return TTLRepoMeta
 
 	// Tier 4 - 25 hours.
 	case reT4User.MatchString(p),
@@ -185,7 +185,7 @@ func classify(path string) time.Duration {
 		reT4OrgLists.MatchString(p),
 		reT4Team.MatchString(p),
 		reT4SearchUsers.MatchString(p):
-		return TTL25Hour
+		return TTLIdentity
 	}
 	return 0
 }
