@@ -92,26 +92,40 @@ func defaultWorktreeAdd(ctx context.Context, runner *shell.Runner, repoPath, bra
 	return err
 }
 
-// dispatchWorktreePath returns the worktree path for a given repo + issue
-// number. Format: <WorktreeRoot>/<repo>/issue-<N>.
-func (d *Dispatcher) dispatchWorktreePath(repo string, number int) (string, error) {
+// dispatchWorktreeName is the worktree directory basename for an issue:
+// "issue-<N>-<slug>", or "issue-<N>" when the title has no sluggable
+// content. The branch is always "dispatch/" + this name (see
+// dispatchWorktreeBranch), so reap reconstructs the branch from the
+// directory name alone without re-fetching the title.
+func dispatchWorktreeName(number int, title string) string {
+	if slug := branchSlug(title); slug != "" {
+		return fmt.Sprintf("issue-%d-%s", number, slug)
+	}
+	return fmt.Sprintf("issue-%d", number)
+}
+
+// dispatchWorktreePath returns the worktree path for a given repo + issue.
+// Format: <WorktreeRoot>/<repo>/issue-<N>-<slug>.
+func (d *Dispatcher) dispatchWorktreePath(repo string, number int, title string) (string, error) {
 	root, err := d.cfg.WorktreeRoot()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(root, repo, fmt.Sprintf("issue-%d", number)), nil
+	return filepath.Join(root, repo, dispatchWorktreeName(number, title)), nil
 }
 
-// dispatchWorktreeBranch returns the branch name for a given issue
-// number. Format: dispatch/issue-<N>. Predictable so re-dispatching the
-func dispatchWorktreeBranch(number int) string {
-	return fmt.Sprintf("dispatch/issue-%d", number)
+// dispatchWorktreeBranch returns the branch name for a worktree directory
+// basename: "dispatch/<name>". Pairs with dispatchWorktreeName so the branch
+// and directory always share a suffix and reap can derive one from the other.
+func dispatchWorktreeBranch(name string) string {
+	return "dispatch/" + name
 }
 
 // ensureDispatchWorktree returns worktreePath after guaranteeing a git
 // worktree exists there. Idempotent: if a `.git` entry already lives at
-func (d *Dispatcher) ensureDispatchWorktree(ctx context.Context, repoPath string, ref *issueRef) (string, error) {
-	worktreePath, err := d.dispatchWorktreePath(ref.Repo, ref.Number)
+func (d *Dispatcher) ensureDispatchWorktree(ctx context.Context, repoPath string, ref *issueRef, title string) (string, error) {
+	name := dispatchWorktreeName(ref.Number, title)
+	worktreePath, err := d.dispatchWorktreePath(ref.Repo, ref.Number, title)
 	if err != nil {
 		return "", fmt.Errorf("resolve worktree path: %w", err)
 	}
@@ -121,7 +135,7 @@ func (d *Dispatcher) ensureDispatchWorktree(ctx context.Context, repoPath string
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0o755); err != nil {
 		return "", fmt.Errorf("mkdir worktree parent: %w", err)
 	}
-	branch := dispatchWorktreeBranch(ref.Number)
+	branch := dispatchWorktreeBranch(name)
 	if err := d.cfg.WorktreeAdd(ctx, d.cfg.Runner, repoPath, branch, worktreePath); err != nil {
 		return "", fmt.Errorf("git worktree add -B %s %s (in %s): %w", branch, worktreePath, repoPath, err)
 	}
@@ -230,7 +244,7 @@ func interactivePrompt(ref *issueRef, issue *ghIssue, noWorktree bool, repoPath 
 		"Work on issue %s. First action: %s and read the full body and comment thread before doing anything else.",
 		ref, firstActionHint(ref, issue))
 	if !noWorktree {
-		branch := dispatchWorktreeBranch(ref.Number)
+		branch := dispatchWorktreeBranch(dispatchWorktreeName(ref.Number, issue.Title))
 		fmt.Fprintf(&b,
 			"\n\nThis session runs in a git worktree on branch `%s`. When the work is complete and verified (tests, linters, and builds green), land it autonomously without checking in first: merge that branch into `main` and push. Run `git -C %s merge %s` then `git -C %s push origin main`. Resolve any merge conflicts yourself. Never force-push. Leave the worktree directory in place - the next `coily dispatch` reaps it once the merge lands.",
 			branch, repoPath, branch, repoPath)
@@ -256,14 +270,14 @@ func interactiveTitleLine(ref *issueRef, issue *ghIssue) string {
 
 // resolveDispatchCwd returns the directory the dispatched session should
 // run in. With --no-worktree, that's the bare repo checkout. Otherwise
-func (d *Dispatcher) resolveDispatchCwd(ctx context.Context, repoPath string, ref *issueRef, noWorktree, dryRun bool) (string, error) {
+func (d *Dispatcher) resolveDispatchCwd(ctx context.Context, repoPath string, ref *issueRef, title string, noWorktree, dryRun bool) (string, error) {
 	if noWorktree {
 		return repoPath, nil
 	}
 	if dryRun {
-		return d.dispatchWorktreePath(ref.Repo, ref.Number)
+		return d.dispatchWorktreePath(ref.Repo, ref.Number, title)
 	}
-	return d.ensureDispatchWorktree(ctx, repoPath, ref)
+	return d.ensureDispatchWorktree(ctx, repoPath, ref, title)
 }
 
 func (d *Dispatcher) runInteractive(ctx context.Context, c *cli.Command) error {
@@ -300,7 +314,7 @@ func (d *Dispatcher) runInteractive(ctx context.Context, c *cli.Command) error {
 
 	// Each dispatch lands in its own git worktree branched off main, so
 	// concurrent dispatches into the same repo never collide on a shared
-	cwd, err := d.resolveDispatchCwd(ctx, repoPath, ref, noWorktree, c.Bool("dry-run"))
+	cwd, err := d.resolveDispatchCwd(ctx, repoPath, ref, issue.Title, noWorktree, c.Bool("dry-run"))
 	if err != nil {
 		return fmt.Errorf("dispatch interactive: %w", err)
 	}

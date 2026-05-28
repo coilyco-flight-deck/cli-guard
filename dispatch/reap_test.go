@@ -21,11 +21,14 @@ func TestParseIssueDirName(t *testing.T) {
 	}{
 		{"issue-683", 683, true},
 		{"issue-1", 1, true},
+		{"issue-285-fix-the-thing", 285, true},
+		{"issue-42-feat-dispatch-x", 42, true},
 		{"issue-0", 0, false},
 		{"issue-", 0, false},
 		{"issue-abc", 0, false},
 		{"scratch", 0, false},
 		{"issue-12x", 0, false},
+		{"issue-12x-foo", 0, false},
 	}
 	for _, tc := range cases {
 		gotN, gotOK := parseIssueDirName(tc.name)
