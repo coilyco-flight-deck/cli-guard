@@ -25,7 +25,7 @@ See [`docs/FEATURES.md`](docs/FEATURES.md) for a feature inventory, [`examples/`
 
 If you found a bug or have a feature request, [create a new issue]. Participation in this community is governed by the [Code of Conduct](CODE_OF_CONDUCT.md). Security disclosures go through [SECURITY.md](SECURITY.md).
 
-Sibling repos in the cli-* family: [cli-mcp], [cli-web-docs], [cli-web-ops].
+Sibling repo: [cli-mcp].
 
 ### License
 
@@ -40,8 +40,6 @@ See [`LICENSE`](./LICENSE).
 [urfave/cli]: https://github.com/urfave/cli
 [create a new issue]: https://github.com/coilysiren/cli-guard/issues/new/choose
 [cli-mcp]: https://github.com/coilysiren/cli-mcp
-[cli-web-docs]: https://github.com/coilysiren/cli-web-docs
-[cli-web-ops]: https://github.com/coilysiren/cli-web-ops
 
 ## See also
 
