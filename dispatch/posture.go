@@ -22,6 +22,10 @@ const (
 	// PostureConsult proceeds but with a raised interruption budget:
 	// encouraged to surface judgment calls. A soft expectation, not plan mode.
 	PostureConsult Posture = "consult"
+
+	// PostureCascade is the most autonomous posture: a detached worker
+	// allowed to recursively dispatch headless/cascade sub-workers. coily#130.
+	PostureCascade Posture = "cascade"
 )
 
 // interactivePostures are the postures selectable on the interactive
@@ -64,6 +68,9 @@ func posturePreamble(p Posture) string {
 			"so do not pause for input - make the reasonable call and keep going. They will redirect " +
 			"you via the PR or a follow-up if needed."
 	case PostureWatch:
+		return ""
+	case PostureCascade:
+		// Cascade's preamble is depth-parameterized; cascadePreamble owns it.
 		return ""
 	}
 	return ""

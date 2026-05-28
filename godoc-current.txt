@@ -487,6 +487,10 @@ const (
 	// PostureConsult proceeds but with a raised interruption budget:
 	// encouraged to surface judgment calls. A soft expectation, not plan mode.
 	PostureConsult Posture = "consult"
+
+	// PostureCascade is the most autonomous posture: a detached worker
+	// allowed to recursively dispatch headless/cascade sub-workers. coily#130.
+	PostureCascade Posture = "cascade"
 )
 type Registry struct {
 	// Has unexported fields.

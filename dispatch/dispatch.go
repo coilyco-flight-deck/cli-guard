@@ -162,8 +162,8 @@ func (d *Dispatcher) Command() *cli.Command {
 	bin := d.cfg.BinaryName
 	return &cli.Command{
 		Name:      "dispatch",
-		Usage:     "Fire claude against a real open issue. Mode required: headless | interactive.",
-		ArgsUsage: "<headless|interactive> <owner/repo#N | issue-url>",
+		Usage:     "Fire claude against a real open issue. Mode required: headless | interactive | cascade.",
+		ArgsUsage: "<headless|interactive|cascade> <owner/repo#N | issue-url>",
 		Description: fmt.Sprintf(`dispatch resolves a GitHub issue reference, refuses anything outside the
 %s/* org or any issue that is not open, then hands off to one of two
 mode subverbs:
@@ -175,6 +175,10 @@ mode subverbs:
                                   claude pre-submitted with
                                   "Work on issue <ref>". Operator has
                                   eyes on it.
+  %s dispatch cascade     <ref>   Like headless, but the worker may
+                                  recursively dispatch its own sub-workers
+                                  to split a too-large task. Bounded by a
+                                  hard depth budget. For mass migrations.
 
 It also carries three maintenance verbs:
 
@@ -187,16 +191,17 @@ It also carries three maintenance verbs:
                                   or sibling sidequest can see who is editing
                                   what before writing shared paths.
 
-Bare 'dispatch <ref>' errors. Pick a mode.`, d.cfg.AllowedOwner, bin, bin, bin, bin, bin),
+Bare 'dispatch <ref>' errors. Pick a mode.`, d.cfg.AllowedOwner, bin, bin, bin, bin, bin, bin),
 		Commands: []*cli.Command{
 			d.headlessCommand(),
 			d.interactiveCommand(),
+			d.cascadeCommand(),
 			d.reapCommand(),
 			d.statusCommand(),
 			d.registryCommand(),
 		},
 		Action: func(_ context.Context, _ *cli.Command) error {
-			return fmt.Errorf("dispatch: specify mode: interactive | headless (see `%s dispatch --help`)", bin)
+			return fmt.Errorf("dispatch: specify mode: interactive | headless | cascade (see `%s dispatch --help`)", bin)
 		},
 	}
 }
@@ -428,53 +433,74 @@ func isNotFound(err error) bool {
 }
 
 func (d *Dispatcher) runHeadless(ctx context.Context, c *cli.Command) error {
+	return d.runDetached(ctx, c, detachedSpec{
+		mode:     "headless",
+		prompt:   seedPrompt,
+		extraEnv: []string{fmt.Sprintf("%s=0", envCascadeDepth)},
+	})
+}
+
+// detachedSpec carries the per-mode bits that differ between the detached
+// surfaces (headless, cascade). Everything else - resolve, stat, trust,
+type detachedSpec struct {
+	// mode labels output and the audit Event ("headless" | "cascade").
+	mode string
+	// prompt builds the seeded prompt fed to the detached claude -p.
+	prompt func(*issueRef, *ghIssue) string
+	// extraEnv is appended to the child env. Carries the cascade depth
+	// budget so nested dispatches can enforce the recursion floor.
+	extraEnv []string
+}
+
+// runDetached is the shared body for the fire-and-forget surfaces. It
+// resolves the issue, refuses a missing checkout, then either prints the
+func (d *Dispatcher) runDetached(ctx context.Context, c *cli.Command, spec detachedSpec) error {
 	args := c.Args().Slice()
 	if len(args) != 1 {
-		return fmt.Errorf("dispatch headless: pass exactly one issue reference (got %d args)", len(args))
+		return fmt.Errorf("dispatch %s: pass exactly one issue reference (got %d args)", spec.mode, len(args))
 	}
 	ref, issue, err := d.resolveDispatchIssue(ctx, args[0])
 	if err != nil {
 		return err
 	}
-
 	repoPath, err := d.cfg.RepoPath(ref.Repo)
 	if err != nil {
-		return fmt.Errorf("dispatch headless: resolve local repo path: %w", err)
+		return fmt.Errorf("dispatch %s: resolve local repo path: %w", spec.mode, err)
 	}
 	if st, statErr := os.Stat(repoPath); statErr != nil || !st.IsDir() {
-		return fmt.Errorf("dispatch headless: local checkout missing at %s. Clone it first: gh repo clone %s/%s %s",
-			repoPath, ref.Owner, ref.Repo, repoPath)
+		return fmt.Errorf("dispatch %s: local checkout missing at %s. Clone it first: gh repo clone %s/%s %s",
+			spec.mode, repoPath, ref.Owner, ref.Repo, repoPath)
 	}
 
-	prompt := seedPrompt(ref, issue)
+	prompt := spec.prompt(ref, issue)
 	permMode := c.String("permission-mode")
 	allowedTools := c.String("allowed-tools")
 
 	if c.Bool("dry-run") {
-		return printHeadlessDryRun(c, ref, issue, repoPath, permMode, allowedTools, prompt)
+		return printDetachedDryRun(spec.mode, c, ref, issue, repoPath, permMode, allowedTools, prompt)
 	}
 
-	// Pre-trust the checkout so the headless child never stalls on the
+	// Pre-trust the checkout so the detached child never stalls on the
 	// folder-trust prompt. Soft-fail.
 	if err := d.ensureClaudeFolderTrust(repoPath); err != nil {
-		fmt.Fprintf(os.Stderr, "dispatch headless: could not pre-trust %s (%v).\n", repoPath, err)
+		fmt.Fprintf(os.Stderr, "dispatch %s: could not pre-trust %s (%v).\n", spec.mode, repoPath, err)
 	}
 
 	bin, argv := buildDispatchClaudeArgv(c.String("claude-bin"), prompt, permMode, allowedTools)
 
 	logPath, err := d.dispatchLogPath(ref.Repo, ref.Number)
 	if err != nil {
-		return fmt.Errorf("dispatch headless: resolve log path: %w", err)
+		return fmt.Errorf("dispatch %s: resolve log path: %w", spec.mode, err)
 	}
-	pid, err := d.cfg.SpawnDetached(repoPath, logPath, bin, argv, d.cfg.Runner.Env)
+	pid, err := d.cfg.SpawnDetached(repoPath, logPath, bin, argv, detachedEnv(d.cfg.Runner.Env, spec.extraEnv))
 	if err != nil {
-		return fmt.Errorf("dispatch headless: %w", err)
+		return fmt.Errorf("dispatch %s: %w", spec.mode, err)
 	}
 	// Persist pid + spawn time alongside the log so `dispatch status`
 	// can render RUNNING/EXITED without scraping ps. Soft-fail: a missed
 	claims, err := parseClaims(c.String("claims"))
 	if err != nil {
-		return fmt.Errorf("dispatch headless: --claims: %w", err)
+		return fmt.Errorf("dispatch %s: --claims: %w", spec.mode, err)
 	}
 	if err := writeDispatchMeta(logPath, dispatchMeta{
 		PID:           pid,
@@ -484,23 +510,35 @@ func (d *Dispatcher) runHeadless(ctx context.Context, c *cli.Command) error {
 		ParentSession: os.Getenv("CLAUDE_CODE_SESSION_ID"),
 		PathsClaimed:  claims,
 	}); err != nil {
-		fmt.Fprintf(os.Stderr, "dispatch headless: could not write status sidecar (%v); `dispatch status` will report pid unknown.\n", err)
+		fmt.Fprintf(os.Stderr, "dispatch %s: could not write status sidecar (%v); `dispatch status` will report pid unknown.\n", spec.mode, err)
 	}
-	fmt.Printf("dispatch headless: spawned claude for %s (pid %d)\n", ref, pid)
+	fmt.Printf("dispatch %s: spawned claude for %s (pid %d)\n", spec.mode, ref, pid)
 	fmt.Printf("  cwd: %s\n", repoPath)
 	fmt.Printf("  log: %s\n", logPath)
 	fmt.Printf("  detached - survives this terminal closing. Follow with: tail -f %s\n", logPath)
-	d.notify(Event{Mode: "headless", Ref: ref.String(), Title: strings.TrimSpace(issue.Title), URL: issue.URL, Cwd: repoPath, PID: pid})
+	d.notify(Event{Mode: spec.mode, Ref: ref.String(), Title: strings.TrimSpace(issue.Title), URL: issue.URL, Cwd: repoPath, PID: pid})
 	return nil
 }
 
-// printHeadlessDryRun renders the resolved dispatch plan without spawning.
-func printHeadlessDryRun(c *cli.Command, ref *issueRef, issue *Issue, repoPath, permMode, allowedTools, prompt string) error {
+// detachedEnv appends extraEnv to base. Returns nil only when both are
+// empty so spawnDetachedClaude keeps inheriting the parent environment.
+func detachedEnv(base, extra []string) []string {
+	if len(extra) == 0 {
+		return base
+	}
+	out := make([]string, 0, len(base)+len(extra))
+	out = append(out, base...)
+	out = append(out, extra...)
+	return out
+}
+
+// printDetachedDryRun renders the resolved dispatch plan without spawning.
+func printDetachedDryRun(mode string, c *cli.Command, ref *issueRef, issue *Issue, repoPath, permMode, allowedTools, prompt string) error {
 	claims, err := parseClaims(c.String("claims"))
 	if err != nil {
-		return fmt.Errorf("dispatch headless: --claims: %w", err)
+		return fmt.Errorf("dispatch %s: --claims: %w", mode, err)
 	}
-	fmt.Printf("# dispatch headless (dry-run)\n")
+	fmt.Printf("# dispatch %s (dry-run)\n", mode)
 	fmt.Printf("issue:           %s\n", ref)
 	fmt.Printf("url:             %s\n", issue.URL)
 	fmt.Printf("cwd:             %s\n", repoPath)
