@@ -64,9 +64,9 @@ func TestDispatchHasStatusSubverb(t *testing.T) {
 	t.Error("dispatch parent missing `status` subverb")
 }
 
-// TestStatus_MostRecent_PicksNewest is the bare-args case: no ref, no
-// --pid, just `dispatch status`. Must surface the newest log across all
-func TestStatus_MostRecent_PicksNewest(t *testing.T) {
+// TestStatus_List_NewestFirst is the bare-args case: `dispatch status
+// --all` lists every dispatch, one compact line each, newest first.
+func TestStatus_List_NewestFirst(t *testing.T) {
 	d := newTestDispatcher(t)
 	root := t.TempDir()
 	d.cfg.LogRoot = func() (string, error) { return root, nil }
@@ -74,23 +74,68 @@ func TestStatus_MostRecent_PicksNewest(t *testing.T) {
 	writeFakeDispatch(t, root, "coily", 1, "20260101-101010", "old log\n", &dispatchMeta{
 		PID: 1, StartedAt: time.Date(2026, 1, 1, 10, 10, 10, 0, time.UTC), Ref: "coilysiren/coily#1",
 	})
-	newest := writeFakeDispatch(t, root, "agentic-os-kai", 5, "20260301-090000",
+	writeFakeDispatch(t, root, "agentic-os-kai", 5, "20260301-090000",
 		"line one\nline two\nline three\n", &dispatchMeta{
 			PID: 2, StartedAt: time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC), Ref: "coilysiren/agentic-os-kai#5",
 		})
+
+	out, err := runStatusCmd(t, d, []string{"--all"})
+	if err != nil {
+		t.Fatalf("status --all: %v", err)
+	}
+	// Both dispatches must appear, newest (agentic-os-kai#5) listed first.
+	idxNewest := strings.Index(out, "coilysiren/agentic-os-kai#5")
+	idxOlder := strings.Index(out, "coilysiren/coily#1")
+	if idxNewest < 0 || idxOlder < 0 {
+		t.Fatalf("expected both refs listed, got:\n%s", out)
+	}
+	if idxNewest > idxOlder {
+		t.Errorf("expected newest listed before older, got:\n%s", out)
+	}
+}
+
+// TestStatus_List_WindowFiltersOld verifies the default window hides a
+// long-exited dispatch, falling back to the "most recent" hint line.
+func TestStatus_List_WindowFiltersOld(t *testing.T) {
+	d := newTestDispatcher(t)
+	root := t.TempDir()
+	d.cfg.LogRoot = func() (string, error) { return root, nil }
+
+	writeFakeDispatch(t, root, "coily", 7, "20260101-101010", "ancient\n", &dispatchMeta{
+		PID: 1, StartedAt: time.Date(2026, 1, 1, 10, 10, 10, 0, time.UTC), Ref: "coilysiren/coily#7",
+	})
 
 	out, err := runStatusCmd(t, d, nil)
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	if !strings.Contains(out, "coilysiren/agentic-os-kai#5") {
-		t.Errorf("expected newest ref in output, got:\n%s", out)
+	if !strings.Contains(out, "no dispatches active or spawned within") {
+		t.Errorf("expected empty-window fallback note, got:\n%s", out)
 	}
-	if !strings.Contains(out, newest) {
-		t.Errorf("expected newest log path %q in output, got:\n%s", newest, out)
+	if !strings.Contains(out, "coilysiren/coily#7") {
+		t.Errorf("expected most-recent hint to name the dispatch, got:\n%s", out)
 	}
-	if !strings.Contains(out, "line three") {
-		t.Errorf("expected log tail in output, got:\n%s", out)
+}
+
+// TestStatus_List_RunningAlwaysShows verifies a still-running dispatch is
+// listed even when its spawn time is far outside the --since window.
+func TestStatus_List_RunningAlwaysShows(t *testing.T) {
+	d := newTestDispatcher(t)
+	root := t.TempDir()
+	d.cfg.LogRoot = func() (string, error) { return root, nil }
+
+	// os.Getpid() is alive for the duration of the test, so processRunning
+	// returns true; the old timestamp would otherwise filter it out.
+	writeFakeDispatch(t, root, "coily", 8, "20260101-101010", "running\n", &dispatchMeta{
+		PID: os.Getpid(), StartedAt: time.Date(2026, 1, 1, 10, 10, 10, 0, time.UTC), Ref: "coilysiren/coily#8",
+	})
+
+	out, err := runStatusCmd(t, d, nil)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !strings.Contains(out, "coilysiren/coily#8") || !strings.Contains(out, "RUNNING") {
+		t.Errorf("expected the running dispatch listed despite old spawn time, got:\n%s", out)
 	}
 }
 
@@ -203,15 +248,26 @@ func TestStatus_MissingMeta_Degrades(t *testing.T) {
 	d.cfg.LogRoot = func() (string, error) { return root, nil }
 	writeFakeDispatch(t, root, "coily", 1, "20260101-100000", "hello\n", nil)
 
-	out, err := runStatusCmd(t, d, nil)
+	// Bare list (--all to bypass the window): a sidecar-less log still
+	// renders, as "pid unknown".
+	out, err := runStatusCmd(t, d, []string{"--all"})
 	if err != nil {
 		t.Fatalf("status with missing meta: %v", err)
 	}
-	if !strings.Contains(out, "pid:     unknown") {
+	if !strings.Contains(out, "pid unknown") {
 		t.Errorf("expected 'pid unknown' in output, got:\n%s", out)
 	}
-	if !strings.Contains(out, "hello") {
-		t.Errorf("expected log tail in output, got:\n%s", out)
+
+	// The full block (by ref) still renders the tail for a sidecar-less log.
+	block, err := runStatusCmd(t, d, []string{"coilysiren/coily#1"})
+	if err != nil {
+		t.Fatalf("status by ref with missing meta: %v", err)
+	}
+	if !strings.Contains(block, "pid:     unknown") {
+		t.Errorf("expected 'pid unknown' block line, got:\n%s", block)
+	}
+	if !strings.Contains(block, "hello") {
+		t.Errorf("expected log tail in block, got:\n%s", block)
 	}
 }
 
@@ -231,7 +287,9 @@ func TestStatus_ExitedShowsDuration(t *testing.T) {
 	later := time.Date(2026, 1, 1, 10, 5, 0, 0, time.UTC)
 	_ = os.Chtimes(logPath, later, later)
 
-	out, err := runStatusCmd(t, d, nil)
+	// Target by ref so the full block (which carries the duration line)
+	// renders regardless of the bare list's time window.
+	out, err := runStatusCmd(t, d, []string{"coilysiren/coily#42"})
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}

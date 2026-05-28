@@ -229,19 +229,24 @@ func (d *Dispatcher) statusCommand() *cli.Command {
 		Name:      "status",
 		Usage:     "Show pid + log tail for a headless dispatch.",
 		ArgsUsage: "[owner/repo#N | issue-url]",
-		Description: fmt.Sprintf(`status finds a headless dispatch log and prints a one-block summary:
-the issue ref, pid + RUNNING/EXITED state, spawn time, log path, and
-the last %d lines of the log.
+		Description: fmt.Sprintf(`status reports on headless / cascade dispatches. Bare, it lists every
+dispatch that is still running or was spawned within --since (default
+1h), newest first, one compact line each. Target a single dispatch by
+ref or pid to get the full block: issue ref, pid + RUNNING/EXITED state,
+spawn time, log path, and the last %d lines of the log.
 
-  %s dispatch status                       most recent dispatch across any repo
-  %s dispatch status <owner/repo#N>        most recent dispatch for that issue
-  %s dispatch status --pid <pid>           dispatch whose sidecar meta matches this pid
+  %s dispatch status                       list dispatches active or within --since (default 1h)
+  %s dispatch status --all                 list every dispatch on disk, newest first
+  %s dispatch status --since 30m           narrow / widen the list window
+  %s dispatch status <owner/repo#N>        full block for the newest dispatch of that issue
+  %s dispatch status --pid <pid>           full block for the dispatch whose sidecar matches this pid
 
-Pass --follow to tail -f the log, exiting when the pid exits.
+Pass --follow with a ref/pid (or bare, for the newest) to tail -f the
+log, exiting when the pid exits.
 
 pid + spawn time come from a <logPath>.meta sidecar written at
-dispatch headless time. Older logs without a sidecar render with
-"pid unknown".`, dispatchStatusTailLines, bin, bin, bin),
+dispatch time. Older logs without a sidecar render with
+"pid unknown".`, dispatchStatusTailLines, bin, bin, bin, bin, bin),
 		Flags: []cli.Flag{
 			&cli.IntFlag{
 				Name:  "pid",
@@ -249,12 +254,21 @@ dispatch headless time. Older logs without a sidecar render with
 			},
 			&cli.BoolFlag{
 				Name:  "follow",
-				Usage: "tail -f the log, exiting when the pid exits",
+				Usage: "tail -f the log, exiting when the pid exits (single-target, or newest when bare)",
 			},
 			&cli.IntFlag{
 				Name:  "tail",
 				Usage: "number of log lines to show in the trailing block",
 				Value: dispatchStatusTailLines,
+			},
+			&cli.DurationFlag{
+				Name:  "since",
+				Usage: "in the bare list, include dispatches spawned within this window (running ones always show)",
+				Value: time.Hour,
+			},
+			&cli.BoolFlag{
+				Name:  "all",
+				Usage: "in the bare list, include every dispatch on disk regardless of age",
 			},
 		},
 		Action: func(ctx context.Context, c *cli.Command) error {
@@ -329,6 +343,12 @@ func (d *Dispatcher) runStatus(ctx context.Context, c *cli.Command, w io.Writer)
 		return fmt.Errorf("dispatch status: --pid and a positional ref are mutually exclusive")
 	}
 
+	// Bare `status` lists recent/active dispatches rather than picking one.
+	// A specific ref/pid, or --follow, still routes to the single block.
+	if len(args) == 0 && pidFilter == 0 && !c.Bool("follow") {
+		return d.runStatusList(c, w)
+	}
+
 	entry, meta, hasMeta, err := d.pickStatusEntry(args, pidFilter)
 	if err != nil {
 		return fmt.Errorf("dispatch status: %w", err)
@@ -344,6 +364,59 @@ func (d *Dispatcher) runStatus(ctx context.Context, c *cli.Command, w io.Writer)
 		return followLog(ctx, w, entry.Path, meta.PID, hasMeta)
 	}
 	return nil
+}
+
+// runStatusList renders the bare-status list: every dispatch still running
+// or spawned within the window (--all ignores the window), newest first.
+func (d *Dispatcher) runStatusList(c *cli.Command, w io.Writer) error {
+	entries, err := d.walkDispatchLogs("", 0)
+	if err != nil {
+		return fmt.Errorf("dispatch status: %w", err)
+	}
+	if len(entries) == 0 {
+		return fmt.Errorf("dispatch status: no dispatch logs found under log root")
+	}
+	showAll := c.Bool("all")
+	window := c.Duration("since")
+	now := time.Now()
+	shown := 0
+	for i := range entries {
+		meta, hasMeta := readDispatchMeta(entries[i].Path)
+		running := hasMeta && processRunning(meta.PID)
+		spawn := statusSpawn(&entries[i], meta, hasMeta)
+		recent := !spawn.IsZero() && now.Sub(spawn) <= window
+		if !showAll && !running && !recent {
+			continue
+		}
+		printStatusListLine(w, &entries[i], meta, hasMeta, d.cfg.AllowedOwner)
+		shown++
+	}
+	if shown == 0 {
+		_, _ = fmt.Fprintf(w, "no dispatches active or spawned within %s. Most recent (use --all to list all):\n", window)
+		meta, hasMeta := readDispatchMeta(entries[0].Path)
+		printStatusListLine(w, &entries[0], meta, hasMeta, d.cfg.AllowedOwner)
+	}
+	return nil
+}
+
+// printStatusListLine renders one dispatch as a compact line for the bare
+// list: ref, pid + state, spawn-relative, and log path.
+func printStatusListLine(w io.Writer, entry *logEntry, meta dispatchMeta, hasMeta bool, allowedOwner string) {
+	state := "pid unknown"
+	if hasMeta {
+		s := "EXITED"
+		if processRunning(meta.PID) {
+			s = "RUNNING"
+		}
+		state = fmt.Sprintf("pid %d %s", meta.PID, s)
+	}
+	spawn := statusSpawn(entry, meta, hasMeta)
+	rel := "spawn time unknown"
+	if !spawn.IsZero() {
+		rel = formatRelative(time.Since(spawn))
+	}
+	_, _ = fmt.Fprintf(w, "%s  %s  spawned %s  log: %s\n",
+		statusRef(entry, meta, hasMeta, allowedOwner), state, rel, entry.Path)
 }
 
 // statusRef formats the operator-facing ref string. Prefers the value
