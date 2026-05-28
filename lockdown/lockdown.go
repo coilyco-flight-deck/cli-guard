@@ -129,6 +129,7 @@ func claudeCodeBuildSettings(raw []byte, d *Defaults, drv *Driver) ([]byte, erro
 	if err != nil {
 		return nil, fmt.Errorf("lockdown: marshal: %w", err)
 	}
+	encoded = append(encoded, '\n')
 	return encoded, nil
 }
 
@@ -266,6 +267,7 @@ func writeSettingsJSON(targetPath string, root map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("lockdown: marshal %s: %w", targetPath, err)
 	}
+	encoded = append(encoded, '\n')
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
 		return fmt.Errorf("lockdown: mkdir %s: %w", filepath.Dir(targetPath), err)
 	}

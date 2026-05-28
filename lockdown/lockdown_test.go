@@ -77,6 +77,20 @@ func TestBuildPlan_OmitsDeniedMcpServersKey(t *testing.T) {
 	}
 }
 
+func TestBuildPlan_AfterEndsWithNewline(t *testing.T) {
+	// Settings JSON must end in a trailing newline so it does not fight
+	// end-of-file-fixer and re-dirty on every re-baseline. See coily#135.
+	d, _ := lockdown.LoadDefaults()
+	target := filepath.Join(t.TempDir(), ".claude", "settings.json")
+	plan, err := lockdown.BuildPlan(target, d, testDriver())
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	if n := len(plan.After); n == 0 || plan.After[n-1] != '\n' {
+		t.Errorf("After must end with a trailing newline; got %q", string(plan.After))
+	}
+}
+
 func TestBuildPlan_NewFileGetsFullDefaults(t *testing.T) {
 	d, _ := lockdown.LoadDefaults()
 	target := filepath.Join(t.TempDir(), ".claude", "settings.json")
