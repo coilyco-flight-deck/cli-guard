@@ -103,8 +103,8 @@ func TestCascadeSeedPrompt(t *testing.T) {
 		"pull --rebase",
 		"non-fast-forward",
 		"force-push",
-		"worktree on branch `dispatch/issue-130`",
-		"git -C /repo/coily merge dispatch/issue-130",
+		"worktree on branch `dispatch/issue-130-swarm-migration`",
+		"git -C /repo/coily merge dispatch/issue-130-swarm-migration",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("cascadeSeedPrompt missing %q, got %q", want, got)

@@ -283,26 +283,41 @@ func TestDispatchInteractiveRejectsPostureFlag(t *testing.T) {
 	}
 }
 
-// TestDispatchWorktreePath pins the layout <WorktreeRoot>/<repo>/issue-<N>.
+// TestDispatchWorktreePath pins <WorktreeRoot>/<repo>/issue-<N>-<slug>, with
+// the bare issue-<N> fallback when the title has no sluggable content.
 func TestDispatchWorktreePath(t *testing.T) {
 	d := newTestDispatcher(t)
 	root := t.TempDir()
 	d.cfg.WorktreeRoot = func() (string, error) { return root, nil }
-	got, err := d.dispatchWorktreePath("coily", 285)
+	got, err := d.dispatchWorktreePath("coily", 285, "feat(dispatch): support X")
 	if err != nil {
 		t.Fatalf("dispatchWorktreePath: %v", err)
 	}
-	want := filepath.Join(root, "coily", "issue-285")
+	want := filepath.Join(root, "coily", "issue-285-feat-dispatch-support-x")
 	if got != want {
-		t.Errorf("dispatchWorktreePath(coily,285) = %q, want %q", got, want)
+		t.Errorf("dispatchWorktreePath = %q, want %q", got, want)
+	}
+	gotBare, err := d.dispatchWorktreePath("coily", 285, "  ::  ")
+	if err != nil {
+		t.Fatalf("dispatchWorktreePath (bare): %v", err)
+	}
+	if wantBare := filepath.Join(root, "coily", "issue-285"); gotBare != wantBare {
+		t.Errorf("dispatchWorktreePath (no slug) = %q, want %q", gotBare, wantBare)
 	}
 }
 
-// TestDispatchWorktreeBranch pins the branch name shape
-// `dispatch/issue-<N>`. Predictable so re-dispatching the same issue
+// TestDispatchWorktreeBranch pins the invariant branch == "dispatch/" + the
+// worktree directory basename, so reap can derive the branch from the dir.
 func TestDispatchWorktreeBranch(t *testing.T) {
-	if got, want := dispatchWorktreeBranch(285), "dispatch/issue-285"; got != want {
-		t.Errorf("dispatchWorktreeBranch(285) = %q, want %q", got, want)
+	name := dispatchWorktreeName(285, "feat(dispatch): support X")
+	if want := "issue-285-feat-dispatch-support-x"; name != want {
+		t.Errorf("dispatchWorktreeName = %q, want %q", name, want)
+	}
+	if got, want := dispatchWorktreeBranch(name), "dispatch/issue-285-feat-dispatch-support-x"; got != want {
+		t.Errorf("dispatchWorktreeBranch(%q) = %q, want %q", name, got, want)
+	}
+	if got, want := dispatchWorktreeBranch("issue-285"), "dispatch/issue-285"; got != want {
+		t.Errorf("dispatchWorktreeBranch(bare) = %q, want %q", got, want)
 	}
 }
 
@@ -323,7 +338,7 @@ func TestEnsureDispatchWorktree_CallsGit(t *testing.T) {
 		return nil
 	}
 
-	wt, err := d.ensureDispatchWorktree(context.Background(), repoPath, ref)
+	wt, err := d.ensureDispatchWorktree(context.Background(), repoPath, ref, "feat(dispatch): support X")
 	if err != nil {
 		t.Fatalf("ensureDispatchWorktree: %v", err)
 	}
@@ -333,11 +348,11 @@ func TestEnsureDispatchWorktree_CallsGit(t *testing.T) {
 	if gotRepo != repoPath {
 		t.Errorf("git -C dir = %q, want %q", gotRepo, repoPath)
 	}
-	if gotBranch != "dispatch/issue-285" {
-		t.Errorf("branch = %q, want dispatch/issue-285", gotBranch)
+	if gotBranch != "dispatch/issue-285-feat-dispatch-support-x" {
+		t.Errorf("branch = %q, want dispatch/issue-285-feat-dispatch-support-x", gotBranch)
 	}
-	if !strings.HasSuffix(gotPath, filepath.Join("coily", "issue-285")) {
-		t.Errorf("worktree path = %q, want suffix coily/issue-285", gotPath)
+	if !strings.HasSuffix(gotPath, filepath.Join("coily", "issue-285-feat-dispatch-support-x")) {
+		t.Errorf("worktree path = %q, want suffix coily/issue-285-feat-dispatch-support-x", gotPath)
 	}
 	if wt != gotPath {
 		t.Errorf("ensure returned %q, WorktreeAdd saw %q", wt, gotPath)
@@ -367,7 +382,9 @@ func TestEnsureDispatchWorktree_Idempotent(t *testing.T) {
 		return nil
 	}
 
-	wt, err := d.ensureDispatchWorktree(context.Background(), repoPath, ref)
+	// Empty-slug title so the path falls back to the bare issue-285 dir that
+	// this test pre-creates.
+	wt, err := d.ensureDispatchWorktree(context.Background(), repoPath, ref, "")
 	if err != nil {
 		t.Fatalf("ensureDispatchWorktree: %v", err)
 	}

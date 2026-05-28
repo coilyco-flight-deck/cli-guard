@@ -43,13 +43,19 @@ func defaultWorktreeRemove(ctx context.Context, runner *shell.Runner, repoPath, 
 	return nil
 }
 
-// parseIssueDirName extracts N from an "issue-N" worktree directory name.
+// parseIssueDirName extracts N from a worktree dir named "issue-N" or
+// "issue-N-<slug>". False unless "issue-" is followed by a positive integer.
 func parseIssueDirName(name string) (int, bool) {
 	rest, ok := strings.CutPrefix(name, "issue-")
 	if !ok {
 		return 0, false
 	}
-	n, err := strconv.Atoi(rest)
+	// rest is "<N>" or "<N>-<slug>": take the leading numeric run.
+	numPart := rest
+	if i := strings.IndexByte(rest, '-'); i >= 0 {
+		numPart = rest[:i]
+	}
+	n, err := strconv.Atoi(numPart)
 	if err != nil || n <= 0 {
 		return 0, false
 	}
@@ -80,12 +86,14 @@ func (d *Dispatcher) reapRepoWorktrees(ctx context.Context, root, repo string) [
 	}
 	var removed []string
 	for _, issueEntry := range issueEntries {
-		n, ok := parseIssueDirName(issueEntry.Name())
+		_, ok := parseIssueDirName(issueEntry.Name())
 		if !issueEntry.IsDir() || !ok {
 			continue
 		}
 		worktreePath := filepath.Join(root, repo, issueEntry.Name())
-		branch := dispatchWorktreeBranch(n)
+		// Branch is "dispatch/" + the dir basename (bare or slugged), so reap
+		// reconstructs it from the directory name without the title.
+		branch := dispatchWorktreeBranch(issueEntry.Name())
 		if !d.cfg.WorktreeReapable(ctx, d.cfg.Runner, repoPath, branch) {
 			continue
 		}

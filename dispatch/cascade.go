@@ -153,7 +153,7 @@ func cascadeSeedPrompt(ref *issueRef, issue *ghIssue, repoPath string, budget in
 	fmt.Fprintf(&b, "Title: %s\n", issue.Title)
 	fmt.Fprintf(&b, "URL:   %s\n\n", issue.URL)
 	fmt.Fprintf(&b, "Issue body:\n\n%s\n\n", strings.TrimSpace(issue.Body))
-	fmt.Fprintf(&b, "%s", cascadeWorktreeFooter(repoPath, ref.Number))
+	fmt.Fprintf(&b, "%s", cascadeWorktreeFooter(repoPath, ref.Number, issue.Title))
 	return b.String()
 }
 
@@ -176,8 +176,8 @@ func cascadePreamble(budget int) string {
 
 // cascadeWorktreeFooter is the cascade-specific workflow footer: like
 // headless, but does not close the issue on fan-out. coilysiren/coily#145.
-func cascadeWorktreeFooter(repoPath string, number int) string {
-	branch := dispatchWorktreeBranch(number)
+func cascadeWorktreeFooter(repoPath string, number int, title string) string {
+	branch := dispatchWorktreeBranch(dispatchWorktreeName(number, title))
 	return fmt.Sprintf("Workflow rules (from AGENTS.md):\n"+
 		"- You are in a git worktree on branch `%s`, isolated from sibling workers so concurrent workers in this repo never share a working tree or index. Commit work you do directly to this branch.\n"+
 		"- Run tests, linters, and builds without asking. Fix failures. Never use --no-verify.\n"+

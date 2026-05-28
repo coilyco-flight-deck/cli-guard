@@ -494,7 +494,7 @@ func (d *Dispatcher) runDetached(ctx context.Context, c *cli.Command, spec detac
 	if !c.Bool("dry-run") {
 		d.reapBeforeDetachedDispatch(ctx, spec.mode)
 	}
-	cwd, err := d.resolveDetachedCwd(ctx, repoPath, ref, c.Bool("dry-run"))
+	cwd, err := d.resolveDetachedCwd(ctx, repoPath, ref, issue.Title, c.Bool("dry-run"))
 	if err != nil {
 		return fmt.Errorf("dispatch %s: %w", spec.mode, err)
 	}
@@ -681,7 +681,7 @@ func seedPrompt(ref *issueRef, issue *ghIssue, repoPath string) string {
 	fmt.Fprintf(&b, "Title: %s\n", issue.Title)
 	fmt.Fprintf(&b, "URL:   %s\n\n", issue.URL)
 	fmt.Fprintf(&b, "Issue body:\n\n%s\n\n", strings.TrimSpace(issue.Body))
-	fmt.Fprintf(&b, "%s", detachedWorktreeFooter(repoPath, ref.Number))
+	fmt.Fprintf(&b, "%s", detachedWorktreeFooter(repoPath, ref.Number, issue.Title))
 	return b.String()
 }
 
@@ -696,8 +696,8 @@ func forgeName(p Platform) string {
 
 // detachedWorktreeFooter renders the git-workflow footer for a detached
 // worker: commit to its branch, then merge into main from repoPath.
-func detachedWorktreeFooter(repoPath string, number int) string {
-	branch := dispatchWorktreeBranch(number)
+func detachedWorktreeFooter(repoPath string, number int, title string) string {
+	branch := dispatchWorktreeBranch(dispatchWorktreeName(number, title))
 	return fmt.Sprintf("Workflow rules (from AGENTS.md):\n"+
 		"- You are in a git worktree on branch `%s`, isolated from the canonical checkout so concurrent workers in this repo never share a working tree or index. Commit your work to this branch.\n"+
 		"- Run tests, linters, and builds without asking. Fix failures. Never use --no-verify.\n"+

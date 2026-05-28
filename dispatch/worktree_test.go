@@ -29,7 +29,8 @@ func TestResolveDetachedCwd_CreatesWorktree(t *testing.T) {
 	}
 
 	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 285}
-	cwd, err := d.resolveDetachedCwd(context.Background(), repoPath, ref, false)
+	// Empty title -> bare issue-285 dir; slug naming is covered in interactive_test.go.
+	cwd, err := d.resolveDetachedCwd(context.Background(), repoPath, ref, "", false)
 	if err != nil {
 		t.Fatalf("resolveDetachedCwd: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestResolveDetachedCwd_DryRunNoCreate(t *testing.T) {
 	}
 
 	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 285}
-	cwd, err := d.resolveDetachedCwd(context.Background(), t.TempDir(), ref, true)
+	cwd, err := d.resolveDetachedCwd(context.Background(), t.TempDir(), ref, "", true)
 	if err != nil {
 		t.Fatalf("resolveDetachedCwd dry-run: %v", err)
 	}

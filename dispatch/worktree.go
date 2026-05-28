@@ -19,26 +19,36 @@ func defaultWorktreeAdd(ctx context.Context, runner *shell.Runner, repoPath, bra
 	return err
 }
 
-// dispatchWorktreePath returns the worktree path for a given repo + issue
-// number. Format: <WorktreeRoot>/<repo>/issue-<N>.
-func (d *Dispatcher) dispatchWorktreePath(repo string, number int) (string, error) {
+// dispatchWorktreeName is the worktree dir basename: "issue-<N>-<slug>", or
+// "issue-<N>" when the title has no sluggable content. reap derives the branch.
+func dispatchWorktreeName(number int, title string) string {
+	if slug := branchSlug(title); slug != "" {
+		return fmt.Sprintf("issue-%d-%s", number, slug)
+	}
+	return fmt.Sprintf("issue-%d", number)
+}
+
+// dispatchWorktreePath returns the worktree path for a given repo + issue.
+// Format: <WorktreeRoot>/<repo>/issue-<N>-<slug> (or issue-<N> with no slug).
+func (d *Dispatcher) dispatchWorktreePath(repo string, number int, title string) (string, error) {
 	root, err := d.cfg.WorktreeRoot()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(root, repo, fmt.Sprintf("issue-%d", number)), nil
+	return filepath.Join(root, repo, dispatchWorktreeName(number, title)), nil
 }
 
-// dispatchWorktreeBranch returns the branch name for a given issue
-// number. Format: dispatch/issue-<N>. Predictable so reap can find it.
-func dispatchWorktreeBranch(number int) string {
-	return fmt.Sprintf("dispatch/issue-%d", number)
+// dispatchWorktreeBranch returns "dispatch/<name>" for a worktree dir basename,
+// so reap can derive the branch from the directory alone.
+func dispatchWorktreeBranch(name string) string {
+	return "dispatch/" + name
 }
 
 // ensureDispatchWorktree returns worktreePath after guaranteeing a git
 // worktree exists there. Idempotent: reuses an existing `.git` entry.
-func (d *Dispatcher) ensureDispatchWorktree(ctx context.Context, repoPath string, ref *issueRef) (string, error) {
-	worktreePath, err := d.dispatchWorktreePath(ref.Repo, ref.Number)
+func (d *Dispatcher) ensureDispatchWorktree(ctx context.Context, repoPath string, ref *issueRef, title string) (string, error) {
+	name := dispatchWorktreeName(ref.Number, title)
+	worktreePath, err := d.dispatchWorktreePath(ref.Repo, ref.Number, title)
 	if err != nil {
 		return "", fmt.Errorf("resolve worktree path: %w", err)
 	}
@@ -48,7 +58,7 @@ func (d *Dispatcher) ensureDispatchWorktree(ctx context.Context, repoPath string
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0o755); err != nil {
 		return "", fmt.Errorf("mkdir worktree parent: %w", err)
 	}
-	branch := dispatchWorktreeBranch(ref.Number)
+	branch := dispatchWorktreeBranch(name)
 	if err := d.cfg.WorktreeAdd(ctx, d.cfg.Runner, repoPath, branch, worktreePath); err != nil {
 		return "", fmt.Errorf("git worktree add -B %s %s (in %s): %w", branch, worktreePath, repoPath, err)
 	}
@@ -57,11 +67,11 @@ func (d *Dispatcher) ensureDispatchWorktree(ctx context.Context, repoPath string
 
 // resolveDetachedCwd returns a detached dispatch's per-issue worktree.
 // Dry-run resolves the path without creating the worktree.
-func (d *Dispatcher) resolveDetachedCwd(ctx context.Context, repoPath string, ref *issueRef, dryRun bool) (string, error) {
+func (d *Dispatcher) resolveDetachedCwd(ctx context.Context, repoPath string, ref *issueRef, title string, dryRun bool) (string, error) {
 	if dryRun {
-		return d.dispatchWorktreePath(ref.Repo, ref.Number)
+		return d.dispatchWorktreePath(ref.Repo, ref.Number, title)
 	}
-	return d.ensureDispatchWorktree(ctx, repoPath, ref)
+	return d.ensureDispatchWorktree(ctx, repoPath, ref, title)
 }
 
 // reapBeforeDetachedDispatch removes merged worktrees from prior detached

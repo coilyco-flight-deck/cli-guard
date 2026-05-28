@@ -94,8 +94,8 @@ func TestSeedPrompt_IncludesIssueAndFooter(t *testing.T) {
 		"pull --rebase",
 		"non-fast-forward",
 		"force-push",
-		"worktree on branch `dispatch/issue-136`",
-		"git -C /repo/coily merge dispatch/issue-136",
+		"worktree on branch `dispatch/issue-136-coily-dispatch`",
+		"git -C /repo/coily merge dispatch/issue-136-coily-dispatch",
 		"push origin main",
 	} {
 		if !strings.Contains(got, want) {
