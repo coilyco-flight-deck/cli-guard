@@ -100,6 +100,9 @@ func TestCascadeSeedPrompt(t *testing.T) {
 		"migrate repos A B C",
 		"do NOT close this issue",
 		"closes #",
+		"pull --rebase",
+		"non-fast-forward",
+		"force-push",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("cascadeSeedPrompt missing %q, got %q", want, got)

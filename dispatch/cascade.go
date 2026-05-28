@@ -179,6 +179,7 @@ func cascadePreamble(budget int) string {
 const cascadeFooter = `Workflow rules (from AGENTS.md):
 - Commit to main directly. Push after each commit. No PRs unless asked.
 - Run tests, linters, and builds without asking. Fix failures. Never use --no-verify.
+- If ` + "`git push origin main`" + ` is rejected as non-fast-forward (a sibling worker pushed first), run ` + "`git pull --rebase origin main`" + `, re-run tests/build, then push again. Repeat until it lands. Resolve any rebase conflicts yourself. Never force-push.
 - If you do the work directly (no fan-out), close this issue with a commit trailer: closes #` + `<N>` + `.
 - If you fan out, do NOT close this issue: it stays open until the spawned leaves land their own work and close their own sub-issues. Leave a summary comment instead.
 - Use ` + "`coily dispatch registry list`" + ` to see sibling sidequests before writing shared paths.

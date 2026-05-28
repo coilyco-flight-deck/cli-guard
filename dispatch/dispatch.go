@@ -669,5 +669,6 @@ const dispatchFooter = `Workflow rules (from AGENTS.md):
 - Run tests, linters, and builds without asking. Fix failures.
 - Never use --no-verify.
 - Close the issue with a commit trailer: closes #` + `<N>` + ` (or fixes / resolves).
+- If ` + "`git push origin main`" + ` is rejected as non-fast-forward (a sibling worker pushed first), run ` + "`git pull --rebase origin main`" + `, re-run tests/build, then push again. Repeat until it lands. Resolve any rebase conflicts yourself. Never force-push.
 - Cwd is the target repo. Stay inside it.
 `

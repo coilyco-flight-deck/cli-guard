@@ -91,6 +91,9 @@ func TestSeedPrompt_IncludesIssueAndFooter(t *testing.T) {
 		"AGENTS.md",
 		"closes #",
 		"--no-verify",
+		"pull --rebase",
+		"non-fast-forward",
+		"force-push",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("seedPrompt missing %q in:\n%s", want, got)
