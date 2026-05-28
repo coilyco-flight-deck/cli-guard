@@ -905,8 +905,8 @@ func HookPath(settingsPath string, drv *Driver) string
     It sits next to settings.json under the driver's settings
 
 func MergeDenyInto(targetPath string, d *Defaults) (bool, error)
-    MergeDenyInto reasserts the canonical deny list at an ancestor settings
-    file. Returns (mutated, error) where mutated is true iff
+    MergeDenyInto reasserts canonical denies + prunes shadowed allows.
+    cli-guard#26.
 
 func TargetPath(dir string, local bool) string
     TargetPath returns the settings file path under dir. If local is true,

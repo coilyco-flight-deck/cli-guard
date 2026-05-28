@@ -203,20 +203,11 @@ func WriteHook(settingsPath string, d *Defaults, drv *Driver) (string, bool, err
 	return hookPath, existed, nil
 }
 
-// MergeDenyInto reasserts the canonical deny list at an ancestor
-// settings file. Returns (mutated, error) where mutated is true iff
+// MergeDenyInto reasserts canonical denies + prunes shadowed allows. cli-guard#26.
 func MergeDenyInto(targetPath string, d *Defaults) (bool, error) {
-	root := map[string]any{}
-	existed := false
-	if raw, err := os.ReadFile(targetPath); err == nil {
-		existed = true
-		if len(raw) > 0 {
-			if err := json.Unmarshal(raw, &root); err != nil {
-				return false, fmt.Errorf("lockdown: parse %s: %w", targetPath, err)
-			}
-		}
-	} else if !os.IsNotExist(err) {
-		return false, fmt.Errorf("lockdown: read %s: %w", targetPath, err)
+	root, existed, err := readSettingsJSON(targetPath)
+	if err != nil {
+		return false, err
 	}
 
 	perms, _ := root["permissions"].(map[string]any)
@@ -230,24 +221,109 @@ func MergeDenyInto(targetPath string, d *Defaults) (bool, error) {
 		merged = []string{}
 	}
 
-	if existed && stringSliceEqual(existingDeny, merged) {
+	existingAllow := toStringSliceAny(perms["allow"])
+	prunedAllow := pruneShadowedAllows(existingAllow, merged)
+
+	denyChanged := !stringSliceEqual(existingDeny, merged)
+	allowChanged := !stringSliceEqual(existingAllow, prunedAllow)
+	if existed && !denyChanged && !allowChanged {
 		return false, nil
 	}
 
 	perms["deny"] = merged
+	if existingAllow != nil || allowChanged {
+		perms["allow"] = prunedAllow
+	}
 	root["permissions"] = perms
 
-	encoded, err := json.MarshalIndent(root, "", "  ")
-	if err != nil {
-		return false, fmt.Errorf("lockdown: marshal %s: %w", targetPath, err)
-	}
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
-		return false, fmt.Errorf("lockdown: mkdir %s: %w", filepath.Dir(targetPath), err)
-	}
-	if err := os.WriteFile(targetPath, encoded, 0o600); err != nil {
-		return false, fmt.Errorf("lockdown: write %s: %w", targetPath, err)
+	if err := writeSettingsJSON(targetPath, root); err != nil {
+		return false, err
 	}
 	return true, nil
+}
+
+// readSettingsJSON parses a settings.json file, returning (root, existed, err).
+func readSettingsJSON(targetPath string) (map[string]any, bool, error) {
+	root := map[string]any{}
+	raw, err := os.ReadFile(targetPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return root, false, nil
+		}
+		return nil, false, fmt.Errorf("lockdown: read %s: %w", targetPath, err)
+	}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &root); err != nil {
+			return nil, true, fmt.Errorf("lockdown: parse %s: %w", targetPath, err)
+		}
+	}
+	return root, true, nil
+}
+
+// writeSettingsJSON serializes root to targetPath with canonical formatting.
+func writeSettingsJSON(targetPath string, root map[string]any) error {
+	encoded, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return fmt.Errorf("lockdown: marshal %s: %w", targetPath, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
+		return fmt.Errorf("lockdown: mkdir %s: %w", filepath.Dir(targetPath), err)
+	}
+	if err := os.WriteFile(targetPath, encoded, 0o600); err != nil {
+		return fmt.Errorf("lockdown: write %s: %w", targetPath, err)
+	}
+	return nil
+}
+
+// pruneShadowedAllows drops dead allow entries (shadowed by a bare-verb
+// canonical deny under Claude Code's deny-before-allow). See cli-guard#26.
+func pruneShadowedAllows(allows, denies []string) []string {
+	shadow := shadowVerbs(denies)
+	if len(shadow) == 0 {
+		return allows
+	}
+	out := make([]string, 0, len(allows))
+	for _, a := range allows {
+		if !isShadowedBashAllow(a, shadow) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// shadowVerbs extracts bare-verb prefixes from `Bash(<verb>:*)` denies.
+// Compound denies like `Bash(git push --force:*)` are excluded.
+func shadowVerbs(denies []string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, d := range denies {
+		if !strings.HasPrefix(d, "Bash(") || !strings.HasSuffix(d, ":*)") {
+			continue
+		}
+		inner := d[len("Bash(") : len(d)-len(":*)")]
+		if inner == "" || strings.ContainsAny(inner, " :()") {
+			continue
+		}
+		out[inner] = struct{}{}
+	}
+	return out
+}
+
+// isShadowedBashAllow returns true if a Bash allow's leading verb is in shadow.
+func isShadowedBashAllow(rule string, shadow map[string]struct{}) bool {
+	if !strings.HasPrefix(rule, "Bash(") || !strings.HasSuffix(rule, ")") {
+		return false
+	}
+	inner := rule[len("Bash(") : len(rule)-1]
+	end := len(inner)
+	for i := 0; i < len(inner); i++ {
+		if inner[i] == ' ' || inner[i] == ':' {
+			end = i
+			break
+		}
+	}
+	verb := inner[:end]
+	_, ok := shadow[verb]
+	return ok
 }
 
 func toStringSliceAny(v any) []string {

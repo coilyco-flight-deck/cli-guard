@@ -539,8 +539,11 @@ func TestMergeDenyInto_PreservesAllowAndExtraKeys(t *testing.T) {
 	}
 
 	allow := toStringSlice(perms["allow"])
-	if !contains(allow, "Bash(gh issue *)") || !contains(allow, "Bash(jq:*)") {
-		t.Errorf("allow not preserved verbatim; got %v", allow)
+	if contains(allow, "Bash(gh issue *)") {
+		t.Errorf("shadowed allow Bash(gh issue *) not pruned; got %v", allow)
+	}
+	if !contains(allow, "Bash(jq:*)") {
+		t.Errorf("non-shadowed allow Bash(jq:*) dropped; got %v", allow)
 	}
 
 	deny := toStringSlice(perms["deny"])
@@ -578,15 +581,24 @@ func TestMergeDenyInto_NoOpWhenAlreadyCovered(t *testing.T) {
 	}
 }
 
-func TestMergeDenyInto_DenyBeatsExistingAllowSemantics(t *testing.T) {
-	// Document the load-bearing assumption: Claude Code applies deny ahead
-	// of allow within a single settings file, so merging the canonical
+// TestMergeDenyInto_PrunesShadowedAllows pins cli-guard#26.
+func TestMergeDenyInto_PrunesShadowedAllows(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, ".claude", "settings.local.json")
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(target, []byte(`{"permissions":{"allow":["Bash(gh issue *)"]}}`), 0o600); err != nil {
+	seed := []byte(`{"permissions":{"allow":[
+"Bash(gh issue *)",
+"Bash(npm install foo)",
+"Bash(kubectl get pods)",
+"Bash(docker:*)",
+"Bash(jq:*)",
+"Bash(grep -E foo)",
+"Bash(coily git :*)",
+"Read(/Users/kai/.claude/**)"
+]}}`)
+	if err := os.WriteFile(target, seed, 0o600); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	d, _ := lockdown.LoadDefaults()
@@ -598,12 +610,29 @@ func TestMergeDenyInto_DenyBeatsExistingAllowSemantics(t *testing.T) {
 	_ = json.Unmarshal(raw, &got)
 	perms, _ := got["permissions"].(map[string]any)
 	allow := toStringSlice(perms["allow"])
-	deny := toStringSlice(perms["deny"])
-	if !contains(allow, "Bash(gh issue *)") {
-		t.Errorf("user allow entry was removed; got %v", allow)
+
+	shouldPrune := []string{
+		"Bash(gh issue *)",
+		"Bash(npm install foo)",
+		"Bash(kubectl get pods)",
+		"Bash(docker:*)",
 	}
-	if !contains(deny, "Bash(gh:*)") {
-		t.Errorf("canonical deny not present alongside user allow; got %v", deny)
+	for _, p := range shouldPrune {
+		if contains(allow, p) {
+			t.Errorf("expected %q pruned (shadowed by canonical deny); got %v", p, allow)
+		}
+	}
+
+	shouldKeep := []string{
+		"Bash(jq:*)",
+		"Bash(grep -E foo)",
+		"Bash(coily git :*)",
+		"Read(/Users/kai/.claude/**)",
+	}
+	for _, k := range shouldKeep {
+		if !contains(allow, k) {
+			t.Errorf("expected %q preserved (not shadowed); got %v", k, allow)
+		}
 	}
 }
 
