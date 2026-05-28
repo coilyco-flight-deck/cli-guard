@@ -417,6 +417,14 @@ type Config struct {
 	WorktreeAdd      func(ctx context.Context, runner *shell.Runner, repoPath, branch, worktreePath string) error
 	WorktreeReapable func(ctx context.Context, runner *shell.Runner, repoPath, branch string) bool
 	WorktreeRemove   func(ctx context.Context, runner *shell.Runner, repoPath, worktreePath, branch string) error
+
+	// SpawnHealthWindow bounds the immediate-crash watch (coily#150). Zero
+	// applies defaultSpawnHealthWindow; negative disables the check.
+	SpawnHealthWindow time.Duration
+
+	// ProcessAlive reports whether pid is live. Seam for the health check;
+	// defaults to processRunning (the signal-0 probe).
+	ProcessAlive func(pid int) bool
 }
     Config carries the host-specific seams the dispatch package refuses to
     hard-code. Required fields are noted; everything else has a documented

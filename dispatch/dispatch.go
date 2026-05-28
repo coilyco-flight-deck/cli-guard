@@ -73,6 +73,14 @@ type Config struct {
 	WorktreeAdd      func(ctx context.Context, runner *shell.Runner, repoPath, branch, worktreePath string) error
 	WorktreeReapable func(ctx context.Context, runner *shell.Runner, repoPath, branch string) bool
 	WorktreeRemove   func(ctx context.Context, runner *shell.Runner, repoPath, worktreePath, branch string) error
+
+	// SpawnHealthWindow bounds the immediate-crash watch (coily#150). Zero
+	// applies defaultSpawnHealthWindow; negative disables the check.
+	SpawnHealthWindow time.Duration
+
+	// ProcessAlive reports whether pid is live. Seam for the health check;
+	// defaults to processRunning (the signal-0 probe).
+	ProcessAlive func(pid int) bool
 }
 
 // Event is the summary handed to Config.Notify when a dispatch completes.
@@ -145,6 +153,12 @@ func applyConfigDefaults(cfg *Config) {
 	}
 	if cfg.WorktreeRemove == nil {
 		cfg.WorktreeRemove = defaultWorktreeRemove
+	}
+	if cfg.SpawnHealthWindow == 0 {
+		cfg.SpawnHealthWindow = defaultSpawnHealthWindow
+	}
+	if cfg.ProcessAlive == nil {
+		cfg.ProcessAlive = processRunning
 	}
 }
 
@@ -542,12 +556,57 @@ func (d *Dispatcher) spawnDetachedWorker(c *cli.Command, spec detachedSpec, ref 
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "dispatch %s: could not write status sidecar (%v); `dispatch status` will report pid unknown.\n", spec.mode, err)
 	}
+	// A startup crash exits within seconds having done no work; surface it
+	// as a nonzero failure rather than the cheerful "spawned" (coily#150).
+	if d.watchForImmediateExit(pid) {
+		return d.reportImmediateExit(spec.mode, ref, logPath, pid)
+	}
 	fmt.Printf("dispatch %s: spawned claude for %s (pid %d)\n", spec.mode, ref, pid)
 	fmt.Printf("  cwd: %s\n", cwd)
 	fmt.Printf("  log: %s\n", logPath)
 	fmt.Printf("  detached - survives this terminal closing. Follow with: tail -f %s\n", logPath)
 	d.notify(Event{Mode: spec.mode, Ref: ref.String(), Title: strings.TrimSpace(issue.Title), URL: issue.URL, Cwd: cwd, PID: pid})
 	return nil
+}
+
+// defaultSpawnHealthWindow watches a fresh detached child for a startup
+// crash; a healthy claude -p run far outlasts it (coilysiren/coily#150).
+const defaultSpawnHealthWindow = 4 * time.Second
+
+// spawnHealthPollInterval is the pid re-probe cadence within the window.
+const spawnHealthPollInterval = 200 * time.Millisecond
+
+// watchForImmediateExit reports true if pid dies within the health window -
+// the signature of a startup crash. Non-positive window disables the check.
+func (d *Dispatcher) watchForImmediateExit(pid int) bool {
+	window := d.cfg.SpawnHealthWindow
+	if window <= 0 || pid <= 0 {
+		return false
+	}
+	deadline := time.Now().Add(window)
+	for time.Now().Before(deadline) {
+		if !d.cfg.ProcessAlive(pid) {
+			return true
+		}
+		time.Sleep(spawnHealthPollInterval)
+	}
+	return !d.cfg.ProcessAlive(pid)
+}
+
+// reportImmediateExit builds the failure for a child that died inside the
+// health window, folding the log tail in so the caller sees why.
+func (d *Dispatcher) reportImmediateExit(mode string, ref *issueRef, logPath string, pid int) error {
+	var b strings.Builder
+	fmt.Fprintf(&b, "dispatch %s: child for %s (pid %d) exited within %s of spawn - no work done, no branch/PR.\n",
+		mode, ref, pid, d.cfg.SpawnHealthWindow)
+	fmt.Fprintf(&b, "  log: %s", logPath)
+	if tail, err := tailLines(logPath, dispatchStatusTailLines); err == nil && len(tail) > 0 {
+		b.WriteString("\n  log tail:")
+		for _, l := range tail {
+			fmt.Fprintf(&b, "\n    %s", l)
+		}
+	}
+	return fmt.Errorf("%s", b.String())
 }
 
 // detachedEnv appends extraEnv to base. Returns nil only when both are

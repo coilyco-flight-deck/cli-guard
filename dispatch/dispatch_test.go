@@ -170,6 +170,101 @@ func TestSpawnDetachedClaude(t *testing.T) {
 	t.Errorf("log %s never received the child's output", logPath)
 }
 
+// parsedHeadlessCmd parses args against the real headless flag set so a
+// test can drive spawnDetachedWorker with the verb's flag surface.
+func parsedHeadlessCmd(t *testing.T, d *Dispatcher, args ...string) *cli.Command {
+	t.Helper()
+	var captured *cli.Command
+	hc := d.headlessCommand()
+	hc.Action = func(_ context.Context, c *cli.Command) error {
+		captured = c
+		return nil
+	}
+	app := &cli.Command{Name: "test", Commands: []*cli.Command{hc}}
+	if err := app.Run(context.Background(), append([]string{"test", "headless"}, args...)); err != nil {
+		t.Fatalf("parse headless flags: %v", err)
+	}
+	return captured
+}
+
+// TestWatchForImmediateExit covers the startup-crash detector across
+// dead-within-window, alive-past-window, and disabled-window cases.
+func TestWatchForImmediateExit(t *testing.T) {
+	d := newTestDispatcher(t)
+	d.cfg.SpawnHealthWindow = 60 * time.Millisecond
+
+	d.cfg.ProcessAlive = func(int) bool { return false }
+	if !d.watchForImmediateExit(123) {
+		t.Error("dead child within window: want true, got false")
+	}
+
+	d.cfg.ProcessAlive = func(int) bool { return true }
+	if d.watchForImmediateExit(123) {
+		t.Error("live child outliving window: want false, got true")
+	}
+
+	d.cfg.SpawnHealthWindow = -1
+	d.cfg.ProcessAlive = func(int) bool { return false }
+	if d.watchForImmediateExit(123) {
+		t.Error("disabled window: want false, got true")
+	}
+}
+
+// TestSpawnDetachedWorker_ImmediateExitSurfacesFailure (coily#150): a child
+// gone within the window surfaces as a nonzero failure with the log tail.
+func TestSpawnDetachedWorker_ImmediateExitSurfacesFailure(t *testing.T) {
+	d := newTestDispatcher(t)
+	logRoot := t.TempDir()
+	d.cfg.LogRoot = func() (string, error) { return logRoot, nil }
+	d.cfg.ClaudeConfigPath = func() (string, error) { return filepath.Join(t.TempDir(), ".claude.json"), nil }
+	d.cfg.SpawnHealthWindow = 50 * time.Millisecond
+	d.cfg.ProcessAlive = func(int) bool { return false }
+	d.cfg.SpawnDetached = func(_, logPath, _ string, _, _ []string) (int, error) {
+		if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+			return 0, err
+		}
+		body := "API Error: 400 messages.1.content.28: `thinking` blocks cannot be modified.\n"
+		if err := os.WriteFile(logPath, []byte(body), 0o644); err != nil {
+			return 0, err
+		}
+		return 4242, nil
+	}
+
+	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 150}
+	issue := &ghIssue{Number: 150, Title: "t", URL: "https://example/150"}
+	c := parsedHeadlessCmd(t, d, "coilysiren/coily#150")
+
+	err := d.spawnDetachedWorker(c, detachedSpec{mode: "headless"}, ref, issue, t.TempDir(), "prompt", "auto", "Bash")
+	if err == nil {
+		t.Fatal("expected immediate-exit failure, got nil")
+	}
+	for _, want := range []string{"coilysiren/coily#150", "no work done", "pid 4242", "API Error: 400"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %q in:\n%s", want, err.Error())
+		}
+	}
+}
+
+// TestSpawnDetachedWorker_LiveChildSucceeds: a child still running at the
+// end of the health window returns no error.
+func TestSpawnDetachedWorker_LiveChildSucceeds(t *testing.T) {
+	d := newTestDispatcher(t)
+	logRoot := t.TempDir()
+	d.cfg.LogRoot = func() (string, error) { return logRoot, nil }
+	d.cfg.ClaudeConfigPath = func() (string, error) { return filepath.Join(t.TempDir(), ".claude.json"), nil }
+	d.cfg.SpawnHealthWindow = 20 * time.Millisecond
+	d.cfg.ProcessAlive = func(int) bool { return true }
+	d.cfg.SpawnDetached = func(_, _, _ string, _, _ []string) (int, error) { return 4242, nil }
+
+	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 150}
+	issue := &ghIssue{Number: 150, Title: "t", URL: "https://example/150"}
+	c := parsedHeadlessCmd(t, d, "coilysiren/coily#150")
+
+	if err := d.spawnDetachedWorker(c, detachedSpec{mode: "headless"}, ref, issue, t.TempDir(), "prompt", "auto", "Bash"); err != nil {
+		t.Fatalf("live child should succeed, got: %v", err)
+	}
+}
+
 // TestResolveDispatchIssue_RejectsForeignOwner locks the security claim:
 // dispatch refuses any issue ref outside Config.AllowedOwner. The owner
 func TestResolveDispatchIssue_RejectsForeignOwner(t *testing.T) {
