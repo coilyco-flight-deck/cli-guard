@@ -1069,6 +1069,11 @@ func WithEgress(allowlist []string, mode egress.Mode) Option
     WithEgress wires the per-invocation HTTP CONNECT proxy. The child runs with
     HTTPS_PROXY/HTTP_PROXY pointed at 127.0.0.1:NNNNN for the lifetime
 
+func WithEnvFunc(fn func() (map[string]string, error)) Option
+    WithEnvFunc injects extra env vars into the wrapped binary at exec time;
+    returned keys win over the parent env, resolved once per run just before
+    exec.
+
 func WithReadCache(classifier ReadCacheClassifier) Option
     WithReadCache wires the pass-through into ghcache so reads matching the
     supplied classifier are served from cache without exec, and

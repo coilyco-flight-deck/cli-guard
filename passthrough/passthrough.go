@@ -38,6 +38,7 @@ type config struct {
 	argvRewriter   func(argv []string) []string
 	readCache      ReadCacheClassifier
 	secretResolver mcporter.SecretResolver
+	envFunc        func() (map[string]string, error)
 }
 
 // WithSkipPolicy disables the shell-metacharacter check for this binary.
@@ -88,6 +89,14 @@ func WithSecretResolver(r mcporter.SecretResolver) Option {
 	}
 }
 
+// WithEnvFunc injects extra env vars into the wrapped binary at exec time;
+// returned keys win over the parent env, resolved once per run just before exec.
+func WithEnvFunc(fn func() (map[string]string, error)) Option {
+	return func(c *config) {
+		c.envFunc = fn
+	}
+}
+
 // WithScopeArgvHint installs a fallback --commit-scope resolver that runs
 // only when the operator did not set --commit-scope (or COILY_COMMIT_SCOPE)
 func WithScopeArgvHint(fn func(argv []string) string) Option {
@@ -116,9 +125,9 @@ func Command(bin string, r *shell.Runner, w *audit.Writer, opts ...Option) *cli.
 		CommitScopeArgvHint: cfg.scopeArgvHint,
 	}
 	if cfg.egressOn {
-		spec.Action, spec.OnComplete = withEgressAction(bin, r, cfg.egressList, cfg.egressMode, cfg.argvRewriter, cfg.readCache, cfg.secretResolver)
+		spec.Action, spec.OnComplete = withEgressAction(bin, r, cfg.egressList, cfg.egressMode, cfg.argvRewriter, cfg.readCache, cfg.secretResolver, cfg.envFunc)
 	} else {
-		spec.Action, spec.OnComplete = withStderrTail(bin, r, cfg.argvRewriter, cfg.readCache, cfg.secretResolver)
+		spec.Action, spec.OnComplete = withStderrTail(bin, r, cfg.argvRewriter, cfg.readCache, cfg.secretResolver, cfg.envFunc)
 	}
 	return &cli.Command{
 		Name:            bin,
@@ -130,7 +139,7 @@ func Command(bin string, r *shell.Runner, w *audit.Writer, opts ...Option) *cli.
 
 // withStderrTail wraps the standard exec action so the wrapped tool's
 // stderr is tee'd into a bounded ring buffer. On non-zero exit the captured
-func withStderrTail(bin string, base *shell.Runner, rewriter func([]string) []string, readCache ReadCacheClassifier, resolver mcporter.SecretResolver) (cli.ActionFunc, func(*audit.Record)) {
+func withStderrTail(bin string, base *shell.Runner, rewriter func([]string) []string, readCache ReadCacheClassifier, resolver mcporter.SecretResolver, envFunc func() (map[string]string, error)) (cli.ActionFunc, func(*audit.Record)) {
 	tail := newTailBuffer(audit.MaxStderrTailBytes)
 	action := func(ctx context.Context, c *cli.Command) error {
 		argv := c.Args().Slice()
@@ -143,6 +152,9 @@ func withStderrTail(bin string, base *shell.Runner, rewriter func([]string) []st
 		}
 		shadow := *base
 		if err := applySecretResolver(&shadow, resolver); err != nil {
+			return err
+		}
+		if err := applyEnvFunc(&shadow, envFunc); err != nil {
 			return err
 		}
 		// Tee stderr through the tail buffer while still streaming to the
@@ -170,7 +182,7 @@ func withStderrTail(bin string, base *shell.Runner, rewriter func([]string) []st
 
 // withEgressAction wraps the standard exec action to start a per-invocation
 // proxy, inject HTTPS_PROXY/HTTP_PROXY into a per-call shadow Runner so
-func withEgressAction(bin string, base *shell.Runner, allowlist []string, mode egress.Mode, rewriter func([]string) []string, readCache ReadCacheClassifier, resolver mcporter.SecretResolver) (cli.ActionFunc, func(*audit.Record)) {
+func withEgressAction(bin string, base *shell.Runner, allowlist []string, mode egress.Mode, rewriter func([]string) []string, readCache ReadCacheClassifier, resolver mcporter.SecretResolver, envFunc func() (map[string]string, error)) (cli.ActionFunc, func(*audit.Record)) {
 	var rows []audit.EgressRow
 	tail := newTailBuffer(audit.MaxStderrTailBytes)
 	action := func(ctx context.Context, c *cli.Command) error {
@@ -199,6 +211,9 @@ func withEgressAction(bin string, base *shell.Runner, allowlist []string, mode e
 		)
 		shadow.Env = appendLoopbackNoProxy(shadow.Env)
 		if err := applySecretResolver(&shadow, resolver); err != nil {
+			return err
+		}
+		if err := applyEnvFunc(&shadow, envFunc); err != nil {
 			return err
 		}
 		if base.Stderr != nil {
@@ -248,6 +263,27 @@ func applySecretResolver(shadow *shell.Runner, r mcporter.SecretResolver) error 
 	}
 	cloned := append([]string(nil), shadow.Env...)
 	for k, v := range resolved {
+		cloned = append(cloned, k+"="+v)
+	}
+	shadow.Env = cloned
+	return nil
+}
+
+// applyEnvFunc merges the exec-time hook's result into a clone of the shadow
+// env; the clone stops injected secrets leaking into later shared-base invocations.
+func applyEnvFunc(shadow *shell.Runner, f func() (map[string]string, error)) error {
+	if f == nil {
+		return nil
+	}
+	extra, err := f()
+	if err != nil {
+		return err
+	}
+	if len(extra) == 0 {
+		return nil
+	}
+	cloned := append([]string(nil), shadow.Env...)
+	for k, v := range extra {
 		cloned = append(cloned, k+"="+v)
 	}
 	shadow.Env = cloned

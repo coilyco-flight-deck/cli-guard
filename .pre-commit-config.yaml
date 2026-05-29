@@ -42,7 +42,7 @@ repos:
       - id: godoc-current
         name: godoc-current.txt up to date
         description: Re-run scripts/check-godoc-current.sh --update if this fails.
-        entry: ./scripts/check-godoc-current.sh
+        entry: bash scripts/check-godoc-current.sh
         language: system
         types: [go]
         pass_filenames: false
