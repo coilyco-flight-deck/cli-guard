@@ -11,15 +11,15 @@ This project is run on volunteer time, so please have patience.
 3. **Run the dev verbs before pushing.** Local dev routes through [`coily`](https://github.com/coilysiren/coily):
 
    ```
-   coily exec build
-   coily exec test
-   coily exec vet
-   coily exec lint
+   make build
+   make test
+   make vet
+   make lint
    ```
 
-   The `.agent-guard/agent-guard.yaml` ↔ Makefile contract is checked by `agent-guard lint` and by CI on every push.
+   CI runs the same set on every push.
 
-4. **Update `godoc-current.txt` if you touch the public API.** Run `coily exec godoc-update` and commit the diff in the same PR. CI fails if the snapshot is out of sync.
+4. **Update `godoc-current.txt` if you touch the public API.** Run `make godoc-update` and commit the diff in the same PR. CI fails if the snapshot is out of sync.
 
 ## Code of Conduct
 

@@ -297,13 +297,13 @@ func TestParseIssueRef_ForgejoURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	url := base + "/coilysiren/agent-guard/issues/18"
+	url := base + "/coilyco-flight-deck/ward/issues/18"
 	got, err := d.parseIssueRef(url)
 	if err != nil {
 		t.Fatalf("parseIssueRef(%q): %v", url, err)
 	}
-	if got.Owner != "coilysiren" || got.Repo != "agent-guard" || got.Number != 18 || got.Platform != PlatformForgejo {
-		t.Errorf("parseIssueRef(%q) = %+v, want forgejo coilysiren/agent-guard#18", url, got)
+	if got.Owner != "coilyco-flight-deck" || got.Repo != "ward" || got.Number != 18 || got.Platform != PlatformForgejo {
+		t.Errorf("parseIssueRef(%q) = %+v, want forgejo coilyco-flight-deck/ward#18", url, got)
 	}
 
 	bare := newTestDispatcher(t)

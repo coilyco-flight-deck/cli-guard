@@ -47,14 +47,6 @@ repos:
         types: [go]
         pass_filenames: false
 
-      - id: agent-guard-lint
-        name: agent-guard lint .agent-guard/agent-guard.yaml
-        description: Enforce that every commands.<verb> in .agent-guard/agent-guard.yaml maps to `make <verb>` with a matching Makefile target and `## desc` auto-help string.
-        entry: agent-guard lint
-        language: system
-        files: '^(\.agent-guard/agent-guard\.yaml|Makefile)$'
-        pass_filenames: false
-
       - id: trufflehog
         name: trufflehog (secret scan, offline)
         description: Detect secrets in staged changes via local trufflehog binary (no API verification).

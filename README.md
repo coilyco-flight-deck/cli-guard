@@ -11,7 +11,7 @@ cli-guard is a **security-boundary** framework for [urfave/cli][urfave/cli] v3 a
 - read / write / delete scope tokens, validated per verb
 - `--commit-scope` resolution binding every audit row to a git toplevel
 - clean+synced gate refusing repo-shaped verbs on a dirty tree
-- per-repo command allowlist loaded from per-repo YAML config files (e.g. `.agent-guard/agent-guard.yaml`, `.coily/coily.yaml`)
+- per-repo command allowlist loaded from per-repo YAML config files (e.g. `.ward/ward.yaml`, `.coily/coily.yaml`)
 - thin pass-through wrapper for embedding existing CLIs as audited subcommands
 - per-invocation CONNECT proxy with consumer-supplied egress allowlist
 - public exit-code taxonomy for orchestrators
@@ -19,7 +19,7 @@ cli-guard is a **security-boundary** framework for [urfave/cli][urfave/cli] v3 a
 
 ## Documentation
 
-See [`docs/FEATURES.md`](docs/FEATURES.md) for a feature inventory, [`examples/`](examples/) for runnable demos one per primitive, and the [CLI reference](https://coilysiren.github.io/cli-guard/cli/) for the rendered command tree of every example. Local dev verbs live in [`.agent-guard/agent-guard.yaml`](.agent-guard/agent-guard.yaml); `agent-guard lint` validates that against the [`Makefile`](Makefile).
+See [`docs/FEATURES.md`](docs/FEATURES.md) for a feature inventory, [`examples/`](examples/) for runnable demos one per primitive, and the [CLI reference](https://coilysiren.github.io/cli-guard/cli/) for the rendered command tree of every example. Local dev verbs run through `make` (see the [`Makefile`](Makefile)).
 
 ## Support
 
@@ -45,6 +45,5 @@ See [`LICENSE`](./LICENSE).
 
 - [AGENTS.md](AGENTS.md) - agent-facing operating rules.
 - [docs/FEATURES.md](docs/FEATURES.md) - inventory of what ships today.
-- [.agent-guard/agent-guard.yaml](.agent-guard/agent-guard.yaml) - allowlisted commands.
 
 Cross-reference convention from [coilysiren/agentic-os#59](https://github.com/coilysiren/agentic-os/issues/59).

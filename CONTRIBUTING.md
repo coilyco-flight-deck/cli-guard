@@ -8,18 +8,18 @@ This project is run on volunteer time, so please have patience.
 
 1. **Open an issue first.** Every commit in this repo closes a same-repo issue (`closes #N` in the commit body). Discussion happens in the issue; the PR is the change itself. This applies even to trivial fixes - the issue gives the change a stable URL.
 2. **Stay close to scope.** The four cli-* repos are intentionally small. Features that pull this package out of its lane will get pushed back, even when well-intentioned. The [README](https://github.com/coilysiren/cli-guard#readme) and [docs/FEATURES.md](https://github.com/coilysiren/cli-guard/blob/main/docs/FEATURES.md) describe the surface; if your idea expands it, lead with an issue arguing for the expansion.
-3. **Run the dev verbs before pushing.** Local dev routes through [`agent-guard`](https://github.com/coilysiren/agent-guard), a small policy-validated wrapper. Install it with `brew install coilysiren/tap/agent-guard`, then:
+3. **Run the dev verbs before pushing.** Local dev runs through `make`:
 
    ```
-   agent-guard exec build
-   agent-guard exec test
-   agent-guard exec vet
-   agent-guard exec lint
+   make build
+   make test
+   make vet
+   make lint
    ```
 
-   The `.agent-guard/agent-guard.yaml` ↔ Makefile contract is checked by `agent-guard lint` and by CI on every push.
+   CI runs the same set on every push.
 
-4. **Update `godoc-current.txt` if you touch the public API.** Run `agent-guard exec godoc-update` and commit the diff in the same PR. CI fails if the snapshot is out of sync.
+4. **Update `godoc-current.txt` if you touch the public API.** Run `make godoc-update` and commit the diff in the same PR. CI fails if the snapshot is out of sync.
 
 ## Code of Conduct
 
@@ -31,4 +31,4 @@ See [SECURITY.md](SECURITY.md). Do not file vulnerabilities as public issues.
 
 ## Agent-driven contributions
 
-Pull requests authored or substantially edited by an LLM-driven agent are welcome. See [AGENTS.md](https://github.com/coilysiren/cli-guard/blob/main/AGENTS.md) for the conventions a contributing agent should follow (issue-first, `Dangerously*` naming, dev-verb routing through coily, etc).
+Pull requests authored or substantially edited by an LLM-driven agent are welcome. See [AGENTS.md](https://github.com/coilysiren/cli-guard/blob/main/AGENTS.md) for the conventions a contributing agent should follow (issue-first, `Dangerously*` naming, dev verbs through `make`, etc).

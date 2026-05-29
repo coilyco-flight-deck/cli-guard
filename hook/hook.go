@@ -1,5 +1,5 @@
 // Package hook implements the Claude Code PreToolUse hook engine in
-// the shared substrate. Each cli-guard consumer (coily, agent-guard,
+// the shared substrate. Each cli-guard consumer (coily, ward,
 package hook
 
 import (

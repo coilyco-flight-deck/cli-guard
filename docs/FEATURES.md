@@ -28,9 +28,7 @@ Per-primitive detail in [features-detail.md](features-detail.md).
 
 ## Repo development
 
-- `.agent-guard/agent-guard.yaml` declares local dev verbs.
-- `Makefile` is the source of truth for what each verb actually runs.
-- `coily lint` checks the yaml/Makefile contract on every CI run.
+- `Makefile` is the source of truth for the dev verbs (cli-guard is unguarded - it carries no `.ward`/`.coily` config and runs dev verbs straight through `make`).
 - `.golangci.yaml` mirrors urfave/cli's minimal config.
 - `staticcheck.conf` enables all checks (mirrors urfave/cli).
 - CI runs `go vet`, `go build`, `go test -race`, golangci-lint v2.12.2.
@@ -43,7 +41,6 @@ Per-primitive detail in [features-detail.md](features-detail.md).
 
 - [README.md](../README.md) - human-facing intro.
 - [AGENTS.md](../AGENTS.md) - agent-facing operating rules.
-- [.agent-guard/agent-guard.yaml](../.agent-guard/agent-guard.yaml) - allowlisted commands.
 - [features-detail.md](features-detail.md) - per-primitive details.
 
 Cross-reference convention from [coilysiren/agentic-os#59](https://github.com/coilysiren/agentic-os/issues/59).

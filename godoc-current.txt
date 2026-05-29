@@ -823,7 +823,7 @@ func (s *State) FormatRefusal(verbName string) string
 package hook // import "github.com/coilysiren/cli-guard/hook"
 
 Package hook implements the Claude Code PreToolUse hook engine in the shared
-substrate. Each cli-guard consumer (coily, agent-guard,
+substrate. Each cli-guard consumer (coily, ward,
 
 FUNCTIONS
 

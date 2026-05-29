@@ -1047,7 +1047,7 @@ detached headless run or an interactive Warp tab.
 
 The package owns the verb logic; this demo supplies the host-specific
 seams - allowed org, workspace layout, verb pipeline - through
-dispatch.Config. coily and agent-guard wire their own.
+dispatch.Config. coily and ward wire their own.
 
 Try the dry-run paths, which resolve and print without spawning claude:
 
