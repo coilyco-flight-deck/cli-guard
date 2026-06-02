@@ -18,8 +18,6 @@ func testDriver() *lockdown.Driver {
 			"kubectl":   "coily ops kubectl",
 			"docker":    "coily docker",
 			"tailscale": "coily tailscale",
-			"ssh":       "coily ssh",
-			"scp":       "coily ssh copy",
 			"npm":       "coily pkg npm",
 			"pnpm":      "coily pkg pnpm",
 			"yarn":      "coily pkg yarn",

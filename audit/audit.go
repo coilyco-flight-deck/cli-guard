@@ -62,12 +62,6 @@ type Record struct {
 	// PolicySkipped is true when the shell-metacharacter validator was
 	// bypassed for this invocation. Set by consumers whose verb wiring
 	PolicySkipped bool `json:"policy_skipped,omitempty"`
-	// AuditParent is the audit-row ID of an enclosing invocation when this
-	// invocation was spawned by another coily process across a host boundary
-	AuditParent string `json:"audit_parent,omitempty"`
-	// RemoteArgv carries the post-`--` argv slice for ssh-passthrough rows:
-	// the remote coily sub-command and its arguments. Set by the consumer
-	RemoteArgv []string `json:"remote_argv,omitempty"`
 }
 
 // ProfileDecision is the structured outcome of a per-session

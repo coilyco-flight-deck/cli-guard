@@ -19,7 +19,7 @@ Per-primitive detail in [features-detail.md](features-detail.md).
 - **mcporter** - Pre-exec preflight for the mcporter tool, secret resolver.
 - **dispatch** - Fire `claude` against a real open GitHub issue.
 - **shell**, **ttlcache**, **workdir** - Supporting utilities.
-- **sudo** - Policy-free interactive sudo plumbing over ssh.
+- **sudo** - Policy-free interactive sudo plumbing over any stdin-piping transport.
 - **respfmt** - JSON response renderer with JMESPath + five output formats.
 - **skillgen** - Render an urfave/cli command tree into markdown or yaml.
 - **config** - Layered-config primitives and a generic `OverlayFile[T]`.

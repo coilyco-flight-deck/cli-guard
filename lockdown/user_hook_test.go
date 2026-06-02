@@ -137,9 +137,9 @@ func TestEnsureUserHook_ScriptBlocksDevCoily(t *testing.T) {
 		stdin  string
 		wantRC int
 	}{
-		{"~/go/bin/coily denied", `{"tool_input":{"command":"/Users/kai/go/bin/coily ssh"}}`, 2},
-		{"/tmp/coily denied", `{"tool_input":{"command":"/tmp/coily ssh"}}`, 2},
-		{"/opt/homebrew/bin/coily allowed", `{"tool_input":{"command":"/opt/homebrew/bin/coily ssh"}}`, 0},
+		{"~/go/bin/coily denied", `{"tool_input":{"command":"/Users/kai/go/bin/coily systemctl"}}`, 2},
+		{"/tmp/coily denied", `{"tool_input":{"command":"/tmp/coily systemctl"}}`, 2},
+		{"/opt/homebrew/bin/coily allowed", `{"tool_input":{"command":"/opt/homebrew/bin/coily systemctl"}}`, 0},
 		{"unrelated command allowed", `{"tool_input":{"command":"ls -la"}}`, 0},
 		{"empty command allowed", `{"tool_input":{"command":""}}`, 0},
 	}

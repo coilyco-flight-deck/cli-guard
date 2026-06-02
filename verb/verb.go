@@ -14,14 +14,6 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// AuditParentFlag is the canonical name of the global --audit-parent flag.
-// Set by a coily-on-host A invocation that ssh-passthroughs into host B, so
-const AuditParentFlag = "audit-parent"
-
-// AuditParentEnvVar is the env-var alternative to --audit-parent. Reads
-// the same value into audit.Record.AuditParent. Useful when the parent
-const AuditParentEnvVar = "COILY_AUDIT_PARENT"
-
 // Spec describes a verb before it is wrapped into a cli.ActionFunc.
 type Spec struct {
 	// Name is the dotted verb path used for audit logging, e.g.
@@ -78,7 +70,7 @@ func Wrap(spec Spec, writer *audit.Writer) cli.ActionFunc {
 			}
 		}
 
-		base := buildBaseRecord(spec, argv, cmd)
+		base := buildBaseRecord(spec, argv)
 
 		profileDecision, evalCoded := runOnEvaluate(ctx, cmd, spec, base, writer, argv)
 		if evalCoded != nil {
@@ -106,7 +98,7 @@ func Wrap(spec Spec, writer *audit.Writer) cli.ActionFunc {
 
 // buildBaseRecord composes the per-invocation Record that writer.Wrap fills
 // in with Decision/ExitCode/DurationMS. Stamps RepoRoot best-effort from cwd.
-func buildBaseRecord(spec Spec, argv []string, cmd *cli.Command) audit.Record {
+func buildBaseRecord(spec Spec, argv []string) audit.Record {
 	cwd := scope.CWD()
 	invokeCWD := ""
 	if spec.ResolveInvokeCWD != nil {
@@ -119,21 +111,7 @@ func buildBaseRecord(spec Spec, argv []string, cmd *cli.Command) audit.Record {
 		RepoRoot:        scope.RepoRoot(cwd), // forensic-only: where cwd was, "" outside any repo
 		CWDSubprocess:   cwd,
 		CWDAtInvocation: invokeCWD,
-		AuditParent:     resolveAuditParent(cmd),
 	}
-}
-
-// resolveAuditParent reads --audit-parent off the root command, then falls
-// back to $COILY_AUDIT_PARENT. Empty when neither is set (the common case;
-func resolveAuditParent(cmd *cli.Command) string {
-	root := cmd
-	if r := cmd.Root(); r != nil {
-		root = r
-	}
-	if v := root.String(AuditParentFlag); v != "" {
-		return v
-	}
-	return os.Getenv(AuditParentEnvVar)
 }
 
 // runOnEvaluate calls spec.OnEvaluate (if set) and returns the

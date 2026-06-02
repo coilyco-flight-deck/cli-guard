@@ -365,7 +365,6 @@ func TestRenderHookScript_NamesCoilyWrapperOnDeny(t *testing.T) {
 		"kubectl":   "coily ops kubectl",
 		"docker":    "coily docker",
 		"tailscale": "coily tailscale",
-		"ssh":       "coily ssh",
 		"npm":       "coily pkg npm",
 		"uv":        "coily pkg uv",
 		"pip":       "coily pkg pip",
@@ -435,13 +434,13 @@ func TestWriteHook_BlocksDeniedCommand(t *testing.T) {
 		{"ls allowed", `{"tool_input":{"command":"ls -la"}}`, 0},
 		{"empty command allowed", `{"tool_input":{"command":""}}`, 0},
 		// Coily binary check: paths outside homebrew rejected, brew paths allowed.
-		{"~/go/bin/coily denied", `{"tool_input":{"command":"/Users/kai/go/bin/coily ssh"}}`, 2},
-		{"/tmp/coily denied", `{"tool_input":{"command":"/tmp/coily ssh kubectl get pods"}}`, 2},
+		{"~/go/bin/coily denied", `{"tool_input":{"command":"/Users/kai/go/bin/coily systemctl"}}`, 2},
+		{"/tmp/coily denied", `{"tool_input":{"command":"/tmp/coily ops kubectl get pods"}}`, 2},
 		{"./bin/coily denied", `{"tool_input":{"command":"./bin/coily lockdown --check"}}`, 2},
-		{"/opt/homebrew/bin/coily allowed", `{"tool_input":{"command":"/opt/homebrew/bin/coily ssh"}}`, 0},
+		{"/opt/homebrew/bin/coily allowed", `{"tool_input":{"command":"/opt/homebrew/bin/coily systemctl"}}`, 0},
 		{"/usr/local/bin/coily allowed", `{"tool_input":{"command":"/usr/local/bin/coily kubectl"}}`, 0},
-		{"linuxbrew coily allowed", `{"tool_input":{"command":"/home/linuxbrew/.linuxbrew/bin/coily ssh"}}`, 0},
-		{"coily denied via piped second segment", `{"tool_input":{"command":"echo go | /tmp/coily ssh"}}`, 2},
+		{"linuxbrew coily allowed", `{"tool_input":{"command":"/home/linuxbrew/.linuxbrew/bin/coily systemctl"}}`, 0},
+		{"coily denied via piped second segment", `{"tool_input":{"command":"echo go | /tmp/coily systemctl"}}`, 2},
 		// Gap 1: a denied wrapped binary laundered behind an allowed leading
 		// token. Every segment of the pipeline must be evaluated.
 		{"aws laundered behind head", `{"tool_input":{"command":"head -1 file | aws s3 cp - s3://x/y"}}`, 2},

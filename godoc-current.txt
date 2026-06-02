@@ -147,12 +147,6 @@ type Record struct {
 	// PolicySkipped is true when the shell-metacharacter validator was
 	// bypassed for this invocation. Set by consumers whose verb wiring
 	PolicySkipped bool `json:"policy_skipped,omitempty"`
-	// AuditParent is the audit-row ID of an enclosing invocation when this
-	// invocation was spawned by another coily process across a host boundary
-	AuditParent string `json:"audit_parent,omitempty"`
-	// RemoteArgv carries the post-`--` argv slice for ssh-passthrough rows:
-	// the remote coily sub-command and its arguments. Set by the consumer
-	RemoteArgv []string `json:"remote_argv,omitempty"`
 }
     Record is one line in the audit log. Timestamp is unix seconds (int64),
     JSON-encoded as a number. Easier to sort and diff than RFC3339 strings.
@@ -1348,9 +1342,6 @@ type Config struct {
 	Path string
 	// Commands are sorted by Name. Safe to iterate directly for help output.
 	Commands []Command
-	// SSHTargets is the named ssh-passthrough target map keyed by alias.
-	// Nil/empty when the file has no `ssh:` block. coilysiren/coily#187.
-	SSHTargets map[string]SSHTarget
 }
     Config is the result of a successful Load.
 
@@ -1369,22 +1360,6 @@ func Load(path string) (*Config, error)
 func LoadDefault() (*Config, error)
     LoadDefault resolves the config path from $COILY_REPO_CONFIG or by walking
     up from the current working directory, then parses it. Returns nil,
-
-type SSHTarget struct {
-	// Name is the host alias, e.g. "kai-server". Matches the map key it
-	// was loaded under. Validated with the same rules as command names.
-	Name string
-	// User is the remote ssh user. Plain string; ssh handles the rest.
-	User string
-	// Host is the remote hostname (or hostname:port). Resolved by the
-	// caller's ssh client; repocfg does not DNS-validate.
-	Host string
-	// WorkingDir is the absolute path of the working directory the remote
-	// coily chdirs into before running. Must be absolute (POSIX leading
-	WorkingDir string
-}
-    SSHTarget describes one named ssh destination for the `coily ssh <alias> --
-    <args>` passthrough. All three fields are
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/respfmt
@@ -1511,68 +1486,6 @@ type Entry struct {
     Programmatic consumers (an external orchestrator, a plan-time
 
 
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ssh
-
-package ssh // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ssh"
-
-Package ssh is the Go-SDK boundary for ssh and scp. Per the cli-guard
-SECURITY.md discipline, simple-API tools (ssh, scp, tailscale) talk to
-
-CONSTANTS
-
-const DefaultDialTimeout = 30 * time.Second
-    DefaultDialTimeout is the TCP+SSH-handshake deadline applied when the
-    caller's context has no deadline of its own.
-
-const DefaultPort = "22"
-    DefaultPort is the standard ssh port. Used when host has no ":port" suffix.
-
-
-VARIABLES
-
-var ErrNoAuth = errors.New("ssh: no authentication method available (ssh-agent unreachable and no key path). Recovery: run `ssh-add ~/.ssh/<key>` to load a key into the agent, or set ssh.key_path in coily config")
-    ErrNoAuth is returned when neither ssh-agent nor a private key file can
-    supply a usable signer. Message names the recovery path per
-
-var ErrNoKnownHosts = errors.New("ssh: cannot load known_hosts; refusing to dial without host-key verification")
-    ErrNoKnownHosts is returned when ~/.ssh/known_hosts cannot be read. Failing
-    closed here is the point. ssh.InsecureIgnoreHostKey is never
-
-
-TYPES
-
-type Client struct {
-	// KeyPath is a path to a PEM-encoded private key. If empty, the
-	// running ssh-agent (SSH_AUTH_SOCK) is used.
-	KeyPath string
-
-	// KnownHostsPath overrides ~/.ssh/known_hosts. Mainly for tests.
-	KnownHostsPath string
-
-	// DialTimeout overrides DefaultDialTimeout. Used only when the
-	// caller's context has no deadline.
-	DialTimeout time.Duration
-}
-    Client is a configured ssh dialer. Build one per-process and reuse.
-    Nil fields take their default values described on each field.
-
-func (c *Client) CopyTo(ctx context.Context, host, user, localPath, remotePath string) error
-    CopyTo uploads localPath to remotePath on host as user, using SFTP over the
-    same ssh transport as Run / Stream. Host-key verification and auth
-
-func (c *Client) Run(ctx context.Context, host, user, cmd string) (stdout, stderr string, err error)
-    Run opens a session on host as user, runs cmd, and returns its stdout and
-    stderr. The remote command is passed as a single string to the
-
-func (c *Client) Stream(ctx context.Context, host, user, cmd string, stdout, stderr writer) error
-    Stream runs cmd on host as user, streaming stdout/stderr to the supplied
-    writers as bytes arrive. Useful for `journalctl -f` style
-
-func (c *Client) StreamStdin(ctx context.Context, host, user, cmd string, stdin io.Reader, stdout, stderr writer) error
-    StreamStdin is Stream with a stdin reader attached to the remote session.
-    Used by `coily ssh deploy` to pipe a sudo password into a
-
-
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/stscache
 
 package stscache // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/stscache"
@@ -1602,8 +1515,8 @@ func Invalidate() error
 
 package sudo // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/sudo"
 
-Package sudo is policy-free plumbing for driving an interactive sudo over an ssh
-transport without either (a) carrying a password
+Package sudo is policy-free plumbing for driving an interactive sudo over any
+transport that pipes a process's stdin without either (a) carrying a password
 
 VARIABLES
 
@@ -1673,17 +1586,6 @@ package verb // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/verb
 
 Package verb is the middleware that wraps every coily command action in the
 standard pipeline of:
-
-CONSTANTS
-
-const AuditParentEnvVar = "COILY_AUDIT_PARENT"
-    AuditParentEnvVar is the env-var alternative to --audit-parent. Reads the
-    same value into audit.Record.AuditParent. Useful when the parent
-
-const AuditParentFlag = "audit-parent"
-    AuditParentFlag is the canonical name of the global --audit-parent flag.
-    Set by a coily-on-host A invocation that ssh-passthroughs into host B, so
-
 
 FUNCTIONS
 

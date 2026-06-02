@@ -1,5 +1,6 @@
-// Package sudo is policy-free plumbing for driving an interactive
-// sudo over an ssh transport without either (a) carrying a password
+// Package sudo is policy-free plumbing for driving an interactive sudo
+// over any transport that pipes a process's stdin without either (a)
+// carrying a password
 package sudo
 
 import (

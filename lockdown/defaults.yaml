@@ -1,7 +1,7 @@
 # Canonical Claude Code permission rules that coily lockdown writes into a
 # repo's .claude/settings.json. The deny list maps 1:1 to the binaries coily
 # wraps: bare invocation is denied so the agent is forced through
-# `coily pkg <pkgmgr>` / `coily ops <bin>` / `coily ssh` / `coily docker` /
+# `coily pkg <pkgmgr>` / `coily ops <bin>` / `coily docker` /
 # `coily tailscale`. The audit log + argv validation become the system of
 # record for every wrapped call.
 #
@@ -75,6 +75,9 @@ deny:
   # at the umbrella layer (not under ops).
   - Bash(docker:*)
   - Bash(tailscale:*)
+
+  # ssh has no coily wrapper: the SSH transport and the `coily ssh`
+  # passthrough were removed. Bare ssh stays denied with no recovery path.
   - Bash(ssh:*)
 
   # git destructive shapes. Workflow-forbidden per agentic-os-kai/AGENTS.md

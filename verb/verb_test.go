@@ -259,29 +259,6 @@ func TestWrap_IDOverridePinsAuditRowID(t *testing.T) {
 	}
 }
 
-// TestWrap_AuditParentFromEnv proves the row picks up
-// $COILY_AUDIT_PARENT when no --audit-parent flag is set. Models the
-func TestWrap_AuditParentFromEnv(t *testing.T) {
-	const parent = "11111111-2222-7333-4444-555555555555"
-	t.Setenv("COILY_AUDIT_PARENT", parent)
-	w := newTestWriter(t)
-	spec := verb.Spec{
-		Name:   "test.ro",
-		Action: func(_ context.Context, _ *cli.Command) error { return nil },
-	}
-	if err := runWrapped(t, spec, w); err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	b, _ := os.ReadFile(w.Path)
-	records, _ := audit.ReadAll(bytes.NewReader(b))
-	if len(records) != 1 {
-		t.Fatalf("got %d records, want 1", len(records))
-	}
-	if records[0].AuditParent != parent {
-		t.Errorf("audit_parent = %q, want %q", records[0].AuditParent, parent)
-	}
-}
-
 // runWrapped invokes the wrapped action in a way that mimics urfave/cli's
 // real invocation shape. We pass an empty *cli.Command because Spec.ArgsFunc
 func runWrapped(t *testing.T, spec verb.Spec, w *audit.Writer) error {

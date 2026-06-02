@@ -33,7 +33,7 @@ Pre-commit runs the Go checks (vet, golangci-lint, go-mod-tidy, godoc-current) p
 
 ## Safety
 
-The Claude Code lockdown writer is the security boundary for consumers; defaults live in `lockdown/defaults.yaml`. The deny list maps 1:1 to wrapped binaries (`coily pkg / ops / ssh / docker / tailscale`); bypass-prevention shapes fall back to auto-mode classifiers. See [#13, #14](https://forgejo.coilysiren.me/coilysiren/cli-guard).
+The Claude Code lockdown writer is the security boundary for consumers; defaults live in `lockdown/defaults.yaml`. The deny list maps to wrapped binaries (`coily pkg / ops / docker / tailscale`) plus bare-denied binaries with no wrapper (`ssh`); bypass-prevention shapes fall back to auto-mode classifiers. See [#13, #14](https://forgejo.coilysiren.me/coilysiren/cli-guard).
 
 ## Cross-repo contracts
 
