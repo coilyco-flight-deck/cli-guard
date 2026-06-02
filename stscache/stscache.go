@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/coilysiren/cli-guard/ttlcache"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ttlcache"
 )
 
 // TTL is the freshness window for cached identity responses. Chosen at

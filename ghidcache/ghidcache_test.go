@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/coilysiren/cli-guard/ghidcache"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghidcache"
 )
 
 // resetCacheDir points ghidcache at a fresh tempdir and clears the gh

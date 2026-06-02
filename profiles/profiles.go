@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/coilysiren/cli-guard/profile"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/profile"
 	"gopkg.in/yaml.v3"
 )
 

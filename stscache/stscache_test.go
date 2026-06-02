@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/coilysiren/cli-guard/stscache"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/stscache"
 )
 
 // resetCacheDir points stscache at a fresh tempdir and clears the AWS

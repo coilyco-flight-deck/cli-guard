@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/coilysiren/cli-guard/audit"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/audit"
 )
 
 // Mode selects allowlist enforcement vs observe-only logging.

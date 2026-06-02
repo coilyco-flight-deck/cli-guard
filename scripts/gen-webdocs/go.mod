@@ -1,11 +1,11 @@
 // Separate module so the runtime library does not pull cli-web-docs
 // (and its goldmark/cli-docs deps) into the parent go.mod.
-module github.com/coilysiren/cli-guard/scripts/gen-webdocs
+module forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/scripts/gen-webdocs
 
 go 1.25.0
 
 require (
-	github.com/coilysiren/cli-guard v0.0.0-00010101000000-000000000000
+	forgejo.coilysiren.me/coilyco-flight-deck/cli-guard v0.0.0-00010101000000-000000000000
 	github.com/coilysiren/cli-web-docs v0.0.0-20260513172246-d202b1f723a1
 	github.com/urfave/cli/v3 v3.9.0
 )
@@ -19,4 +19,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/coilysiren/cli-guard => ../..
+replace forgejo.coilysiren.me/coilyco-flight-deck/cli-guard => ../..

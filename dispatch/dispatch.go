@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coilysiren/cli-guard/ghcache"
-	"github.com/coilysiren/cli-guard/ghratelimit"
-	"github.com/coilysiren/cli-guard/shell"
-	"github.com/coilysiren/cli-guard/verb"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghcache"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghratelimit"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shell"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/verb"
 	"github.com/urfave/cli/v3"
 )
 

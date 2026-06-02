@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/coilysiren/cli-guard/exitcode"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/exitcode"
 )
 
 // Annotate any error with a public exit-code so orchestrators can

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/coilysiren/cli-guard/profile"
-	"github.com/coilysiren/cli-guard/profiles"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/profile"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/profiles"
 )
 
 func withHome(t *testing.T) string {

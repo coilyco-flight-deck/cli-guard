@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/coilysiren/cli-guard/policy"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/policy"
 )
 
 func TestValidateArg_AcceptsSafeStrings(t *testing.T) {

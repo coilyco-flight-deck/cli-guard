@@ -3,7 +3,7 @@ package profile_test
 import (
 	"testing"
 
-	"github.com/coilysiren/cli-guard/profile"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/profile"
 )
 
 func TestAllAxes_Order(t *testing.T) {

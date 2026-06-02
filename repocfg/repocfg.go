@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/coilysiren/cli-guard/policy"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/policy"
 	"gopkg.in/yaml.v3"
 )
 

@@ -1,6 +1,6 @@
-## github.com/coilysiren/cli-guard/audit
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/audit
 
-package audit // import "github.com/coilysiren/cli-guard/audit"
+package audit // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/audit"
 
 Package audit writes one JSONL record per CLI invocation to an append-only log
 outside the working tree. Per SECURITY.md, the
@@ -221,9 +221,9 @@ func (w *Writer) WrapHook(ctx context.Context, base Record, fn func() error, onC
     fn returns and before the record is appended; it gets a pointer
 
 
-## github.com/coilysiren/cli-guard/config
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config
 
-package config // import "github.com/coilysiren/cli-guard/config"
+package config // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config"
 
 Package config carries the layered-config primitives shared across cli-guard
 consumers: path helpers, repo-slug derivation, the Audit
@@ -316,9 +316,9 @@ type Audit struct {
     it. LogPath defaults to ~/.coily/audit/<slug>.jsonl when left
 
 
-## github.com/coilysiren/cli-guard/decision
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/decision
 
-package decision // import "github.com/coilysiren/cli-guard/decision"
+package decision // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/decision"
 
 Package decision is the per-call profile-aware evaluator: takes a session
 profile name, resolves it through the profiles registry, and
@@ -338,9 +338,9 @@ func RedactPolicy() audit.RedactPolicy
     identifier regex list suitable for any consumer wrapping aws,
 
 
-## github.com/coilysiren/cli-guard/dispatch
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/dispatch
 
-package dispatch // import "github.com/coilysiren/cli-guard/dispatch"
+package dispatch // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/dispatch"
 
 Package dispatch hosts the reusable dispatch subsystem: fire `claude` against a
 real open GitHub issue, in the matching local checkout,
@@ -487,9 +487,9 @@ type Sidequest struct {
     Sidequest is one active headless dispatch as exposed to consumers.
 
 
-## github.com/coilysiren/cli-guard/egress
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/egress
 
-package egress // import "github.com/coilysiren/cli-guard/egress"
+package egress // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/egress"
 
 Package egress is the per-invocation HTTP CONNECT proxy that coily starts for
 the duration of a wrapped subprocess. The child inherits HTTPS_PROXY /
@@ -537,9 +537,9 @@ func (p *Proxy) Stop() []audit.EgressRow
     Safe to call once. After Stop the Proxy is not reusable.
 
 
-## github.com/coilysiren/cli-guard/exitcode
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/exitcode
 
-package exitcode // import "github.com/coilysiren/cli-guard/exitcode"
+package exitcode // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/exitcode"
 
 Package exitcode is the public contract for what the process exit code means.
 External consumers (an orchestrator, a CI step, a watchdog)
@@ -628,9 +628,9 @@ type Reasoner interface {
     a why-line: a one-sentence statement of the threat or
 
 
-## github.com/coilysiren/cli-guard/ghcache
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghcache
 
-package ghcache // import "github.com/coilysiren/cli-guard/ghcache"
+package ghcache // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghcache"
 
 Package ghcache caches GitHub REST `GET` responses keyed by method, path, body,
 and token fingerprint, with method-aware write-through
@@ -681,9 +681,9 @@ func Store(path string, data []byte) bool
     Returns false if the path is unclassified (caller should be
 
 
-## github.com/coilysiren/cli-guard/ghidcache
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghidcache
 
-package ghidcache // import "github.com/coilysiren/cli-guard/ghidcache"
+package ghidcache // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghidcache"
 
 Package ghidcache caches GitHub identity reads - `gh auth status` and `gh api
 user` - that re-resolve on every coily invocation but are stable
@@ -710,9 +710,9 @@ func Invalidate() error
     that just rotated a token or switched GH_HOST can use this to
 
 
-## github.com/coilysiren/cli-guard/ghratelimit
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghratelimit
 
-package ghratelimit // import "github.com/coilysiren/cli-guard/ghratelimit"
+package ghratelimit // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghratelimit"
 
 Package ghratelimit retries gh-CLI calls that fail with a GitHub rate-limit
 error. v1 of cli-guard#66: pattern-match the failure mode
@@ -750,9 +750,9 @@ func Retry(fetch func() ([]byte, error)) ([]byte, error)
     recognized rate-limit failures. fetch's first return is
 
 
-## github.com/coilysiren/cli-guard/gittree
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/gittree
 
-package gittree // import "github.com/coilysiren/cli-guard/gittree"
+package gittree // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/gittree"
 
 Package gittree inspects a repo's working tree for the clean+synced state that
 gates `.coily/coily.yaml` repo verbs. The gate refuses repo-verb
@@ -799,9 +799,9 @@ func (s *State) FormatRefusal(verbName string) string
     State, naming the verb so the operator's recovery suggestion includes
 
 
-## github.com/coilysiren/cli-guard/hook
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/hook
 
-package hook // import "github.com/coilysiren/cli-guard/hook"
+package hook // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/hook"
 
 Package hook implements the Claude Code PreToolUse hook engine in the shared
 substrate. Each cli-guard consumer (coily, ward,
@@ -876,9 +876,9 @@ type Route struct {
     consumer wants surfaced when the harness denies that token.
 
 
-## github.com/coilysiren/cli-guard/lockdown
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/lockdown
 
-package lockdown // import "github.com/coilysiren/cli-guard/lockdown"
+package lockdown // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/lockdown"
 
 Package lockdown writes a per-repo Claude Code settings file that enforces an
 allowlist-inversion for the wrapper binary supplied by a
@@ -980,9 +980,9 @@ type Settings struct {
     Settings is the subset of Claude Code settings we manipulate directly.
 
 
-## github.com/coilysiren/cli-guard/mcporter
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/mcporter
 
-package mcporter // import "github.com/coilysiren/cli-guard/mcporter"
+package mcporter // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/mcporter"
 
 Package mcporter wraps the mcporter tool with a pre-exec preflight that resolves
 `${VAR}` references in `~/.mcporter/mcporter.json` against a
@@ -1022,9 +1022,9 @@ func WithTTLCache(inner SecretResolver, ttl time.Duration, persistPath string) S
     JSON file at persistPath. Cache shape:
 
 
-## github.com/coilysiren/cli-guard/passthrough
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/passthrough
 
-package passthrough // import "github.com/coilysiren/cli-guard/passthrough"
+package passthrough // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/passthrough"
 
 Package passthrough is the thin pass-through used to wrap any sub-CLI (aws, gh,
 kubectl, docker, tailscale, plus every package manager) as a
@@ -1076,9 +1076,9 @@ type ReadCacheClassifier func(argv []string) (path string, maxAge time.Duration,
     gh-api-style path the call would read, a per-call max-age
 
 
-## github.com/coilysiren/cli-guard/policy
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/policy
 
-package policy // import "github.com/coilysiren/cli-guard/policy"
+package policy // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/policy"
 
 Package policy validates that verb arguments do not contain shell
 metacharacters. Per SECURITY.md, coily's subprocess execution
@@ -1112,9 +1112,9 @@ func ValidateArgs(args map[string]string) error
     Convenience for Action funcs that have already gathered flag values.
 
 
-## github.com/coilysiren/cli-guard/profile
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/profile
 
-package profile // import "github.com/coilysiren/cli-guard/profile"
+package profile // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/profile"
 
 Package profile declares the categorical operating-model axes that cli-guard
 exposes for consumers (today: coily) to build per-session
@@ -1213,9 +1213,9 @@ func TiersFor(a Axis) []Tier
     strictest. Returns nil for an unknown axis so
 
 
-## github.com/coilysiren/cli-guard/profiles
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/profiles
 
-package profiles // import "github.com/coilysiren/cli-guard/profiles"
+package profiles // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/profiles"
 
 Package profiles loads the per-host lockdown profile registry from
 ~/.coily/coily.yaml and resolves named profiles to cli-guard/profile
@@ -1281,9 +1281,9 @@ const (
 	SourceUnset Source = "unset"
 )
 
-## github.com/coilysiren/cli-guard/repocfg
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/repocfg
 
-package repocfg // import "github.com/coilysiren/cli-guard/repocfg"
+package repocfg // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/repocfg"
 
 Package repocfg loads a per-repo command allowlist from a coily.yaml file
 discovered by walking up from the current working directory. Each command
@@ -1387,9 +1387,9 @@ type SSHTarget struct {
     <args>` passthrough. All three fields are
 
 
-## github.com/coilysiren/cli-guard/respfmt
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/respfmt
 
-package respfmt // import "github.com/coilysiren/cli-guard/respfmt"
+package respfmt // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/respfmt"
 
 Package respfmt renders a JSON response body through an optional JMESPath
 projection and one of five output formats: yaml (default),
@@ -1413,9 +1413,9 @@ func Render(raw []byte, query, output string) ([]byte, error)
     result per output. Empty raw returns empty bytes, no error. Empty query
 
 
-## github.com/coilysiren/cli-guard/scope
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/scope
 
-package scope // import "github.com/coilysiren/cli-guard/scope"
+package scope // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/scope"
 
 Package scope resolves cwd to its git toplevel for an audit record's RepoRoot.
 Best-effort and forensic-only: outside a repo it yields "".
@@ -1431,9 +1431,9 @@ func RepoRoot(cwd string) string
     repo (or git is unavailable). Best-effort: "" is valid, never an error.
 
 
-## github.com/coilysiren/cli-guard/shell
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shell
 
-package shell // import "github.com/coilysiren/cli-guard/shell"
+package shell // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shell"
 
 Package shell is the argv-only exec wrapper. Every argument is passed as a
 distinct argv element. No shell string is ever composed. If a downstream
@@ -1482,9 +1482,9 @@ func (r *Runner) ExecIn(ctx context.Context, dir, bin string, argv ...string) er
     coily exec when the matched coily.yaml lives in a direct child of cwd:
 
 
-## github.com/coilysiren/cli-guard/skillgen
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/skillgen
 
-package skillgen // import "github.com/coilysiren/cli-guard/skillgen"
+package skillgen // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/skillgen"
 
 Package skillgen renders an urfave/cli v3 command tree into either a flat
 markdown lookup table or a structured yaml document. Pairs with
@@ -1511,9 +1511,9 @@ type Entry struct {
     Programmatic consumers (an external orchestrator, a plan-time
 
 
-## github.com/coilysiren/cli-guard/ssh
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ssh
 
-package ssh // import "github.com/coilysiren/cli-guard/ssh"
+package ssh // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ssh"
 
 Package ssh is the Go-SDK boundary for ssh and scp. Per the cli-guard
 SECURITY.md discipline, simple-API tools (ssh, scp, tailscale) talk to
@@ -1573,9 +1573,9 @@ func (c *Client) StreamStdin(ctx context.Context, host, user, cmd string, stdin 
     Used by `coily ssh deploy` to pipe a sudo password into a
 
 
-## github.com/coilysiren/cli-guard/stscache
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/stscache
 
-package stscache // import "github.com/coilysiren/cli-guard/stscache"
+package stscache // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/stscache"
 
 Package stscache caches `aws sts get-caller-identity` JSON for callers that
 re-resolve the active AWS identity on every coily invocation. STS
@@ -1598,9 +1598,9 @@ func Invalidate() error
     they just rotated credentials or assumed a different role can use
 
 
-## github.com/coilysiren/cli-guard/sudo
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/sudo
 
-package sudo // import "github.com/coilysiren/cli-guard/sudo"
+package sudo // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/sudo"
 
 Package sudo is policy-free plumbing for driving an interactive sudo over an ssh
 transport without either (a) carrying a password
@@ -1627,9 +1627,9 @@ func Zero(b []byte)
     to keep the password-bearing buffer alive only as long
 
 
-## github.com/coilysiren/cli-guard/ttlcache
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ttlcache
 
-package ttlcache // import "github.com/coilysiren/cli-guard/ttlcache"
+package ttlcache // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ttlcache"
 
 Package ttlcache is a small on-disk key/value cache with per-entry TTLs.
 Built for coily after the lockdown inversion: every aws / kubectl / gh
@@ -1667,9 +1667,9 @@ func (c *Cache) Set(key string, value []byte, ttl time.Duration) error
     filesystem error if the write fails; callers can ignore it (the next
 
 
-## github.com/coilysiren/cli-guard/verb
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/verb
 
-package verb // import "github.com/coilysiren/cli-guard/verb"
+package verb // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/verb"
 
 Package verb is the middleware that wraps every coily command action in the
 standard pipeline of:
@@ -1728,9 +1728,9 @@ type Spec struct {
     Spec describes a verb before it is wrapped into a cli.ActionFunc.
 
 
-## github.com/coilysiren/cli-guard/workdir
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/workdir
 
-package workdir // import "github.com/coilysiren/cli-guard/workdir"
+package workdir // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/workdir"
 
 Package workdir does best-effort detection of the "primary working directory"
 that a coily invocation is operating against. Subcommands

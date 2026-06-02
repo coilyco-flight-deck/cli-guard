@@ -41,7 +41,7 @@ v0.x. Minor API breaks ship in `main` with a note in the commit body; no semver 
 
 ## Release
 
-Tag-based, manual. `git tag -a vX.Y.Z -m "vX.Y.Z"` then `git push origin vX.Y.Z`. No release pipeline yet. Consumers pin in `go.mod` (`require github.com/coilysiren/cli-guard vX.Y.Z`).
+Tag-based, manual. `git tag -a vX.Y.Z -m "vX.Y.Z"` then `git push origin vX.Y.Z`. No release pipeline yet. The Go module path is `forgejo.coilysiren.me/coilyco-flight-deck/cli-guard` (sourced direct from canonical Forgejo, not the GitHub mirror); consumers set `GOPRIVATE=forgejo.coilysiren.me` and pin in `go.mod` (`require forgejo.coilysiren.me/coilyco-flight-deck/cli-guard vX.Y.Z`).
 
 ## Agent rules
 

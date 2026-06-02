@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/coilysiren/cli-guard/shell"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shell"
 )
 
 // worktree.go owns dispatch worktree placement for the detached surfaces

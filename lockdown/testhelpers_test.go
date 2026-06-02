@@ -1,6 +1,6 @@
 package lockdown_test
 
-import "github.com/coilysiren/cli-guard/lockdown"
+import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/lockdown"
 
 // testDriver returns a ClaudeCode-shaped driver pre-wired with the
 // historical coily-specific data. Tests parameterize over Driver via

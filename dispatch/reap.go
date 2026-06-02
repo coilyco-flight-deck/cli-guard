@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/coilysiren/cli-guard/shell"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shell"
 	"github.com/urfave/cli/v3"
 )
 

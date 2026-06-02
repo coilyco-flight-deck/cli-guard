@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/coilysiren/cli-guard/repocfg"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/repocfg"
 )
 
 func writeConfig(t *testing.T, dir, body string) string {

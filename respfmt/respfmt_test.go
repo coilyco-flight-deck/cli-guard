@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/coilysiren/cli-guard/respfmt"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/respfmt"
 )
 
 func TestRender_DefaultsToYAML(t *testing.T) {

@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/coilysiren/cli-guard/audit"
-	"github.com/coilysiren/cli-guard/mcporter"
-	"github.com/coilysiren/cli-guard/passthrough"
-	"github.com/coilysiren/cli-guard/shell"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/audit"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/mcporter"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/passthrough"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shell"
 	"github.com/urfave/cli/v3"
 )
 

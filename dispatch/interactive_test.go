@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/coilysiren/cli-guard/shell"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shell"
 )
 
 // TestInteractivePrompt_RefAndFirstAction pins the prompt contract. The

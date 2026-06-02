@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/coilysiren/cli-guard/audit"
-	"github.com/coilysiren/cli-guard/exitcode"
-	"github.com/coilysiren/cli-guard/verb"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/audit"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/exitcode"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/verb"
 	"github.com/urfave/cli/v3"
 )
 

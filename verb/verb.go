@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/coilysiren/cli-guard/audit"
-	"github.com/coilysiren/cli-guard/exitcode"
-	"github.com/coilysiren/cli-guard/policy"
-	"github.com/coilysiren/cli-guard/scope"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/audit"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/exitcode"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/policy"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/scope"
 	"github.com/urfave/cli/v3"
 )
 

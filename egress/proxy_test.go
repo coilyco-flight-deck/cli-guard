@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coilysiren/cli-guard/audit"
-	"github.com/coilysiren/cli-guard/egress"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/audit"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/egress"
 )
 
 // startProxy starts a fresh proxy, returns its URL plus a cleanup that

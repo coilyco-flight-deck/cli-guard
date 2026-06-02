@@ -14,7 +14,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	coilyssh "github.com/coilysiren/cli-guard/ssh"
+	coilyssh "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ssh"
 )
 
 // TestRun_RejectsEmptyHostUser covers the cheap input-validation paths.

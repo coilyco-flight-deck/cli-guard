@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/coilysiren/cli-guard/audit"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/audit"
 )
 
 // The most basic shape: open a writer, append one record, close.

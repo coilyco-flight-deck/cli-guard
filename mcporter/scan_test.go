@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/coilysiren/cli-guard/mcporter"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/mcporter"
 )
 
 func TestScanConfig_FindsRefsInNestedStrings(t *testing.T) {

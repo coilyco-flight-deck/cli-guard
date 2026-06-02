@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coilysiren/cli-guard/ttlcache"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ttlcache"
 )
 
 // Default TTLs by tier. Exported so callers and tests can reference the

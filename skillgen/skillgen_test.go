@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/coilysiren/cli-guard/skillgen"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/skillgen"
 	"github.com/urfave/cli/v3"
 	"gopkg.in/yaml.v3"
 )

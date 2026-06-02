@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coilysiren/cli-guard/audit"
-	"github.com/coilysiren/cli-guard/egress"
-	"github.com/coilysiren/cli-guard/ghcache"
-	"github.com/coilysiren/cli-guard/mcporter"
-	"github.com/coilysiren/cli-guard/shell"
-	"github.com/coilysiren/cli-guard/verb"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/audit"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/egress"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghcache"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/mcporter"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shell"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/verb"
 	"github.com/urfave/cli/v3"
 )
 

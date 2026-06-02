@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/coilysiren/cli-guard/lockdown"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/lockdown"
 )
 
 func TestLoadDefaults_ReturnsNonEmpty(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coilysiren/cli-guard/mcporter"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/mcporter"
 )
 
 func TestTTLCache_HitWithinTTL(t *testing.T) {

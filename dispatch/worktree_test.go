@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/coilysiren/cli-guard/shell"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shell"
 )
 
 // TestResolveDetachedCwd_CreatesWorktree pins the inverted mapping

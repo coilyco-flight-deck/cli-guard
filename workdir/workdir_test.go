@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/coilysiren/cli-guard/workdir"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/workdir"
 )
 
 func TestDetectFrom_EnvOverrideWins(t *testing.T) {

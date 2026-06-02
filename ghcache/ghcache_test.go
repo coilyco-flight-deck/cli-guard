@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coilysiren/cli-guard/ghcache"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghcache"
 )
 
 func reset(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/coilysiren/cli-guard/profile"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/profile"
 )
 
 // Driver describes the binary and runtime that lockdown should write

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/coilysiren/cli-guard/examples/treebuilders"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/examples/treebuilders"
 )
 
 func main() {

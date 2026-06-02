@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/coilysiren/cli-guard/profile"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/profile"
 )
 
 // TestDefaultYAML_ParsesAndValidates confirms the embedded template

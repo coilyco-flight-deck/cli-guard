@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coilysiren/cli-guard/ttlcache"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ttlcache"
 )
 
 func TestSetGet_RoundTrip(t *testing.T) {

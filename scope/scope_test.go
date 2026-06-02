@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/coilysiren/cli-guard/scope"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/scope"
 )
 
 func initRepo(t *testing.T) string {

@@ -5,9 +5,9 @@ package decision
 import (
 	"regexp"
 
-	"github.com/coilysiren/cli-guard/audit"
-	"github.com/coilysiren/cli-guard/profile"
-	"github.com/coilysiren/cli-guard/profiles"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/audit"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/profile"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/profiles"
 )
 
 // RedactPolicy returns the default redactor: a secret-flag pattern list

@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/coilysiren/cli-guard/examples/treebuilders"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/examples/treebuilders"
 	webdocs "github.com/coilysiren/cli-web-docs"
 	"github.com/coilysiren/cli-web-docs/layout"
 	"github.com/urfave/cli/v3"

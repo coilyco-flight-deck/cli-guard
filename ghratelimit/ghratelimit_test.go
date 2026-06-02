@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coilysiren/cli-guard/ghratelimit"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghratelimit"
 )
 
 // swallow replaces the real Sleeper with a no-op for the duration of a

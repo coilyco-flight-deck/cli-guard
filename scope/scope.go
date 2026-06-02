@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coilysiren/cli-guard/ttlcache"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ttlcache"
 )
 
 // gitToplevelCache memoizes (cwd -> toplevel) so the per-invocation

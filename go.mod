@@ -1,4 +1,4 @@
-module github.com/coilysiren/cli-guard
+module forgejo.coilysiren.me/coilyco-flight-deck/cli-guard
 
 go 1.25.0
 
