@@ -6,14 +6,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/base32"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -23,8 +21,8 @@ import (
 // Record is one line in the audit log. Timestamp is unix seconds (int64),
 // JSON-encoded as a number. Easier to sort and diff than RFC3339 strings.
 type Record struct {
-	// ID is a UUID v7 (time-ordered) populated on Append if unset. Used as
-	// the stable identifier in commit trailers (`coily://<ts>/<short>`),
+	// ID is a UUID v7 (time-ordered) populated on Append if unset. The
+	// stable identifier for an audit row, used to join cross-host records.
 	ID        string   `json:"id,omitempty"`
 	Timestamp int64    `json:"ts"`
 	Version   string   `json:"version,omitempty"`
@@ -46,9 +44,6 @@ type Record struct {
 	// CWDAtInvocation is the consumer-resolved operator cwd, populated
 	// from verb.Spec.ResolveInvokeCWD when set. Empty when the consumer
 	CWDAtInvocation string `json:"cwd_at_invocation,omitempty"`
-	// CommitScope binds this row to a commit-trailer query. Resolved from
-	// --commit-scope (default "auto" = cwd's git toplevel). Empty means the
-	CommitScope string `json:"commit_scope,omitempty"`
 	// SessionID joins this row to the Claude Code (or other agent harness)
 	// session that produced the invocation. Resolution order at write time:
 	SessionID string `json:"session_id,omitempty"`
@@ -114,83 +109,6 @@ const (
 // even when a wrapped tool spews. 2 KiB is enough to carry the last few
 const MaxStderrTailBytes = 2048
 
-// ShortID returns the 8-char base32 prefix of the raw UUID bytes. Used in
-// the trailer suffix. Returns empty if ID is unset or unparseable.
-func (r Record) ShortID() string {
-	return shortIDFromUUID(r.ID)
-}
-
-// Trailer returns the canonical Audit-log trailer value for this record:
-// `coily://<unix-ts>/<short-id>`. Empty if ID is unset. This is the form
-func (r Record) Trailer() string {
-	short := r.ShortID()
-	if short == "" {
-		return ""
-	}
-	return fmt.Sprintf("coily://%d/%s", r.Timestamp, short)
-}
-
-// TrailerLine returns the full Audit-log trailer value rendered for a
-// commit: `coily://<unix-ts>/<short-id> - <argv summary>`. The argv summary
-func (r Record) TrailerLine() string {
-	url := r.Trailer()
-	if url == "" {
-		return ""
-	}
-	if len(r.Argv) == 0 {
-		return url
-	}
-	parts := make([]string, len(r.Argv))
-	copy(parts, r.Argv)
-	parts[0] = filepath.Base(parts[0])
-	end := len(parts)
-	for i, p := range parts {
-		if strings.HasPrefix(p, "-") {
-			end = i
-			break
-		}
-	}
-	parts = parts[:end]
-	if len(parts) == 0 {
-		return url
-	}
-	return url + " - " + strings.Join(parts, " ")
-}
-
-// ParseTrailer extracts the unix timestamp and short ID from a coily://
-// trailer value. Returns (ts, short, true) on a well-formed input. Accepts
-func ParseTrailer(s string) (int64, string, bool) {
-	const prefix = "coily://"
-	if !strings.HasPrefix(s, prefix) {
-		return 0, "", false
-	}
-	rest := s[len(prefix):]
-	if i := strings.Index(rest, " - "); i >= 0 {
-		rest = rest[:i]
-	}
-	slash := strings.IndexByte(rest, '/')
-	if slash <= 0 || slash == len(rest)-1 {
-		return 0, "", false
-	}
-	var ts int64
-	if _, err := fmt.Sscanf(rest[:slash], "%d", &ts); err != nil {
-		return 0, "", false
-	}
-	return ts, rest[slash+1:], true
-}
-
-// shortB32 is the base32 alphabet used for short IDs. Standard RFC 4648
-// uppercase, no padding. Matches the trailer doc.
-var shortB32 = base32.StdEncoding.WithPadding(base32.NoPadding)
-
-func shortIDFromUUID(id string) string {
-	raw, err := decodeUUID(id)
-	if err != nil {
-		return ""
-	}
-	return shortB32.EncodeToString(raw)[:8]
-}
-
 // NewUUIDv7 returns a UUID v7 string (time-ordered) using crypto/rand.
 // Same generator that Append uses internally for unset Record.ID;
 func NewUUIDv7() (string, error) {
@@ -215,25 +133,6 @@ func newUUIDv7(now time.Time) (string, error) {
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
 		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
-}
-
-func decodeUUID(s string) ([]byte, error) {
-	if len(s) != 36 {
-		return nil, fmt.Errorf("audit: uuid length %d, want 36", len(s))
-	}
-	hex := strings.ReplaceAll(s, "-", "")
-	if len(hex) != 32 {
-		return nil, fmt.Errorf("audit: uuid hyphenation invalid")
-	}
-	out := make([]byte, 16)
-	for i := 0; i < 16; i++ {
-		var n int
-		if _, err := fmt.Sscanf(hex[2*i:2*i+2], "%02x", &n); err != nil {
-			return nil, fmt.Errorf("audit: uuid hex: %w", err)
-		}
-		out[i] = byte(n & 0xff) //nolint:gosec // %02x bounds n to [0,255]
-	}
-	return out, nil
 }
 
 // Decision values for Record.Decision.
@@ -336,7 +235,7 @@ func (w *Writer) Close() error {
 }
 
 // Wrap records an invocation by running fn and logging the result. base
-// supplies caller-set fields (Verb, Argv, RepoRoot, CommitScope, Version);
+// supplies caller-set fields (Verb, Argv, RepoRoot, Version);
 func (w *Writer) Wrap(ctx context.Context, base Record, fn func() error) error {
 	return w.WrapHook(ctx, base, fn, nil)
 }

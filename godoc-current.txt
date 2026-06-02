@@ -53,10 +53,6 @@ func NewUUIDv7() (string, error)
     NewUUIDv7 returns a UUID v7 string (time-ordered) using crypto/rand.
     Same generator that Append uses internally for unset Record.ID;
 
-func ParseTrailer(s string) (int64, string, bool)
-    ParseTrailer extracts the unix timestamp and short ID from a coily://
-    trailer value. Returns (ts, short, true) on a well-formed input. Accepts
-
 func RedactArgv(argv []string, tier string, p RedactPolicy) []string
     RedactArgv applies the data-security tier to argv. Returns the argv to
     persist. At "low" the argv is returned unchanged. At
@@ -110,8 +106,8 @@ type ProfileDecision struct {
     evaluation. Allowed=false plus a non-nil verb.Spec
 
 type Record struct {
-	// ID is a UUID v7 (time-ordered) populated on Append if unset. Used as
-	// the stable identifier in commit trailers (`coily://<ts>/<short>`),
+	// ID is a UUID v7 (time-ordered) populated on Append if unset. The
+	// stable identifier for an audit row, used to join cross-host records.
 	ID        string   `json:"id,omitempty"`
 	Timestamp int64    `json:"ts"`
 	Version   string   `json:"version,omitempty"`
@@ -133,9 +129,6 @@ type Record struct {
 	// CWDAtInvocation is the consumer-resolved operator cwd, populated
 	// from verb.Spec.ResolveInvokeCWD when set. Empty when the consumer
 	CWDAtInvocation string `json:"cwd_at_invocation,omitempty"`
-	// CommitScope binds this row to a commit-trailer query. Resolved from
-	// --commit-scope (default "auto" = cwd's git toplevel). Empty means the
-	CommitScope string `json:"commit_scope,omitempty"`
 	// SessionID joins this row to the Claude Code (or other agent harness)
 	// session that produced the invocation. Resolution order at write time:
 	SessionID string `json:"session_id,omitempty"`
@@ -167,18 +160,6 @@ type Record struct {
 func ReadAll(r io.Reader) ([]Record, error)
     ReadAll decodes every record from r. Useful for tests and for `coily audit
     tail`-style verbs.
-
-func (r Record) ShortID() string
-    ShortID returns the 8-char base32 prefix of the raw UUID bytes. Used in the
-    trailer suffix. Returns empty if ID is unset or unparseable.
-
-func (r Record) Trailer() string
-    Trailer returns the canonical Audit-log trailer value for this record:
-    `coily://<unix-ts>/<short-id>`. Empty if ID is unset. This is the form
-
-func (r Record) TrailerLine() string
-    TrailerLine returns the full Audit-log trailer value rendered for a commit:
-    `coily://<unix-ts>/<short-id> - <argv summary>`. The argv summary
 
 type RedactPolicy struct {
 	// SecretFlagPatterns is a list of flag-name prefixes (with leading
@@ -233,7 +214,7 @@ func (w *Writer) SetRedactPolicy(p RedactPolicy)
 
 func (w *Writer) Wrap(ctx context.Context, base Record, fn func() error) error
     Wrap records an invocation by running fn and logging the result. base
-    supplies caller-set fields (Verb, Argv, RepoRoot, CommitScope, Version);
+    supplies caller-set fields (Verb, Argv, RepoRoot, Version);
 
 func (w *Writer) WrapHook(ctx context.Context, base Record, fn func() error, onComplete func(*Record)) error
     WrapHook is Wrap with an optional onComplete callback. The hook runs after
@@ -370,8 +351,8 @@ type Config struct {
 	// Runner executes subprocesses (gh, git, open). Required.
 	Runner *shell.Runner
 
-	// Wrap applies the consumer's verb pipeline (argv validation, audit,
-	// commit-scope resolution) to a verb.Spec the package builds. coily
+	// Wrap applies the consumer's verb pipeline (argv validation, audit
+	// logging) to a verb.Spec the package builds. coily
 	Wrap func(verb.Spec) cli.ActionFunc
 
 	// AllowedOwner is the GitHub org dispatch will accept issue refs from.
@@ -1078,10 +1059,6 @@ func WithReadCache(classifier ReadCacheClassifier) Option
     WithReadCache wires the pass-through into ghcache so reads matching the
     supplied classifier are served from cache without exec, and
 
-func WithScopeArgvHint(fn func(argv []string) string) Option
-    WithScopeArgvHint installs a fallback --commit-scope resolver that runs only
-    when the operator did not set --commit-scope (or COILY_COMMIT_SCOPE)
-
 func WithSecretResolver(r mcporter.SecretResolver) Option
     WithSecretResolver installs a mcporter-shaped pre-exec preflight: scan the
     mcporter config file for `${VAR}` references, resolve each via r,
@@ -1403,7 +1380,7 @@ type SSHTarget struct {
 	// caller's ssh client; repocfg does not DNS-validate.
 	Host string
 	// WorkingDir is the absolute path of the working directory the remote
-	// coily binds its --commit-scope to. Must be absolute (POSIX leading
+	// coily chdirs into before running. Must be absolute (POSIX leading
 	WorkingDir string
 }
     SSHTarget describes one named ssh destination for the `coily ssh <alias> --
@@ -1440,29 +1417,18 @@ func Render(raw []byte, query, output string) ([]byte, error)
 
 package scope // import "github.com/coilysiren/cli-guard/scope"
 
-Package scope resolves the --commit-scope flag value into the absolute repo path
-that an audit record should be bound to. The trailer-emitting
-
-VARIABLES
-
-var ErrNotInRepo = errors.New("scope: cwd is not inside a git repo; pass --commit-scope=<repo-path> explicitly")
-    ErrNotInRepo is returned when --commit-scope=auto is requested but cwd is
-    not inside a git repo. Caller is expected to pass --commit-scope
-
-var ErrOptOutRejected = errors.New("scope: --commit-scope opt-out is not supported; pass an explicit repo path")
-    ErrOptOutRejected is returned when the caller passes a value meant to
-    disable binding ("-", "none", "off"). The opt-out hatch was removed -
-
+Package scope resolves cwd to its git toplevel for an audit record's RepoRoot.
+Best-effort and forensic-only: outside a repo it yields "".
 
 FUNCTIONS
 
 func CWD() string
-    CWD returns the current working directory or empty on error. Convenience
-    wrapper so callers can do scope.Resolve(flag, env, scope.CWD()) without
+    CWD returns the current working directory or empty on error. Lets callers
+    write scope.RepoRoot(scope.CWD()) without juggling the os.Getwd error.
 
-func Resolve(flagValue, envFallback, cwd string) (string, error)
-    Resolve interprets a --commit-scope flag value:
-      - "auto" (case-insensitive): git toplevel of cwd, or ErrNotInRepo.
+func RepoRoot(cwd string) string
+    RepoRoot returns the git toplevel of cwd, or "" when cwd is not inside a git
+    repo (or git is unavailable). Best-effort: "" is valid, never an error.
 
 
 ## github.com/coilysiren/cli-guard/shell
@@ -1718,10 +1684,6 @@ const AuditParentFlag = "audit-parent"
     AuditParentFlag is the canonical name of the global --audit-parent flag.
     Set by a coily-on-host A invocation that ssh-passthroughs into host B, so
 
-const CommitScopeFlag = "commit-scope"
-    CommitScopeFlag is the canonical name of the global --commit-scope flag.
-    Exported so the host CLI can declare the flag and verb.Wrap can read it
-
 
 FUNCTIONS
 
@@ -1747,21 +1709,9 @@ type Spec struct {
 	// true only for pass-throughs whose argv goes straight through execve to
 	SkipPolicy bool
 
-	// SkipScope disables --commit-scope resolution for this verb. Set true
-	// for read-only or self-referential verbs that would refuse to run
-	SkipScope bool
-
 	// OnComplete, if set, runs inside writer.Wrap after Action returns and
 	// before the audit record is appended. Receives a pointer to the record
 	OnComplete func(*audit.Record)
-
-	// CommitScopeOverride, when non-empty, replaces flag/env resolution and
-	// uses this absolute path as the audit row's commit-scope. Set by `coily
-	CommitScopeOverride string
-
-	// CommitScopeArgvHint, when set, runs as a fallback resolver before
-	// scope.Resolve and only when neither --commit-scope (still at "auto")
-	CommitScopeArgvHint func(argv []string) string
 
 	// OnEvaluate, when set, runs after argv validation and before Action.
 	// Returning a non-nil *ProfileDecision attaches it to the audit row.

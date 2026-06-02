@@ -122,7 +122,6 @@ checkout is missing.`, defaultCascadeDepth, maxCascadeDepth),
 					"--depth":           strconv.Itoa(c.Int("depth")),
 				}, c.Args().Slice()
 			},
-			CommitScopeArgvHint: d.commitScopeArgvHint,
 			Action: func(ctx context.Context, c *cli.Command) error {
 				return d.runCascade(ctx, c)
 			},

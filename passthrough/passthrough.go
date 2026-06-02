@@ -34,7 +34,6 @@ type config struct {
 	egressList     []string
 	egressMode     egress.Mode
 	verbName       string
-	scopeArgvHint  func(argv []string) string
 	argvRewriter   func(argv []string) []string
 	readCache      ReadCacheClassifier
 	secretResolver mcporter.SecretResolver
@@ -97,14 +96,6 @@ func WithEnvFunc(fn func() (map[string]string, error)) Option {
 	}
 }
 
-// WithScopeArgvHint installs a fallback --commit-scope resolver that runs
-// only when the operator did not set --commit-scope (or COILY_COMMIT_SCOPE)
-func WithScopeArgvHint(fn func(argv []string) string) Option {
-	return func(c *config) {
-		c.scopeArgvHint = fn
-	}
-}
-
 // Command returns the *cli.Command for `coily <bin>`. Every argument
 // after the binary name is forwarded verbatim through the pass-through
 func Command(bin string, r *shell.Runner, w *audit.Writer, opts ...Option) *cli.Command {
@@ -121,8 +112,7 @@ func Command(bin string, r *shell.Runner, w *audit.Writer, opts ...Option) *cli.
 		ArgsFunc: func(c *cli.Command) (map[string]string, []string) {
 			return nil, c.Args().Slice()
 		},
-		SkipPolicy:          cfg.skipPolicy,
-		CommitScopeArgvHint: cfg.scopeArgvHint,
+		SkipPolicy: cfg.skipPolicy,
 	}
 	if cfg.egressOn {
 		spec.Action, spec.OnComplete = withEgressAction(bin, r, cfg.egressList, cfg.egressMode, cfg.argvRewriter, cfg.readCache, cfg.secretResolver, cfg.envFunc)

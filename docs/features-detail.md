@@ -6,7 +6,7 @@ Per-primitive detail behind the [FEATURES.md](FEATURES.md) index.
 - **policy** - Argv validation rejecting shell metacharacters before they reach `execve`.
 - **hook** - Shared Claude Code PreToolUse engine. Consumers register integrity rules and routing hints; the engine owns a non-configurable deny on arbitrary-code execution (interpreter invocation, execution from a writable scratch dir) that fires on every segment of a compound command, so a denied prefix cannot launder behind an allowed token or via a `/tmp` shebang script.
 - **verb** - Middleware wrapping every `*cli.Command.Action` in the standard pipeline (validate → execute → audit).
-- **scope** - Resolve `--commit-scope=auto` to a git toplevel so every audit row binds to a reconstructable commit.
+- **scope** - Resolve cwd to its git toplevel, best-effort, stamping each audit row's forensic RepoRoot (empty outside any repo).
 - **exitcode** - Public exit-code taxonomy (success / generic / policy-denied / upstream-failed / internal / user-error) for orchestrators.
 - **gittree** - Clean+synced gate refusing repo-shaped verbs on a dirty tree.
 - **passthrough** - Thin wrapper that embeds an existing binary (aws, gh, kubectl, ...) as an audited urfave subcommand.

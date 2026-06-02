@@ -236,82 +236,6 @@ func TestWrap_OnCompleteMutatesRecord(t *testing.T) {
 	}
 }
 
-func TestWrap_CommitScopeOverrideBypassesFlagResolution(t *testing.T) {
-	// CommitScopeOverride pins the audit row's commit-scope to a caller-
-	// supplied path. Used by `coily exec` discovered-from-child verbs to
-	w := newTestWriter(t)
-	override := "/var/empty/not-a-repo"
-	spec := verb.Spec{
-		Name:                "test.ro",
-		CommitScopeOverride: override,
-		Action:              func(_ context.Context, _ *cli.Command) error { return nil },
-	}
-	if err := runWrapped(t, spec, w); err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	b, _ := os.ReadFile(w.Path)
-	records, _ := audit.ReadAll(bytes.NewReader(b))
-	if len(records) != 1 {
-		t.Fatalf("got %d records, want 1", len(records))
-	}
-	if records[0].CommitScope != override {
-		t.Errorf("commit_scope = %q, want %q", records[0].CommitScope, override)
-	}
-}
-
-// TestWrap_CommitScopeArgvHintFiresWhenFlagUnset proves the argv hook
-// sets the audit row's commit-scope when neither --commit-scope nor
-func TestWrap_CommitScopeArgvHintFiresWhenFlagUnset(t *testing.T) {
-	t.Setenv("COILY_COMMIT_SCOPE", "")
-	w := newTestWriter(t)
-	hinted := "/var/empty/hinted-by-argv"
-	spec := verb.Spec{
-		Name: "test.ro",
-		CommitScopeArgvHint: func(_ []string) string {
-			return hinted
-		},
-		Action: func(_ context.Context, _ *cli.Command) error { return nil },
-	}
-	if err := runWrapped(t, spec, w); err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	b, _ := os.ReadFile(w.Path)
-	records, _ := audit.ReadAll(bytes.NewReader(b))
-	if len(records) != 1 {
-		t.Fatalf("got %d records, want 1", len(records))
-	}
-	if records[0].CommitScope != hinted {
-		t.Errorf("commit_scope = %q, want %q", records[0].CommitScope, hinted)
-	}
-}
-
-// TestWrap_CommitScopeArgvHintLosesToEnv proves that a hint declines to
-// override an explicit $COILY_COMMIT_SCOPE. The hint is a fallback, not a
-func TestWrap_CommitScopeArgvHintLosesToEnv(t *testing.T) {
-	envScope := "/var/empty/from-env"
-	t.Setenv("COILY_COMMIT_SCOPE", envScope)
-	w := newTestWriter(t)
-	spec := verb.Spec{
-		Name: "test.ro",
-		CommitScopeArgvHint: func(_ []string) string {
-			t.Error("hint should not fire when COILY_COMMIT_SCOPE is set")
-			return "/var/empty/should-not-be-used"
-		},
-		Action: func(_ context.Context, _ *cli.Command) error { return nil },
-	}
-	if err := runWrapped(t, spec, w); err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	b, _ := os.ReadFile(w.Path)
-	records, _ := audit.ReadAll(bytes.NewReader(b))
-	if len(records) != 1 {
-		t.Fatalf("got %d records, want 1", len(records))
-	}
-	if records[0].CommitScope != envScope {
-		t.Errorf("commit_scope = %q, want %q", records[0].CommitScope, envScope)
-	}
-}
-
 // TestWrap_IDOverridePinsAuditRowID proves Spec.IDOverride wins over the
 // audit writer's auto-generated UUID v7. Used by coily's ssh passthrough
 func TestWrap_IDOverridePinsAuditRowID(t *testing.T) {
@@ -319,7 +243,6 @@ func TestWrap_IDOverridePinsAuditRowID(t *testing.T) {
 	const pinned = "01234567-89ab-7def-0123-456789abcdef"
 	spec := verb.Spec{
 		Name:       "test.ro",
-		SkipScope:  true,
 		IDOverride: pinned,
 		Action:     func(_ context.Context, _ *cli.Command) error { return nil },
 	}
@@ -343,9 +266,8 @@ func TestWrap_AuditParentFromEnv(t *testing.T) {
 	t.Setenv("COILY_AUDIT_PARENT", parent)
 	w := newTestWriter(t)
 	spec := verb.Spec{
-		Name:      "test.ro",
-		SkipScope: true,
-		Action:    func(_ context.Context, _ *cli.Command) error { return nil },
+		Name:   "test.ro",
+		Action: func(_ context.Context, _ *cli.Command) error { return nil },
 	}
 	if err := runWrapped(t, spec, w); err != nil {
 		t.Fatalf("run: %v", err)

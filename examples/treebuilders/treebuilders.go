@@ -23,7 +23,6 @@ import (
 	"github.com/coilysiren/cli-guard/passthrough"
 	"github.com/coilysiren/cli-guard/policy"
 	"github.com/coilysiren/cli-guard/repocfg"
-	"github.com/coilysiren/cli-guard/scope"
 	"github.com/coilysiren/cli-guard/shell"
 	"github.com/coilysiren/cli-guard/verb"
 	"github.com/urfave/cli/v3"
@@ -38,20 +37,17 @@ func Audit(writer *audit.Writer) *cli.Command {
 		Version: "v0.0.0",
 		Description: `demo is the smallest end-to-end exercise of the cli-guard pipeline:
 
-    1. --commit-scope resolves to a real git toplevel (default "auto"
-       = git toplevel of cwd; explicit path also accepted).
-    2. The wrapped Action runs through policy.ValidateArg over every
+    1. The wrapped Action runs through policy.ValidateArg over every
        user-supplied string before execve.
-    3. An append-only JSONL row lands in $TMPDIR/cli-guard-demo.jsonl
-       with timestamp, argv, cwd, exit code, and resolved scope.
+    2. An append-only JSONL row lands in $TMPDIR/cli-guard-demo.jsonl
+       with timestamp, argv, cwd, exit code, and the forensic RepoRoot
+       (git toplevel of cwd, or empty outside any repo).
 
 Why an append-only audit log: it is the forensic trail if an agent
 (or a confused human) invokes something destructive. The log lives
 outside the working tree, is written 0600 in a 0700 dir, and rotates
 via lumberjack when the active file hits the size cap. Old backups
-past the retention horizon are pruned. There is no "skip audit" knob;
-a verb that genuinely should not be tied to a repo sets SkipScope at
-the definition site so the decision is visible in source.
+past the retention horizon are pruned. There is no "skip audit" knob.
 
 Operating model for an agent calling these commands:
 
@@ -59,18 +55,8 @@ Operating model for an agent calling these commands:
       not per call. If you see "audit preflight: ..." on stderr, do
       not retry; the host is broken (disk full, perms wrong, dir not
       writable). Surface to the operator.
-    - --commit-scope=auto fails outside a git repo. Either cd into a
-      checkout or pass --commit-scope=<repo-path> explicitly. There
-      is no "scope: none" sentinel.
     - Inspect the audit row after the call to reconstruct what
       happened: ` + "`tail -1 \"$TMPDIR/cli-guard-demo.jsonl\" | jq`" + `.`,
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:  verb.CommitScopeFlag,
-				Value: "auto",
-				Usage: "bind audit rows to a commit scope",
-			},
-		},
 		Commands: []*cli.Command{
 			{
 				Name:      "hello",
@@ -81,13 +67,9 @@ cli-guard primitive on a single Action.
 
 Examples:
 
-    # default scope: cwd's git toplevel
-    cd /path/to/some/repo
+    # greet
     demo hello world
     # hello, world
-
-    # explicit scope
-    demo --commit-scope=/path/to/repo hello world
 
     # empty name accepted - defaults to "world"
     demo hello
@@ -99,7 +81,7 @@ Examples:
 
 The audit row produced on a passing call includes:
 
-    {"ts":"2026-...","verb":"hello","argv":["hello","world"],"cwd":"...","scope":"...","exit":0}
+    {"ts":"2026-...","verb":"hello","argv":["hello","world"],"cwd":"...","repo_root":"...","exit":0}
 
 On a rejected call the row records exit=2 and the policy reason in
 the envelope. An agent reading the log can reconstruct intent without
@@ -889,118 +871,6 @@ catalog is the catalog.`,
 						}
 					}
 					return fmt.Errorf("no such verb: %s", name)
-				},
-			},
-		},
-	}
-}
-
-// Scope is the tree for examples/scope.
-func Scope() *cli.Command {
-	return &cli.Command{
-		Name:    "scope-demo",
-		Usage:   "show --commit-scope resolution",
-		Version: "v0.0.0",
-		Description: `scope-demo exercises --commit-scope resolution, the rule that binds
-every audit row to a specific git toplevel. The trailer-emitting hook
-later filters audit rows by this exact-match field, so a stable
-resolution policy is the load-bearing part of the audit contract.
-
-Three resolution modes:
-
-    - "auto" (the default): resolve to the git toplevel of cwd. If
-      cwd is not inside a git repo, "auto" is a hard error. Kai
-      typically works in the directory above her repos, so this is
-      the common case.
-    - "<absolute-path>": use that path as the scope. Validated as
-      a real git checkout at resolution time. Required when cwd is
-      outside any git repo or when the operator wants to bind the
-      audit row to a different repo than cwd belongs to.
-    - $COILY_COMMIT_SCOPE: if the flag value is the default ("auto")
-      and the env var is set, the env var wins. Lets long-running
-      shells bind to one scope per session without typing the flag
-      every call.
-
-There is no opt-out. Every audit row from a non-SkipScope verb must
-bind to a real commit. Dashes, "none", "off", or any other "skip"
-sentinel is rejected at resolution. Verbs that genuinely should not
-tie to a repo set verb.Spec.SkipScope = true at the definition site
-so the decision is visible in the verb's source, not papered over at
-the call site.
-
-Why the strictness:
-
-    - An audit row whose scope cannot be reconstructed from git
-      history is dead weight forensically. The whole point of the
-      log is that "what code ran" is answerable from the row plus
-      git history.
-    - Allowing "skip" at the call site means a hostile caller can
-      hide. The audit log's truthfulness is the contract.
-
-Operating model for an agent setting --commit-scope:
-
-    - Prefer "auto". Reach for an explicit path only when the call
-      site is genuinely outside a repo (running from $HOME, /tmp).
-    - Do NOT set $COILY_COMMIT_SCOPE to a sentinel value to escape
-      the gate. The env var is checked for repo validity.
-    - On "scope: cwd is not inside a git repo" failure: cd into a
-      repo, pass an explicit path, or recognize that the call is in
-      fact uncopied to any repo and surface that to the operator.`,
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:  verb.CommitScopeFlag,
-				Value: "auto",
-				Usage: "bind audit rows to a commit scope (auto resolves to git toplevel of cwd)",
-			},
-		},
-		Commands: []*cli.Command{
-			{
-				Name:  "where",
-				Usage: "print the resolved commit scope",
-				Description: `Prints the resolved scope path for the current invocation. Useful
-for an agent verifying that --commit-scope will resolve correctly
-before invoking a verb that produces an audit row.
-
-Examples:
-
-    # inside a git repo, default --commit-scope=auto
-    cd /path/to/some/repo
-    scope-demo where
-    # scope: /path/to/some/repo
-
-    # outside any git repo, default auto fails
-    cd /tmp
-    scope-demo where
-    # error: scope: cwd is not inside a git repo
-    # exit: 1
-
-    # explicit path overrides cwd
-    cd /tmp
-    scope-demo --commit-scope=/path/to/some/repo where
-    # scope: /path/to/some/repo
-
-    # explicit path that is not a git repo fails
-    scope-demo --commit-scope=/tmp where
-    # error: scope: /tmp is not inside a git repo
-    # exit: 1
-
-    # env var when flag is at default
-    COILY_COMMIT_SCOPE=/path/to/some/repo scope-demo where
-    # scope: /path/to/some/repo
-
-Read this command as a preflight: if ` + "`where`" + ` succeeds, every
-subsequent verb in this shell binds to the same scope. If it fails,
-fix the scope BEFORE running a real verb so you don't burn an
-audit-row slot on a misconfigured call.`,
-				Action: func(_ context.Context, c *cli.Command) error {
-					cwd, _ := os.Getwd()
-					flagVal := c.String(verb.CommitScopeFlag)
-					resolved, err := scope.Resolve(flagVal, "", cwd)
-					if err != nil {
-						return fmt.Errorf("scope.Resolve: %w", err)
-					}
-					fmt.Printf("scope: %s\n", resolved)
-					return nil
 				},
 			},
 		},

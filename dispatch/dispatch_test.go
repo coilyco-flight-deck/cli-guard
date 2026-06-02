@@ -53,26 +53,6 @@ func TestParseIssueRef(t *testing.T) {
 	}
 }
 
-func TestFirstIssueRef(t *testing.T) {
-	d := newTestDispatcher(t)
-	argv := []string{"coily", "dispatch", "headless", "--dry-run", "coilysiren/coily#136"}
-	ref := d.firstIssueRef(argv)
-	if ref == nil {
-		t.Fatal("firstIssueRef returned nil; expected match")
-	}
-	if ref.Repo != "coily" || ref.Number != 136 {
-		t.Errorf("firstIssueRef = %+v, want coily#136", ref)
-	}
-}
-
-func TestFirstIssueRef_NoMatch(t *testing.T) {
-	d := newTestDispatcher(t)
-	argv := []string{"coily", "dispatch", "headless", "--dry-run"}
-	if ref := d.firstIssueRef(argv); ref != nil {
-		t.Errorf("firstIssueRef = %+v, want nil", ref)
-	}
-}
-
 func TestSeedPrompt_IncludesIssueAndFooter(t *testing.T) {
 	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 136}
 	issue := &ghIssue{

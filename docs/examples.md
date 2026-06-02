@@ -7,7 +7,6 @@ Each subdirectory under [`examples/`](https://github.com/coilysiren/cli-guard/tr
 | [`audit/`](https://github.com/coilysiren/cli-guard/tree/main/examples/audit) | The foundation. `audit.NewWriter` + `verb.Wrap` produce one JSONL row per invocation. |
 | [`passthrough/`](https://github.com/coilysiren/cli-guard/tree/main/examples/passthrough) | Wrap an existing binary (`echo`) as an audited urfave subcommand via `passthrough.Command`. |
 | [`policy/`](https://github.com/coilysiren/cli-guard/tree/main/examples/policy) | `policy.ValidateArgSlice` rejecting argv with shell metacharacters. |
-| [`scope/`](https://github.com/coilysiren/cli-guard/tree/main/examples/scope) | `scope.Resolve` mapping `--commit-scope=auto` to a git toplevel. |
 | [`gittree/`](https://github.com/coilysiren/cli-guard/tree/main/examples/gittree) | `gittree.CheckClean` refusing a verb on a dirty tree. |
 | [`repocfg/`](https://github.com/coilysiren/cli-guard/tree/main/examples/repocfg) | Per-repo verb allowlist loaded from `.coily/coily.yaml`. |
 | [`exitcode/`](https://github.com/coilysiren/cli-guard/tree/main/examples/exitcode) | Public exit-code taxonomy for orchestrators. |

@@ -63,7 +63,7 @@ type SSHTarget struct {
 	// caller's ssh client; repocfg does not DNS-validate.
 	Host string
 	// WorkingDir is the absolute path of the working directory the remote
-	// coily binds its --commit-scope to. Must be absolute (POSIX leading
+	// coily chdirs into before running. Must be absolute (POSIX leading
 	WorkingDir string
 }
 

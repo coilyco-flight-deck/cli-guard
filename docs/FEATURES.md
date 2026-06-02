@@ -10,7 +10,7 @@ Per-primitive detail in [features-detail.md](features-detail.md).
 - **policy** - Argv validation rejecting shell metacharacters.
 - **hook** - Shared Claude Code PreToolUse engine.
 - **verb** - Middleware around every `*cli.Command.Action`.
-- **scope** - Resolve `--commit-scope=auto` to a git toplevel.
+- **scope** - Resolve cwd to its git toplevel for the audit row's RepoRoot.
 - **exitcode** - Public exit-code taxonomy for orchestrators.
 - **gittree** - Clean+synced gate for repo-shaped verbs.
 - **passthrough** - Audited urfave subcommand around an existing binary.

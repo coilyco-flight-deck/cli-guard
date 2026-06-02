@@ -26,8 +26,8 @@ type Config struct {
 	// Runner executes subprocesses (gh, git, open). Required.
 	Runner *shell.Runner
 
-	// Wrap applies the consumer's verb pipeline (argv validation, audit,
-	// commit-scope resolution) to a verb.Spec the package builds. coily
+	// Wrap applies the consumer's verb pipeline (argv validation, audit
+	// logging) to a verb.Spec the package builds. coily
 	Wrap func(verb.Spec) cli.ActionFunc
 
 	// AllowedOwner is the GitHub org dispatch will accept issue refs from.
@@ -293,26 +293,11 @@ need a wider tool set can opt in without editing dispatch.`, d.cfg.AllowedOwner)
 					"--claims":          c.String("claims"),
 				}, c.Args().Slice()
 			},
-			CommitScopeArgvHint: d.commitScopeArgvHint,
 			Action: func(ctx context.Context, c *cli.Command) error {
 				return d.runHeadless(ctx, c)
 			},
 		}),
 	}
-}
-
-// commitScopeArgvHint binds the audit row to the target repo by scanning
-// argv for the first issue ref and resolving its local checkout. Shared
-func (d *Dispatcher) commitScopeArgvHint(argv []string) string {
-	ref := d.firstIssueRef(argv)
-	if ref == nil {
-		return ""
-	}
-	p, err := d.cfg.RepoPath(ref.Repo)
-	if err != nil {
-		return ""
-	}
-	return p
 }
 
 // Platform tags which forge an issue ref resolves against.
@@ -380,17 +365,6 @@ func buildRef(m []string, platform Platform, s string) (*issueRef, error) {
 		return nil, fmt.Errorf("dispatch: issue number must be positive: %q", s)
 	}
 	return &issueRef{Owner: m[1], Repo: m[2], Number: n, Platform: platform}, nil
-}
-
-// firstIssueRef scans argv for the first arg that parses as an issue ref.
-// Used by the CommitScopeArgvHint to bind the audit row to the target
-func (d *Dispatcher) firstIssueRef(argv []string) *issueRef {
-	for _, a := range argv {
-		if ref, err := d.parseIssueRef(a); err == nil {
-			return ref
-		}
-	}
-	return nil
 }
 
 // Issue is the platform-neutral fetch result. GitHub and Forgejo share

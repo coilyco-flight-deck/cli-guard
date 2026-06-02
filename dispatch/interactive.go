@@ -210,7 +210,6 @@ func (d *Dispatcher) interactiveSurfaceCommand(s interactiveSurfaceSpec) *cli.Co
 					"--surface":     c.String("surface"),
 				}, c.Args().Slice()
 			},
-			CommitScopeArgvHint: d.commitScopeArgvHint,
 			Action: func(ctx context.Context, c *cli.Command) error {
 				return d.runInteractive(ctx, c, s.name, s.preamble)
 			},

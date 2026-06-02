@@ -7,7 +7,7 @@ It provides:
 - argv validation rejecting shell metacharacters before they reach `execve`
 - append-only JSONL audit log with lumberjack rotation
 - read / write / delete scope tokens
-- `--commit-scope` resolution binding every audit row to a git toplevel
+- best-effort RepoRoot stamping that records each audit row's git toplevel (empty outside any repo)
 - clean+synced gate refusing repo-shaped verbs on a dirty tree
 - per-repo command allowlist
 - thin pass-through wrapper for embedding existing CLIs as audited subcommands

@@ -14,10 +14,6 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// CommitScopeFlag is the canonical name of the global --commit-scope flag.
-// Exported so the host CLI can declare the flag and verb.Wrap can read it
-const CommitScopeFlag = "commit-scope"
-
 // AuditParentFlag is the canonical name of the global --audit-parent flag.
 // Set by a coily-on-host A invocation that ssh-passthroughs into host B, so
 const AuditParentFlag = "audit-parent"
@@ -43,21 +39,9 @@ type Spec struct {
 	// true only for pass-throughs whose argv goes straight through execve to
 	SkipPolicy bool
 
-	// SkipScope disables --commit-scope resolution for this verb. Set true
-	// for read-only or self-referential verbs that would refuse to run
-	SkipScope bool
-
 	// OnComplete, if set, runs inside writer.Wrap after Action returns and
 	// before the audit record is appended. Receives a pointer to the record
 	OnComplete func(*audit.Record)
-
-	// CommitScopeOverride, when non-empty, replaces flag/env resolution and
-	// uses this absolute path as the audit row's commit-scope. Set by `coily
-	CommitScopeOverride string
-
-	// CommitScopeArgvHint, when set, runs as a fallback resolver before
-	// scope.Resolve and only when neither --commit-scope (still at "auto")
-	CommitScopeArgvHint func(argv []string) string
 
 	// OnEvaluate, when set, runs after argv validation and before Action.
 	// Returning a non-nil *ProfileDecision attaches it to the audit row.
@@ -94,14 +78,7 @@ func Wrap(spec Spec, writer *audit.Writer) cli.ActionFunc {
 			}
 		}
 
-		base, scopeErr := buildBaseRecord(spec, argv, cmd)
-		if scopeErr != nil {
-			coded := exitcode.New(exitcode.Generic, "scope_unresolved", scopeErr,
-				"set --commit-scope=<repo-path> or COILY_COMMIT_SCOPE=<repo-path>; "+
-					"there is no opt-out, every audit row must bind to a real repo")
-			logReject(writer, spec.Name, argv, coded)
-			return coded
-		}
+		base := buildBaseRecord(spec, argv, cmd)
 
 		profileDecision, evalCoded := runOnEvaluate(ctx, cmd, spec, base, writer, argv)
 		if evalCoded != nil {
@@ -127,64 +104,23 @@ func Wrap(spec Spec, writer *audit.Writer) cli.ActionFunc {
 	}
 }
 
-// buildBaseRecord composes the per-invocation Record that writer.Wrap will
-// fill in with Decision/ExitCode/DurationMS. Resolves --commit-scope here
-func buildBaseRecord(spec Spec, argv []string, cmd *cli.Command) (audit.Record, error) {
+// buildBaseRecord composes the per-invocation Record that writer.Wrap fills
+// in with Decision/ExitCode/DurationMS. Stamps RepoRoot best-effort from cwd.
+func buildBaseRecord(spec Spec, argv []string, cmd *cli.Command) audit.Record {
 	cwd := scope.CWD()
-	repoRoot, _ := scope.Resolve("auto", "", cwd) // forensic-only, ignore error
 	invokeCWD := ""
 	if spec.ResolveInvokeCWD != nil {
 		invokeCWD = spec.ResolveInvokeCWD()
-	}
-	auditParent := resolveAuditParent(cmd)
-	if spec.SkipScope {
-		return audit.Record{
-			ID:              spec.IDOverride,
-			Verb:            spec.Name,
-			Argv:            argv,
-			RepoRoot:        repoRoot,
-			CWDSubprocess:   cwd,
-			CWDAtInvocation: invokeCWD,
-			AuditParent:     auditParent,
-		}, nil
-	}
-	if spec.CommitScopeOverride != "" {
-		return audit.Record{
-			ID:              spec.IDOverride,
-			Verb:            spec.Name,
-			Argv:            argv,
-			RepoRoot:        repoRoot,
-			CommitScope:     spec.CommitScopeOverride,
-			CWDSubprocess:   cwd,
-			CWDAtInvocation: invokeCWD,
-			AuditParent:     auditParent,
-		}, nil
-	}
-	root := cmd
-	if r := cmd.Root(); r != nil {
-		root = r
-	}
-	flagVal := root.String(CommitScopeFlag)
-	envVal := os.Getenv("COILY_COMMIT_SCOPE")
-	if (flagVal == "" || flagVal == "auto") && envVal == "" && spec.CommitScopeArgvHint != nil {
-		if hint := spec.CommitScopeArgvHint(argv); hint != "" {
-			flagVal = hint
-		}
-	}
-	commitScope, err := scope.Resolve(flagVal, envVal, cwd)
-	if err != nil {
-		return audit.Record{}, err
 	}
 	return audit.Record{
 		ID:              spec.IDOverride,
 		Verb:            spec.Name,
 		Argv:            argv,
-		RepoRoot:        repoRoot,
-		CommitScope:     commitScope,
+		RepoRoot:        scope.RepoRoot(cwd), // forensic-only: where cwd was, "" outside any repo
 		CWDSubprocess:   cwd,
 		CWDAtInvocation: invokeCWD,
-		AuditParent:     auditParent,
-	}, nil
+		AuditParent:     resolveAuditParent(cmd),
+	}
 }
 
 // resolveAuditParent reads --audit-parent off the root command, then falls

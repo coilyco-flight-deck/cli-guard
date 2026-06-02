@@ -30,7 +30,6 @@ func main() {
 		{"passthrough", "cli-guard examples/passthrough", func() *cli.Command { return treebuilders.Passthrough(nil, nil) }},
 		{"policy", "cli-guard examples/policy", treebuilders.Policy},
 		{"repocfg", "cli-guard examples/repocfg", func() *cli.Command { return treebuilders.Repocfg(nil) }},
-		{"scope", "cli-guard examples/scope", treebuilders.Scope},
 	}
 
 	outRoot := "../../site/cli"

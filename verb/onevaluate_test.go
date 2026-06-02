@@ -50,8 +50,7 @@ func TestOnEvaluate_NilLeavesBehaviorUnchanged(t *testing.T) {
 	w, path := newWriterForTest(t)
 	called := false
 	wrapped := verb.Wrap(verb.Spec{
-		Name:      "test.noop",
-		SkipScope: true,
+		Name: "test.noop",
 		Action: func(_ context.Context, _ *cli.Command) error {
 			called = true
 			return nil
@@ -84,8 +83,7 @@ func TestOnEvaluate_AllowAttachesDecisionAndRunsAction(t *testing.T) {
 		Reason: "axis not yet enforced",
 	}
 	wrapped := verb.Wrap(verb.Spec{
-		Name:      "test.allow",
-		SkipScope: true,
+		Name: "test.allow",
 		Action: func(_ context.Context, _ *cli.Command) error {
 			called = true
 			return nil
@@ -123,8 +121,7 @@ func TestOnEvaluate_DenyShortCircuitsAndExitsPolicyDenied(t *testing.T) {
 		Reason:  "data_security=max forbids this verb",
 	}
 	wrapped := verb.Wrap(verb.Spec{
-		Name:      "test.deny",
-		SkipScope: true,
+		Name: "test.deny",
 		Action: func(_ context.Context, _ *cli.Command) error {
 			called = true
 			return nil
