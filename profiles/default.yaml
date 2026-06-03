@@ -71,8 +71,8 @@ profiles:
     network_egress: open
     filesystem_reach: repo-plus-home
 
-  # The Chrome web UI, claude.ai/code. Usually running at Kapwing or in
-  # public. Assume the screen is observable, assume the network is not
+  # The Chrome web UI, claude.ai/code. Usually running in public.
+  # Assume the screen is observable, assume the network is not
   # trusted, assume permission walls cannot be safely prompted through
   # because the agent should STOP and report rather than escalate on a
   # public screen (per kai-execution-mode-web). Data security at max
