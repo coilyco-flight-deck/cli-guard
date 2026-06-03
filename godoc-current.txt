@@ -349,9 +349,15 @@ type Config struct {
 	// logging) to a verb.Spec the package builds. coily
 	Wrap func(verb.Spec) cli.ActionFunc
 
-	// AllowedOwner is the GitHub org dispatch will accept issue refs from.
-	// This is the security claim, not a knob: dispatch refuses anything
+	// AllowedOwner is the primary org dispatch accepts issue refs from, and
+	// the owner named in help and status text. This is the security claim,
+	// not a knob: dispatch refuses anything
 	AllowedOwner string
+
+	// AllowedOwners is an optional set of additional owners dispatch will
+	// accept alongside AllowedOwner, for consumers whose trusted repos span
+	// more than one org. Empty means single-owner (AllowedOwner only).
+	AllowedOwners []string
 
 	// ForgejoBaseURL enables Forgejo issue refs when set (scheme://host).
 	// Requires FetchForgejoIssue.

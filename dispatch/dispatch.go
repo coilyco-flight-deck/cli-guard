@@ -30,9 +30,15 @@ type Config struct {
 	// logging) to a verb.Spec the package builds. coily
 	Wrap func(verb.Spec) cli.ActionFunc
 
-	// AllowedOwner is the GitHub org dispatch will accept issue refs from.
-	// This is the security claim, not a knob: dispatch refuses anything
+	// AllowedOwner is the primary org dispatch accepts issue refs from, and
+	// the owner named in help and status text. This is the security claim,
+	// not a knob: dispatch refuses anything
 	AllowedOwner string
+
+	// AllowedOwners is an optional set of additional owners dispatch will
+	// accept alongside AllowedOwner, for consumers whose trusted repos span
+	// more than one org. Empty means single-owner (AllowedOwner only).
+	AllowedOwners []string
 
 	// ForgejoBaseURL enables Forgejo issue refs when set (scheme://host).
 	// Requires FetchForgejoIssue.
@@ -380,6 +386,30 @@ type Issue struct {
 // ghIssue keeps the internal name for older call sites.
 type ghIssue = Issue
 
+// ownerAllowed reports whether owner is the primary AllowedOwner or a member
+// of the optional AllowedOwners set.
+func (c Config) ownerAllowed(owner string) bool {
+	if owner == c.AllowedOwner {
+		return true
+	}
+	for _, o := range c.AllowedOwners {
+		if owner == o {
+			return true
+		}
+	}
+	return false
+}
+
+// allowedOwnersLabel renders the accepted-owner set for the refusal message:
+// "<owner>/*" for a single owner, or "{a, b, c}/*" when AllowedOwners adds more.
+func (c Config) allowedOwnersLabel() string {
+	if len(c.AllowedOwners) == 0 {
+		return c.AllowedOwner + "/*"
+	}
+	owners := append([]string{c.AllowedOwner}, c.AllowedOwners...)
+	return "{" + strings.Join(owners, ", ") + "}/*"
+}
+
 // resolveDispatchIssue parses the ref, refuses non-allowed-owner and
 // non-open issues, and returns both the ref and the fetched issue. Shared
 func (d *Dispatcher) resolveDispatchIssue(ctx context.Context, raw string) (*issueRef, *ghIssue, error) {
@@ -387,8 +417,8 @@ func (d *Dispatcher) resolveDispatchIssue(ctx context.Context, raw string) (*iss
 	if err != nil {
 		return nil, nil, err
 	}
-	if ref.Owner != d.cfg.AllowedOwner {
-		return nil, nil, fmt.Errorf("dispatch: refusing to dispatch outside %s/* (got %s)", d.cfg.AllowedOwner, ref.Owner)
+	if !d.cfg.ownerAllowed(ref.Owner) {
+		return nil, nil, fmt.Errorf("dispatch: refusing to dispatch outside %s (got %s)", d.cfg.allowedOwnersLabel(), ref.Owner)
 	}
 	issue, err := d.fetchIssueForRef(ctx, ref)
 	if err != nil {
