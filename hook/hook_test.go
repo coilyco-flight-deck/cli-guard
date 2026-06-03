@@ -412,3 +412,54 @@ func TestLeadingToken(t *testing.T) {
 		})
 	}
 }
+
+func TestPreToolUse_ProtectedBinaryDeny(t *testing.T) {
+	protected := []Protected{
+		{Name: "gcloud", Wrappers: []string{"kap"}},
+		{Name: "clusterctl", Hint: "use `kap cluster ...`."},
+	}
+	cases := []struct {
+		name    string
+		command string
+		block   bool
+		substr  string
+	}{
+		{"bare", "gcloud projects list", true, "blocked protected binary `gcloud`"},
+		{"absolute path", "/opt/homebrew/bin/gcloud auth list", true, "blocked protected binary `gcloud`"},
+		{"usr-local path", "/usr/local/bin/gcloud config", true, "gcloud"},
+		{"env prefix", "env CLOUDSDK_CONFIG=/x gcloud projects list", true, "gcloud"},
+		{"sudo prefix", "sudo gcloud auth list", true, "gcloud"},
+		{"piped behind allowed", "ls | gcloud feed", true, "gcloud"},
+		{"wrappers in hint", "gcloud x", true, "route through an audited wrapper: kap"},
+		{"explicit hint", "clusterctl get pods", true, "use `kap cluster ...`."},
+		{"unprotected passes", "ls -la", false, ""},
+		{"substring not matched", "gcloudfoo run", false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := Payload{ToolName: "Bash", ToolInput: map[string]interface{}{"command": tc.command}}
+			d := PreToolUse(payload, "test", nil, nil, lookFunc(nil), protected...)
+			if d.Block != tc.block {
+				t.Fatalf("Block = %v, want %v (msg=%q)", d.Block, tc.block, d.Message)
+			}
+			if tc.substr != "" && !strings.Contains(d.Message, tc.substr) {
+				t.Errorf("Message = %q, want substring %q", d.Message, tc.substr)
+			}
+		})
+	}
+}
+
+func TestBasename(t *testing.T) {
+	cases := map[string]string{
+		"gcloud":                   "gcloud",
+		"/opt/homebrew/bin/gcloud": "gcloud",
+		"./rel/x":                  "x",
+		"":                         "",
+		"/trailing/":               "",
+	}
+	for in, want := range cases {
+		if got := Basename(in); got != want {
+			t.Errorf("Basename(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

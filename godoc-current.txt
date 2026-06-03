@@ -808,6 +808,12 @@ substrate. Each cli-guard consumer wires it in.
 
 FUNCTIONS
 
+func Basename(token string) string
+    Basename returns the final path element of token, e.g. "gcloud"
+    for "/opt/homebrew/bin/gcloud" and "gcloud" for "gcloud". Used for
+    basename-aware matching so an absolute-path spelling cannot slip past a deny
+    keyed on the bare name.
+
 func CheckBinaryPath(token string, allowed []string, lookup LookPath, source string) string
     CheckBinaryPath resolves token via lookup and returns a non-empty
     hijack-warning string when the resolved path is outside allowed.
@@ -834,7 +840,7 @@ type Decision struct {
     Decision is what PreToolUse returns. Block=true means the caller should emit
     Message to stderr and exit with the host's hook-block
 
-func PreToolUse(payload Payload, source string, rules []IntegrityRule, routes []Route, lookup LookPath) Decision
+func PreToolUse(payload Payload, source string, rules []IntegrityRule, routes []Route, lookup LookPath, protected ...Protected) Decision
     PreToolUse evaluates a payload against integrity rules, routes, and the
     engine-level arbitrary-code-execution deny. Returns
 
@@ -859,6 +865,24 @@ type Payload struct {
 func ReadPayload(r io.Reader) Payload
     ReadPayload decodes a PreToolUse payload from r. Empty stream or unparseable
     JSON returns an empty Payload (not an error); the engine
+
+type Protected struct {
+	// Name is the binary basename to protect, e.g. "gcloud".
+	Name string
+	// Hint is the recovery sentence appended after the deny. When empty,
+	// the engine synthesizes one from Wrappers (or a bare deny if both are
+	// empty).
+	Hint string
+	// Wrappers names the audited wrappers a human routes through instead.
+	// Used to synthesize a hint when Hint is empty.
+	Wrappers []string
+}
+    Protected names a host binary that direct invocation by a semi-trusted agent
+    is denied for. Unlike Route (which matches the bare leading token only),
+    Protected matches by basename: the bare token `gcloud`, an absolute
+    path `/opt/homebrew/bin/gcloud`, and any /-containing spelling whose
+    final element is Name all match. This closes the absolute-path bypass a
+    token-keyed deny leaves open (see the 2026-05-08 deny-uv finding).
 
 type Route struct {
 	// Token is the bare leading-token to match, e.g. "gh", "brew".
@@ -1305,6 +1329,12 @@ const LocalDirName = ".coily"
     LocalDirName is the per-repo overlay directory the loader prefers. The
     canonical home for the repo allowlist is ./.coily/coily.yaml.
 
+const ModeDenyDirect = "deny-direct"
+    ModeDenyDirect is the only protected-binary mode supported in v1: the binary
+    may not be invoked directly by a semi-trusted agent; it is routed through
+    an allowed wrapper instead. Other modes (e.g. a future audited read-only
+    allowlist) are reserved and rejected until implemented.
+
 
 VARIABLES
 
@@ -1348,6 +1378,9 @@ type Config struct {
 	Path string
 	// Commands are sorted by Name. Safe to iterate directly for help output.
 	Commands []Command
+	// Security is the optional security: section. Zero value when the config
+	// declares no security: block.
+	Security Security
 }
     Config is the result of a successful Load.
 
@@ -1366,6 +1399,69 @@ func Load(path string) (*Config, error)
 func LoadDefault() (*Config, error)
     LoadDefault resolves the config path from $COILY_REPO_CONFIG or by walking
     up from the current working directory, then parses it. Returns nil,
+
+type HookPolicy struct {
+	// DenyBareBinaries are basenames the hook denies on bare invocation.
+	DenyBareBinaries []string
+	// RouteHints maps a binary basename to the recovery sentence surfaced
+	// when its invocation is denied.
+	RouteHints map[string]string
+}
+    HookPolicy is the optional PreToolUse deny/route block. When omitted,
+    a consumer can derive the same effect from ProtectedBinaries; this block
+    exists for consumers that want to state it explicitly or add hints for
+    binaries that are not full protected entries.
+
+type ProtectedBinary struct {
+	// Name is the binary's basename, e.g. "gcloud". Required.
+	Name string
+	// Mode is how the binary is protected. Empty defaults to deny-direct;
+	// only deny-direct is accepted in v1.
+	Mode string
+	// AllowedWrappers names the wrapper commands a human routes through
+	// instead (e.g. "kap", "ward"). Surfaced in remediation text.
+	AllowedWrappers []string
+	// ExpectedRealPaths are the canonical install locations of the real
+	// binary, used by doctor to reason about PATH-shim posture.
+	ExpectedRealPaths []string
+	// CredentialEnv names environment variables that, when present in an
+	// agent session, hand the agent the binary's credentials. doctor warns
+	// when these are set.
+	CredentialEnv []string
+}
+    ProtectedBinary declares one host tool that direct agent invocation is
+    denied for. The real binary stays runnable by humans through the named
+    wrappers; the policy is about keeping the agent off the bare binary.
+
+func (p ProtectedBinary) EffectiveMode() string
+    EffectiveMode returns the protected-binary mode with the empty-default
+    applied. Callers should switch on this rather than the raw field.
+
+type Security struct {
+	// ProtectedBinaries are host tools a semi-trusted agent must not invoke
+	// directly. Empty means no binary is protected by config.
+	ProtectedBinaries []ProtectedBinary
+	// Sudo carries sudo-posture policy.
+	Sudo SudoPolicy
+	// Hooks carries PreToolUse deny/route policy derived from the protected
+	// set, kept as an explicit block so a consumer can tune hook behavior
+	// without changing the protected-binary contract.
+	Hooks HookPolicy
+}
+    Security is the optional security: section of a repo config. It is
+    declarative policy a consumer's doctor/hook surfaces read; repocfg parses
+    and validates it but enforces nothing on its own. A config with no security:
+    block yields a zero Security, which every field treats as "no policy
+    declared". Field names are snake_case to match the commands: scheme
+    (allow_metacharacters, audit.egress).
+
+type SudoPolicy struct {
+	// ForbidPasswordless asserts the host must not let the agent user run
+	// broad passwordless sudo. doctor fails when `sudo -n` succeeds and
+	// this is set.
+	ForbidPasswordless bool
+}
+    SudoPolicy carries sudo-posture expectations doctor checks against.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/respfmt

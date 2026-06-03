@@ -34,6 +34,24 @@ type IntegrityRule struct {
 	AllowedPaths []string
 }
 
+// Protected names a host binary that direct invocation by a semi-trusted
+// agent is denied for. Unlike Route (which matches the bare leading token
+// only), Protected matches by basename: the bare token `gcloud`, an
+// absolute path `/opt/homebrew/bin/gcloud`, and any /-containing spelling
+// whose final element is Name all match. This closes the absolute-path
+// bypass a token-keyed deny leaves open (see the 2026-05-08 deny-uv finding).
+type Protected struct {
+	// Name is the binary basename to protect, e.g. "gcloud".
+	Name string
+	// Hint is the recovery sentence appended after the deny. When empty,
+	// the engine synthesizes one from Wrappers (or a bare deny if both are
+	// empty).
+	Hint string
+	// Wrappers names the audited wrappers a human routes through instead.
+	// Used to synthesize a hint when Hint is empty.
+	Wrappers []string
+}
+
 // Decision is what PreToolUse returns. Block=true means the caller
 // should emit Message to stderr and exit with the host's hook-block
 type Decision struct {
@@ -54,7 +72,7 @@ type LookPath func(name string) (string, error)
 
 // PreToolUse evaluates a payload against integrity rules, routes, and
 // the engine-level arbitrary-code-execution deny. Returns
-func PreToolUse(payload Payload, source string, rules []IntegrityRule, routes []Route, lookup LookPath) Decision {
+func PreToolUse(payload Payload, source string, rules []IntegrityRule, routes []Route, lookup LookPath, protected ...Protected) Decision {
 	if payload.ToolName != "Bash" {
 		return Decision{}
 	}
@@ -64,12 +82,13 @@ func PreToolUse(payload Payload, source string, rules []IntegrityRule, routes []
 	}
 	integrity := indexIntegrity(rules)
 	routeByToken := indexRoutes(routes)
+	protectedByBase := indexProtected(protected)
 	for _, seg := range SplitSegments(cmd) {
 		seg = StripEnvPrefix(strings.TrimSpace(seg))
 		if seg == "" {
 			continue
 		}
-		if d := evaluateSegment(seg, source, payload.CWD, integrity, routeByToken, lookup); d.Block {
+		if d := evaluateSegment(seg, source, payload.CWD, integrity, routeByToken, protectedByBase, lookup); d.Block {
 			return d
 		}
 	}
@@ -92,7 +111,15 @@ func indexRoutes(routes []Route) map[string]Route {
 	return out
 }
 
-func evaluateSegment(seg, source, cwd string, integrity map[string][]string, routeByToken map[string]Route, lookup LookPath) Decision {
+func indexProtected(protected []Protected) map[string]Protected {
+	out := map[string]Protected{}
+	for _, p := range protected {
+		out[Basename(p.Name)] = p
+	}
+	return out
+}
+
+func evaluateSegment(seg, source, cwd string, integrity map[string][]string, routeByToken map[string]Route, protectedByBase map[string]Protected, lookup LookPath) Decision {
 	token := LeadingToken(seg)
 
 	// Engine-level arbitrary-code-execution deny, checked before any
@@ -111,6 +138,13 @@ func evaluateSegment(seg, source, cwd string, integrity map[string][]string, rou
 		return Decision{Block: true, Message: fmt.Sprintf(
 			"%s hook: blocked execution of `%s` from a writable scratch directory. A file under /tmp (or a similar scratch dir) can carry an interpreter shebang, so the kernel runs arbitrary code the moment it is exec'd - the guard never sees the interpreter token. Writing scratch files to /tmp stays allowed; executing them does not.",
 			source, token)}
+	}
+
+	// Protected-binary deny, basename-aware so an absolute path
+	// (/opt/homebrew/bin/gcloud) is denied the same as the bare token.
+	// Checked before integrity/route, which key on the full token.
+	if p, ok := protectedByBase[Basename(token)]; ok {
+		return Decision{Block: true, Message: protectedDeny(p, token, source)}
 	}
 
 	if allowed, ok := integrity[token]; ok {
@@ -224,6 +258,33 @@ func LeadingToken(seg string) string {
 	return seg[:i]
 }
 
+// Basename returns the final path element of token, e.g. "gcloud" for
+// "/opt/homebrew/bin/gcloud" and "gcloud" for "gcloud". Used for
+// basename-aware matching so an absolute-path spelling cannot slip past a
+// deny keyed on the bare name.
+func Basename(token string) string {
+	if i := strings.LastIndexByte(token, '/'); i >= 0 {
+		return token[i+1:]
+	}
+	return token
+}
+
+// protectedDeny renders the deny message for a matched protected binary.
+// Prefers the consumer-supplied Hint; otherwise synthesizes one from the
+// allowed wrappers; otherwise emits a bare deny.
+func protectedDeny(p Protected, token, source string) string {
+	base := Basename(token)
+	msg := fmt.Sprintf("%s hook: blocked protected binary `%s`. Direct invocation is denied", source, base)
+	switch {
+	case p.Hint != "":
+		return msg + ". Recovery: " + p.Hint
+	case len(p.Wrappers) > 0:
+		return fmt.Sprintf("%s; route through an audited wrapper: %s.", msg, strings.Join(p.Wrappers, ", "))
+	default:
+		return msg + "."
+	}
+}
+
 // interpreterTokens is the set of program basenames that denote
 // arbitrary-code execution: a process whose job is to take a script or
 var interpreterTokens = map[string]bool{
@@ -247,10 +308,7 @@ func interpreterName(token string) string {
 	if token == "" {
 		return ""
 	}
-	base := token
-	if i := strings.LastIndexByte(base, '/'); i >= 0 {
-		base = base[i+1:]
-	}
+	base := Basename(token)
 	if interpreterTokens[base] {
 		return base
 	}
