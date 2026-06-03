@@ -89,6 +89,25 @@ if [ -z "$CMD" ]; then
   exit 0
 fi
 
+# Inline-authoring check (cli-guard#51): reject defining a shell function
+# or using eval inside an ad-hoc Bash invocation. Both author AND run an
+# arbitrary program with no on-disk artifact to inspect - the same
+# no-artifact laundering renderScratchExecCheck blocks for files. Runs on
+# the raw $CMD before the segment split below, because that split
+# fragments a function body across separators, so no single segment then
+# leads with a denied token (the function name and "eval" both look
+# benign as leading tokens). Remediation: write the logic to a file in
+# your repo and execute it directly (./script.sh), which leaves an
+# inspectable artifact the scan can see before it runs.
+if printf '%s' "$CMD" | grep -qE '[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)[[:space:]]*\{|function[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*(\(\))?[[:space:]]*\{'; then
+  printf 'lockdown: blocked: inline shell function definition. Define-and-execute in one Bash call leaves no inspectable artifact. Write the script to a file in your repo and run it directly: ./script.sh\n' >&2
+  exit 2
+fi
+if printf '%s' "$CMD" | grep -qE '(^|[;|&])[[:space:]]*eval([[:space:]]|$)'; then
+  printf 'lockdown: blocked: inline eval. Dynamic code execution with no on-disk artifact. Write the script to a file in your repo and run it directly: ./script.sh\n' >&2
+  exit 2
+fi
+
 # Split CMD into segments at shell separators. A segment is the leading
 # command of a pipeline / boolean / sequence / command substitution.
 SEGMENTS=$(printf '%s\n' "$CMD" | awk '

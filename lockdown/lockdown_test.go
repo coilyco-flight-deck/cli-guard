@@ -454,6 +454,23 @@ func TestWriteHook_BlocksDeniedCommand(t *testing.T) {
 		// Writing to /tmp stays allowed: only executing from it is denied.
 		{"cat from /tmp allowed", `{"tool_input":{"command":"cat /tmp/notes.txt"}}`, 0},
 		{"redirect into /tmp allowed", `{"tool_input":{"command":"head -1 /tmp/in > /tmp/out"}}`, 0},
+		// Inline-authoring check (cli-guard#51): funcdef/eval author+run a
+		// program with no on-disk artifact; matched on raw $CMD pre-split.
+		{"inline func def + call denied", `{"tool_input":{"command":"f() { ls; }; f"}}`, 2},
+		{"inline func def spaced parens denied", `{"tool_input":{"command":"target_url () { echo x; }"}}`, 2},
+		{"function-keyword def denied", `{"tool_input":{"command":"function f { ls; }"}}`, 2},
+		{"function-keyword with parens denied", `{"tool_input":{"command":"function f() { ls; }"}}`, 2},
+		{"func def after && denied", `{"tool_input":{"command":"cd /x && g() { rm y; }; g"}}`, 2},
+		{"eval of var denied", `{"tool_input":{"command":"code='ls'; eval \"$code\""}}`, 2},
+		{"eval at start denied", `{"tool_input":{"command":"eval \"$(printf ls)\""}}`, 2},
+		{"eval after pipe-separator denied", `{"tool_input":{"command":"x=ls & eval $x"}}`, 2},
+		// Legit inline shell stays allowed: loops, pipes, &&, $( ), array
+		// assignment, eval-as-argument - none author a named function.
+		{"plain for-loop allowed", `{"tool_input":{"command":"for d in */; do echo $d; done"}}`, 0},
+		{"pipe and && chain allowed", `{"tool_input":{"command":"ls | grep foo && echo done"}}`, 0},
+		{"command substitution allowed", `{"tool_input":{"command":"echo $(date)"}}`, 0},
+		{"array assignment allowed", `{"tool_input":{"command":"arr=(a b c); echo ${arr}"}}`, 0},
+		{"eval as argument not blocked", `{"tool_input":{"command":"grep eval notes.txt"}}`, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
