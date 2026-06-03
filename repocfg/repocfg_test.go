@@ -380,3 +380,118 @@ func TestLoadDefault_UsesEnvOverride(t *testing.T) {
 		t.Errorf("got %q, want test", cfg.Commands[0].Name)
 	}
 }
+
+func TestLoad_NoSecuritySection(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, `
+commands:
+  test: go test ./...
+`)
+	cfg, err := repocfg.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Security.ProtectedBinaries) != 0 {
+		t.Errorf("ProtectedBinaries = %v, want empty", cfg.Security.ProtectedBinaries)
+	}
+	if cfg.Security.Sudo.ForbidPasswordless {
+		t.Error("ForbidPasswordless = true, want false on a config with no security:")
+	}
+	if cfg.Security.Hooks.RouteHints != nil {
+		t.Errorf("RouteHints = %v, want nil", cfg.Security.Hooks.RouteHints)
+	}
+}
+
+func TestLoad_SecurityFull(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, `
+commands:
+  build: make build
+security:
+  protected_binaries:
+    - name: gcloud
+      mode: deny-direct
+      allowed_wrappers: [kap, ward]
+      expected_real_paths:
+        - /opt/homebrew/bin/gcloud
+        - /usr/local/bin/gcloud
+      credential_env: [CLOUDSDK_CONFIG, GOOGLE_APPLICATION_CREDENTIALS]
+    - name: clusterctl
+      allowed_wrappers: [kap]
+  sudo:
+    forbid_passwordless: true
+  hooks:
+    deny_bare_binaries: [gcloud, clusterctl]
+    route_hints:
+      gcloud: "Use kap for cloud operations."
+`)
+	cfg, err := repocfg.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	// commands: still parses alongside security:.
+	if len(cfg.Commands) != 1 || cfg.Commands[0].Name != "build" {
+		t.Fatalf("Commands = %+v, want one build command", cfg.Commands)
+	}
+	pbs := cfg.Security.ProtectedBinaries
+	if len(pbs) != 2 {
+		t.Fatalf("got %d protected binaries, want 2", len(pbs))
+	}
+	if pbs[0].Name != "gcloud" || pbs[0].EffectiveMode() != repocfg.ModeDenyDirect {
+		t.Errorf("pb[0] = %+v, want gcloud/deny-direct", pbs[0])
+	}
+	if len(pbs[0].ExpectedRealPaths) != 2 || pbs[0].ExpectedRealPaths[0] != "/opt/homebrew/bin/gcloud" {
+		t.Errorf("pb[0].ExpectedRealPaths = %v", pbs[0].ExpectedRealPaths)
+	}
+	// Empty mode defaults to deny-direct via EffectiveMode.
+	if pbs[1].Mode != "" || pbs[1].EffectiveMode() != repocfg.ModeDenyDirect {
+		t.Errorf("pb[1] mode = %q, EffectiveMode = %q", pbs[1].Mode, pbs[1].EffectiveMode())
+	}
+	if !cfg.Security.Sudo.ForbidPasswordless {
+		t.Error("ForbidPasswordless = false, want true")
+	}
+	if got := cfg.Security.Hooks.RouteHints["gcloud"]; got != "Use kap for cloud operations." {
+		t.Errorf("route hint = %q", got)
+	}
+	if len(cfg.Security.Hooks.DenyBareBinaries) != 2 {
+		t.Errorf("DenyBareBinaries = %v", cfg.Security.Hooks.DenyBareBinaries)
+	}
+}
+
+func TestLoad_SecurityRejectsPathName(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, `
+security:
+  protected_binaries:
+    - name: /opt/homebrew/bin/gcloud
+`)
+	if _, err := repocfg.Load(path); err == nil {
+		t.Fatal("Load: want error for path-shaped name, got nil")
+	}
+}
+
+func TestLoad_SecurityRejectsUnknownMode(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, `
+security:
+  protected_binaries:
+    - name: gcloud
+      mode: read-only
+`)
+	if _, err := repocfg.Load(path); err == nil {
+		t.Fatal("Load: want error for unsupported mode, got nil")
+	}
+}
+
+func TestLoad_SecurityRejectsDuplicate(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, `
+security:
+  protected_binaries:
+    - name: gcloud
+    - name: gcloud
+`)
+	if _, err := repocfg.Load(path); err == nil {
+		t.Fatal("Load: want error for duplicate name, got nil")
+	}
+}

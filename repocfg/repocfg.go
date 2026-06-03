@@ -57,6 +57,9 @@ type Config struct {
 	Path string
 	// Commands are sorted by Name. Safe to iterate directly for help output.
 	Commands []Command
+	// Security is the optional security: section. Zero value when the config
+	// declares no security: block.
+	Security Security
 }
 
 // ErrNoConfig is returned by LoadDefault when no coily.yaml is found in the
@@ -219,6 +222,7 @@ func Load(path string) (*Config, error) {
 	}
 	var raw struct {
 		Commands map[string]yaml.Node `yaml:"commands"`
+		Security yaml.Node            `yaml:"security"`
 	}
 	if err := yaml.Unmarshal(b, &raw); err != nil {
 		return nil, fmt.Errorf("repocfg: parse %s: %w", path, err)
@@ -235,6 +239,12 @@ func Load(path string) (*Config, error) {
 	sort.Slice(cfg.Commands, func(i, j int) bool {
 		return cfg.Commands[i].Name < cfg.Commands[j].Name
 	})
+
+	sec, err := decodeSecurity(raw.Security)
+	if err != nil {
+		return nil, fmt.Errorf("repocfg: %s: %w", path, err)
+	}
+	cfg.Security = sec
 
 	return cfg, nil
 }
