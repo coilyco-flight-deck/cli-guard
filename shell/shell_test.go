@@ -126,7 +126,7 @@ func TestExecIn_EmptyBinaryErrors(t *testing.T) {
 }
 
 func TestPathResolver_ReportsMissingBinary(t *testing.T) {
-	_, err := shell.PathResolver("coily-certainly-does-not-exist-xyzzy")
+	_, err := shell.PathResolver("certainly-does-not-exist-xyzzy")
 	if err == nil {
 		t.Error("expected error for missing binary")
 	}

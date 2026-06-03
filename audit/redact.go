@@ -15,7 +15,7 @@ const (
 )
 
 // RedactPolicy carries the patterns the consumer wants applied. cli-guard
-// supplies the mechanism; the consumer (today: coily) supplies the patterns.
+// supplies the mechanism; the consumer supplies the patterns.
 type RedactPolicy struct {
 	// SecretFlagPatterns is a list of flag-name prefixes (with leading
 	// dashes). Matching is "argv token starts with this prefix" so

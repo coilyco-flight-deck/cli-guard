@@ -12,7 +12,7 @@ import (
 )
 
 // cascade.go is the recursive fan-out surface: a detached worker allowed
-// to dispatch its own sub-workers, bounded by a hard depth budget. coily#130.
+// to dispatch its own sub-workers, bounded by a hard depth budget.
 
 // envCascadeDepth carries the cascade depth budget into a spawned child's
 // environment. Nested cascades decrement it; headless children inherit "0".
@@ -68,7 +68,7 @@ trees of dependent work that a single headless run would reject as
 
 It is NOT --dangerously-skip-permissions: the worker still runs under
 the lockdown and audit. The extra autonomy is the prompt posture plus
-permission to call 'coily dispatch' on itself.
+permission to call 'dispatch' on itself.
 
 Recursion is bounded by a hard depth budget (--depth, default %d, max %d).
 dispatch stamps the budget into each spawned child's environment and
@@ -165,16 +165,16 @@ func cascadePreamble(budget int) string {
 	b.WriteString("First assess scope. If this task fits one focused session, just do it end to end and finish - do not fan out for its own sake. ")
 	b.WriteString("If it is too large (it spans multiple repos, or naturally splits into independent slices like source / docs / tests), decompose it: for each slice, file a sub-issue in the relevant repo capturing that slice with a link back to this issue, then dispatch a worker against it. ")
 	if budget > 1 {
-		b.WriteString("For a slice that itself needs further splitting, spawn a sub-tree with `coily dispatch cascade <owner/repo#N>` - it inherits and decrements this budget automatically, so do NOT pass --depth. For a leaf-sized slice, spawn `coily dispatch headless <owner/repo#N>`. ")
+		b.WriteString("For a slice that itself needs further splitting, spawn a sub-tree with `dispatch cascade <owner/repo#N>` - it inherits and decrements this budget automatically, so do NOT pass --depth. For a leaf-sized slice, spawn `dispatch headless <owner/repo#N>`. ")
 	} else {
-		b.WriteString("Your budget is 1 - the floor. You may NOT spawn `coily dispatch cascade` (it will refuse). Either do the work yourself end to end, or for independent leaf-sized slices file sub-issues and spawn `coily dispatch headless <owner/repo#N>`. ")
+		b.WriteString("Your budget is 1 - the floor. You may NOT spawn `dispatch cascade` (it will refuse). Either do the work yourself end to end, or for independent leaf-sized slices file sub-issues and spawn `dispatch headless <owner/repo#N>`. ")
 	}
 	b.WriteString("Sub-workers are detached and run concurrently; do not block waiting on them. After dispatching, leave a comment on this issue listing the sub-issues and workers you spawned, then finish.")
 	return b.String()
 }
 
 // cascadeWorktreeFooter is the cascade-specific workflow footer: like
-// headless, but does not close the issue on fan-out. coilysiren/coily#145.
+// headless, but does not close the issue on fan-out.
 func cascadeWorktreeFooter(repoPath string, number int, title string) string {
 	branch := dispatchWorktreeBranch(dispatchWorktreeName(number, title))
 	return fmt.Sprintf("Workflow rules (from AGENTS.md):\n"+
@@ -184,7 +184,7 @@ func cascadeWorktreeFooter(repoPath string, number int, title string) string {
 		"- If `git push origin main` is rejected as non-fast-forward (a sibling worker pushed first), run `git -C %s pull --rebase origin main`, re-run tests/build, then merge and push again. Repeat until it lands.\n"+
 		"- If you do the work directly (no fan-out), close this issue with a commit trailer: closes #<N>.\n"+
 		"- If you fan out, do NOT close this issue: it stays open until the spawned leaves land their own work and close their own sub-issues. Leave a summary comment instead. Your worktree branch may stay empty - that is fine, it reaps once merged (an empty branch is already an ancestor of main).\n"+
-		"- Use `coily dispatch registry list` to see sibling sidequests before writing shared paths.\n"+
-		"- Leave the worktree directory in place - the next `coily dispatch` reaps it once the branch merges into main.\n",
+		"- Use `dispatch registry list` to see sibling sidequests before writing shared paths.\n"+
+		"- Leave the worktree directory in place - the next `dispatch` run reaps it once the branch merges into main.\n",
 		branch, repoPath, branch, repoPath, repoPath)
 }

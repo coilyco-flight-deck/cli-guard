@@ -1,5 +1,5 @@
 // Package ghidcache caches GitHub identity reads - `gh auth status` and
-// `gh api user` - that re-resolve on every coily invocation but are stable
+// `gh api user` - that re-resolve on every invocation but are stable
 package ghidcache
 
 import (

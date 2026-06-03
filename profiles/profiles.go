@@ -89,7 +89,7 @@ func LoadOverride() (map[string]profile.Coordinate, error) {
 }
 
 // ParseAndValidate decodes a YAML body and validates every profile.
-// Exposed for tests and for `coily lockdown init-config` to check the
+// Exposed for tests and for the consumer's `lockdown init-config` to check the
 func ParseAndValidate(body []byte, sourceDesc string) (map[string]profile.Coordinate, error) {
 	var f File
 	if err := yaml.Unmarshal(body, &f); err != nil {
@@ -148,7 +148,7 @@ func strictest(src Source, note string) Resolution {
 	}
 }
 
-// validateProfileName mirrors cmd/coily/ops_session.go's check. Lives
+// validateProfileName mirrors the consumer's session-name check. Lives
 // here too so a malformed name in the YAML fails at load time, not
 func validateProfileName(s string) error {
 	if s == "" {

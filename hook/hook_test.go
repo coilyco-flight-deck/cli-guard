@@ -148,15 +148,15 @@ func TestPreToolUse_ExtraSuffixAppendsWhenPresent(t *testing.T) {
 
 func TestPreToolUse_IntegrityRuleBlocksOffPathBinary(t *testing.T) {
 	rules := []IntegrityRule{{
-		Binary:       "coily",
-		AllowedPaths: []string{"/opt/homebrew/bin/coily", "/home/linuxbrew/.linuxbrew/bin/coily"},
+		Binary:       "app",
+		AllowedPaths: []string{"/opt/homebrew/bin/app", "/home/linuxbrew/.linuxbrew/bin/app"},
 	}}
 	d := PreToolUse(
-		Payload{ToolName: "Bash", ToolInput: map[string]any{"command": "coily whoami"}},
+		Payload{ToolName: "Bash", ToolInput: map[string]any{"command": "app whoami"}},
 		"test", rules, nil,
-		lookFunc(map[string]string{"coily": "/tmp/evil/coily"}))
+		lookFunc(map[string]string{"app": "/tmp/evil/app"}))
 	if !d.Block {
-		t.Fatalf("expected block on off-path coily, got pass-through")
+		t.Fatalf("expected block on off-path app, got pass-through")
 	}
 	if !strings.Contains(d.Message, "PATH-hijack") {
 		t.Errorf("missing PATH-hijack message: %q", d.Message)
@@ -165,13 +165,13 @@ func TestPreToolUse_IntegrityRuleBlocksOffPathBinary(t *testing.T) {
 
 func TestPreToolUse_IntegrityRulePassesWhenPathMatches(t *testing.T) {
 	rules := []IntegrityRule{{
-		Binary:       "coily",
-		AllowedPaths: []string{"/opt/homebrew/bin/coily"},
+		Binary:       "app",
+		AllowedPaths: []string{"/opt/homebrew/bin/app"},
 	}}
 	d := PreToolUse(
-		Payload{ToolName: "Bash", ToolInput: map[string]any{"command": "coily whoami"}},
+		Payload{ToolName: "Bash", ToolInput: map[string]any{"command": "app whoami"}},
 		"test", rules, nil,
-		lookFunc(map[string]string{"coily": "/opt/homebrew/bin/coily"}))
+		lookFunc(map[string]string{"app": "/opt/homebrew/bin/app"}))
 	if d.Block {
 		t.Errorf("expected pass-through for canonical path, got block: %q", d.Message)
 	}
@@ -304,13 +304,13 @@ func TestPreToolUse_AllowsWritingToScratch(t *testing.T) {
 
 func TestInterpreterName(t *testing.T) {
 	cases := map[string]string{
-		"python3":                 "python3",
-		"/usr/bin/python3":        "python3",
-		"/tmp/copy/python3":       "python3",
-		"node":                    "node",
-		"gh":                      "",
-		"":                        "",
-		"/opt/homebrew/bin/coily": "",
+		"python3":               "python3",
+		"/usr/bin/python3":      "python3",
+		"/tmp/copy/python3":     "python3",
+		"node":                  "node",
+		"gh":                    "",
+		"":                      "",
+		"/opt/homebrew/bin/app": "",
 	}
 	for in, want := range cases {
 		t.Run(in, func(t *testing.T) {
@@ -359,7 +359,7 @@ func TestCheckBinaryPath_OtherErrorBlocks(t *testing.T) {
 	lookup := func(_ string) (string, error) {
 		return "", errors.New("permission denied")
 	}
-	msg := CheckBinaryPath("coily", []string{"/opt/homebrew/bin/coily"}, lookup, "test")
+	msg := CheckBinaryPath("app", []string{"/opt/homebrew/bin/app"}, lookup, "test")
 	if msg == "" || !strings.Contains(msg, "permission denied") {
 		t.Errorf("non-ENOENT error should block with the underlying message, got %q", msg)
 	}
@@ -401,8 +401,8 @@ func TestLeadingToken(t *testing.T) {
 	cases := map[string]string{
 		"gh issue view": "gh",
 		"":              "",
-		"coily":         "coily",
-		"coily\tops gh": "coily",
+		"app":           "app",
+		"app\tops gh":   "app",
 	}
 	for in, want := range cases {
 		t.Run(in, func(t *testing.T) {

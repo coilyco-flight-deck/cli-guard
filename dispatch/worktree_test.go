@@ -8,8 +8,8 @@ import (
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shell"
 )
 
-// TestResolveDetachedCwd_CreatesWorktree pins the inverted mapping
-// (coily#145): detached surfaces run in a per-issue worktree, not the bare repo.
+// TestResolveDetachedCwd_CreatesWorktree pins the inverted mapping:
+// detached surfaces run in a per-issue worktree, not the bare repo.
 func TestResolveDetachedCwd_CreatesWorktree(t *testing.T) {
 	d := newTestDispatcher(t)
 	root := t.TempDir()
@@ -28,7 +28,7 @@ func TestResolveDetachedCwd_CreatesWorktree(t *testing.T) {
 		return nil
 	}
 
-	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 285}
+	ref := &issueRef{Owner: "example-org", Repo: "example-repo", Number: 285}
 	// Empty title -> bare issue-285 dir; slug naming is covered in interactive_test.go.
 	cwd, err := d.resolveDetachedCwd(context.Background(), repoPath, ref, "", false)
 	if err != nil {
@@ -37,7 +37,7 @@ func TestResolveDetachedCwd_CreatesWorktree(t *testing.T) {
 	if !added {
 		t.Error("resolveDetachedCwd must create the worktree, WorktreeAdd was never called")
 	}
-	want := filepath.Join(root, "coily", "issue-285")
+	want := filepath.Join(root, "example-repo", "issue-285")
 	if cwd != want {
 		t.Errorf("resolveDetachedCwd = %q, want the worktree path %q (not the bare checkout)", cwd, want)
 	}
@@ -57,12 +57,12 @@ func TestResolveDetachedCwd_DryRunNoCreate(t *testing.T) {
 		return nil
 	}
 
-	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 285}
+	ref := &issueRef{Owner: "example-org", Repo: "example-repo", Number: 285}
 	cwd, err := d.resolveDetachedCwd(context.Background(), t.TempDir(), ref, "", true)
 	if err != nil {
 		t.Fatalf("resolveDetachedCwd dry-run: %v", err)
 	}
-	if want := filepath.Join(root, "coily", "issue-285"); cwd != want {
+	if want := filepath.Join(root, "example-repo", "issue-285"); cwd != want {
 		t.Errorf("dry-run cwd = %q, want %q", cwd, want)
 	}
 }

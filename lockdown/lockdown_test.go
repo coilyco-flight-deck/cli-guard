@@ -25,7 +25,7 @@ func TestLoadDefaults_ReturnsNonEmpty(t *testing.T) {
 	}
 }
 
-func TestLoadDefaults_AllowsCoilyBash(t *testing.T) {
+func TestLoadDefaults_AllowsConsumerBash(t *testing.T) {
 	d, _ := lockdown.LoadDefaults()
 	if !contains(d.Allow, "Bash(coily:*)") {
 		t.Errorf("allow list missing Bash(coily:*). Got: %v", d.Allow)
@@ -44,7 +44,7 @@ func TestLoadDefaults_AllowsNonShellEvaluators(t *testing.T) {
 }
 
 // TestLoadDefaults_DeniesWrappedBinaries pins cli-guard#13, #14: the deny
-// list maps 1:1 to the binaries coily wraps.
+// list maps 1:1 to the binaries the consumer wraps.
 func TestLoadDefaults_DeniesWrappedBinaries(t *testing.T) {
 	d, _ := lockdown.LoadDefaults()
 	mustDeny := []string{
@@ -79,7 +79,7 @@ func TestBuildPlan_OmitsDeniedMcpServersKey(t *testing.T) {
 
 func TestBuildPlan_AfterEndsWithNewline(t *testing.T) {
 	// Settings JSON must end in a trailing newline so it does not fight
-	// end-of-file-fixer and re-dirty on every re-baseline. See coily#135.
+	// end-of-file-fixer and re-dirty on every re-baseline.
 	d, _ := lockdown.LoadDefaults()
 	target := filepath.Join(t.TempDir(), ".claude", "settings.json")
 	plan, err := lockdown.BuildPlan(target, d, testDriver())
@@ -351,25 +351,25 @@ func TestRenderHookScript_PassesShellSyntaxCheck(t *testing.T) {
 	}
 }
 
-func TestRenderHookScript_NamesCoilyWrapperOnDeny(t *testing.T) {
+func TestRenderHookScript_NamesConsumerWrapperOnDeny(t *testing.T) {
 	d, _ := lockdown.LoadDefaults()
 	body, err := testDriver().RenderHookScript(d, testDriver())
 	if err != nil {
 		t.Fatalf("RenderHookScript: %v", err)
 	}
-	// Issue #61: deny-rule message must name `coily ops <bin>` as the
+	// Issue #61: deny-rule message must name `app ops <bin>` as the
 	// recovery path for the wrapped binaries the agent reaches for most.
 	for prefix, recovery := range map[string]string{
-		"gh":        "coily ops gh",
-		"aws":       "coily ops aws",
-		"kubectl":   "coily ops kubectl",
-		"docker":    "coily docker",
-		"tailscale": "coily tailscale",
-		"npm":       "coily pkg npm",
-		"uv":        "coily pkg uv",
-		"pip":       "coily pkg pip",
-		"cargo":     "coily pkg cargo",
-		"brew":      "coily brew",
+		"gh":        "app ops gh",
+		"aws":       "app ops aws",
+		"kubectl":   "app ops kubectl",
+		"docker":    "app docker",
+		"tailscale": "app tailscale",
+		"npm":       "app pkg npm",
+		"uv":        "app pkg uv",
+		"pip":       "app pkg pip",
+		"cargo":     "app pkg cargo",
+		"brew":      "app brew",
 	} {
 		want := "blocked by deny rule: " + prefix + ". Recovery: use `" + recovery
 		if !strings.Contains(body, want) {
@@ -426,21 +426,21 @@ func TestWriteHook_BlocksDeniedCommand(t *testing.T) {
 		{"env-prefixed aws s3 cp denied", `{"tool_input":{"command":"env AWS_PROFILE=x aws s3 cp foo s3://b/x"}}`, 2},
 		{"gh pr merge denied", `{"tool_input":{"command":"gh pr merge 123"}}`, 2},
 		{"gh api denied", `{"tool_input":{"command":"gh api repos/foo/bar"}}`, 2},
-		// Inverted reads: bare aws/kubectl/gh now route through coily.
-		{"aws s3 ls denied (route via coily)", `{"tool_input":{"command":"aws s3 ls"}}`, 2},
+		// Inverted reads: bare aws/kubectl/gh now route through the consumer.
+		{"aws s3 ls denied (route via the consumer)", `{"tool_input":{"command":"aws s3 ls"}}`, 2},
 		{"aws sts get-caller-identity denied", `{"tool_input":{"command":"aws sts get-caller-identity"}}`, 2},
-		{"kubectl get denied (route via coily)", `{"tool_input":{"command":"kubectl get pods"}}`, 2},
-		{"gh pr view denied (route via coily)", `{"tool_input":{"command":"gh pr view 123"}}`, 2},
+		{"kubectl get denied (route via the consumer)", `{"tool_input":{"command":"kubectl get pods"}}`, 2},
+		{"gh pr view denied (route via the consumer)", `{"tool_input":{"command":"gh pr view 123"}}`, 2},
 		{"ls allowed", `{"tool_input":{"command":"ls -la"}}`, 0},
 		{"empty command allowed", `{"tool_input":{"command":""}}`, 0},
-		// Coily binary check: paths outside homebrew rejected, brew paths allowed.
-		{"~/go/bin/coily denied", `{"tool_input":{"command":"/Users/kai/go/bin/coily systemctl"}}`, 2},
-		{"/tmp/coily denied", `{"tool_input":{"command":"/tmp/coily ops kubectl get pods"}}`, 2},
-		{"./bin/coily denied", `{"tool_input":{"command":"./bin/coily lockdown --check"}}`, 2},
-		{"/opt/homebrew/bin/coily allowed", `{"tool_input":{"command":"/opt/homebrew/bin/coily systemctl"}}`, 0},
-		{"/usr/local/bin/coily allowed", `{"tool_input":{"command":"/usr/local/bin/coily kubectl"}}`, 0},
-		{"linuxbrew coily allowed", `{"tool_input":{"command":"/home/linuxbrew/.linuxbrew/bin/coily systemctl"}}`, 0},
-		{"coily denied via piped second segment", `{"tool_input":{"command":"echo go | /tmp/coily systemctl"}}`, 2},
+		// Consumer binary check: paths outside homebrew rejected, brew paths allowed.
+		{"~/go/bin/app denied", `{"tool_input":{"command":"/Users/kai/go/bin/app systemctl"}}`, 2},
+		{"/tmp/app denied", `{"tool_input":{"command":"/tmp/app ops kubectl get pods"}}`, 2},
+		{"./bin/app denied", `{"tool_input":{"command":"./bin/app lockdown --check"}}`, 2},
+		{"/opt/homebrew/bin/app allowed", `{"tool_input":{"command":"/opt/homebrew/bin/app systemctl"}}`, 0},
+		{"/usr/local/bin/app allowed", `{"tool_input":{"command":"/usr/local/bin/app kubectl"}}`, 0},
+		{"linuxbrew app allowed", `{"tool_input":{"command":"/home/linuxbrew/.linuxbrew/bin/app systemctl"}}`, 0},
+		{"app denied via piped second segment", `{"tool_input":{"command":"echo go | /tmp/app systemctl"}}`, 2},
 		// Gap 1: a denied wrapped binary laundered behind an allowed leading
 		// token. Every segment of the pipeline must be evaluated.
 		{"aws laundered behind head", `{"tool_input":{"command":"head -1 file | aws s3 cp - s3://x/y"}}`, 2},
@@ -608,7 +608,7 @@ func TestMergeDenyInto_PrunesShadowedAllows(t *testing.T) {
 "Bash(docker:*)",
 "Bash(jq:*)",
 "Bash(grep -E foo)",
-"Bash(coily git :*)",
+"Bash(app git :*)",
 "Read(/Users/kai/.claude/**)"
 ]}}`)
 	if err := os.WriteFile(target, seed, 0o600); err != nil {
@@ -639,7 +639,7 @@ func TestMergeDenyInto_PrunesShadowedAllows(t *testing.T) {
 	shouldKeep := []string{
 		"Bash(jq:*)",
 		"Bash(grep -E foo)",
-		"Bash(coily git :*)",
+		"Bash(app git :*)",
 		"Read(/Users/kai/.claude/**)",
 	}
 	for _, k := range shouldKeep {

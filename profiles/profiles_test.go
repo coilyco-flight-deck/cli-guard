@@ -11,7 +11,7 @@ import (
 )
 
 // TestDefaultYAML_ParsesAndValidates confirms the embedded template
-// the user copies via `coily lockdown init-config` is itself valid.
+// the user copies via the consumer's `lockdown init-config` is itself valid.
 func TestDefaultYAML_ParsesAndValidates(t *testing.T) {
 	got, err := ParseAndValidate(DefaultYAML, "embedded default.yaml")
 	if err != nil {

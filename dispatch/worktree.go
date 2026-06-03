@@ -10,7 +10,7 @@ import (
 )
 
 // worktree.go owns dispatch worktree placement for the detached surfaces
-// (headless, cascade); reap.go closes the lifecycle. coilysiren/coily#145.
+// (headless, cascade); reap.go closes the lifecycle.
 
 // defaultWorktreeAdd runs `git -C <repoPath> worktree add -B <branch>
 // <worktreePath>` through the shell runner. Default for Config.WorktreeAdd.

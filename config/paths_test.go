@@ -26,9 +26,9 @@ func TestSanitizeSlug(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"coilysiren-backend", "coilysiren-backend"},
-		{"CoilySiren-Backend", "coilysiren-backend"},
-		{"coilysiren/backend", "coilysiren-backend"},
+		{"example-backend", "example-backend"},
+		{"Example-Backend", "example-backend"},
+		{"example/backend", "example-backend"},
 		{"My Org/Some Repo", "my-org-some-repo"},
 		{"foo/bar.baz", "foo-bar-baz"},
 		{"under_score/repo", "under-score-repo"},

@@ -218,7 +218,7 @@ func (d *Dispatcher) interactiveSurfaceCommand(s interactiveSurfaceSpec) *cli.Co
 }
 
 // interactivePrompt is the prompt the shim execs claude with. Supervised
-// surfaces run directly on the default branch, no worktree (coily#145).
+// surfaces run directly on the default branch, no worktree.
 func interactivePrompt(ref *issueRef, issue *ghIssue, preamble string) string {
 	var b strings.Builder
 	if preamble != "" {
@@ -237,10 +237,10 @@ func interactivePrompt(ref *issueRef, issue *ghIssue, preamble string) string {
 // command the dispatched session runs before doing anything else.
 func firstActionHint(ref *issueRef, issue *ghIssue) string {
 	if ref.Platform == PlatformForgejo {
-		return fmt.Sprintf("run `coily ops forgejo issue view --repo %s/%s --number %d` (URL: %s)",
+		return fmt.Sprintf("view the Forgejo issue %s/%s #%d (URL: %s)",
 			ref.Owner, ref.Repo, ref.Number, issue.URL)
 	}
-	return fmt.Sprintf("run `coily ops gh issue view %s --comments`", issue.URL)
+	return fmt.Sprintf("view the GitHub issue at %s with its comments", issue.URL)
 }
 
 // interactiveTitleLine is the self-identifying header the shim echoes in

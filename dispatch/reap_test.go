@@ -49,16 +49,16 @@ func TestReapDispatchWorktrees_RemovesMergedOnly(t *testing.T) {
 	// Two repos, each with a merged + an unmerged worktree, plus a stray
 	// file the reaper must ignore.
 	for _, dir := range []string{
-		filepath.Join(root, "coily", "issue-1"),          // merged
-		filepath.Join(root, "coily", "issue-2"),          // unmerged
-		filepath.Join(root, "agentic-os-kai", "issue-5"), // merged
-		filepath.Join(root, "agentic-os-kai", "issue-7"), // remove fails
+		filepath.Join(root, "example-repo", "issue-1"),  // merged
+		filepath.Join(root, "example-repo", "issue-2"),  // unmerged
+		filepath.Join(root, "another-repo", "issue-5"),  // merged
+		filepath.Join(root, "another-repo", "issue-7"),  // remove fails
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(root, "coily", "stray.txt"), []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "example-repo", "stray.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatalf("write stray file: %v", err)
 	}
 
@@ -90,8 +90,8 @@ func TestReapDispatchWorktrees_RemovesMergedOnly(t *testing.T) {
 
 	sort.Strings(removed)
 	want := []string{
-		filepath.Join(root, "agentic-os-kai", "issue-5"),
-		filepath.Join(root, "coily", "issue-1"),
+		filepath.Join(root, "another-repo", "issue-5"),
+		filepath.Join(root, "example-repo", "issue-1"),
 	}
 	sort.Strings(want)
 	if strings.Join(removed, "|") != strings.Join(want, "|") {
@@ -99,7 +99,7 @@ func TestReapDispatchWorktrees_RemovesMergedOnly(t *testing.T) {
 	}
 	// issue-2 (unmerged) must never reach WorktreeRemove.
 	for _, c := range removeCalls {
-		if strings.HasSuffix(c, filepath.Join("coily", "issue-2")) {
+		if strings.HasSuffix(c, filepath.Join("example-repo", "issue-2")) {
 			t.Errorf("unmerged worktree issue-2 was passed to WorktreeRemove")
 		}
 	}

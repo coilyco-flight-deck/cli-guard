@@ -13,7 +13,7 @@ import (
 )
 
 // reap.go closes the worktree lifecycle opened by worktree.go: it removes
-// detached-surface worktrees once their branch merges. coilysiren/coily#145.
+// detached-surface worktrees once their branch merges.
 
 // defaultWorktreeReapable reports whether a dispatch worktree is safe to
 // remove: its branch is either gone (already cleaned up) or fully merged

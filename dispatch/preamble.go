@@ -1,7 +1,7 @@
 package dispatch
 
-// preamble.go holds the per-surface prompt preambles. coily#144 retired the
-// orthogonal posture axis; the preamble is keyed off the surface, not a flag.
+// preamble.go holds the per-surface prompt preambles. The surface, not an
+// orthogonal posture flag, keys which preamble is used.
 
 // headlessPreamble leads the detached headless prompt: no operator is
 // watching, so finish end to end and never wait for input.

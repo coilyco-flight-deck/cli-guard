@@ -1,5 +1,5 @@
 // Package ttlcache is a small on-disk key/value cache with per-entry TTLs.
-// Built for coily after the lockdown inversion: every aws / kubectl / gh
+// Built for the consumer after the lockdown inversion: every aws / kubectl / gh
 package ttlcache
 
 import (

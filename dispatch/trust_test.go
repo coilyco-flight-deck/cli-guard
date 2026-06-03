@@ -59,7 +59,7 @@ func TestEnsureClaudeFolderTrust_MissingFile(t *testing.T) {
 // a path Claude Code has never seen gets a fresh project entry with the
 func TestEnsureClaudeFolderTrust_NewEntry(t *testing.T) {
 	d := newTestDispatcher(t)
-	dir := "/Users/kai/projects/coilysiren/.dispatch-worktrees/coily/issue-290"
+	dir := "/Users/example/projects/example-org/.dispatch-worktrees/example-repo/issue-290"
 	path := withClaudeConfig(t, d, `{"numStartups":7,"projects":{"/other/repo":{"hasTrustDialogAccepted":true}}}`)
 
 	if err := d.ensureClaudeFolderTrust(dir); err != nil {
@@ -86,7 +86,7 @@ func TestEnsureClaudeFolderTrust_NewEntry(t *testing.T) {
 // an explicit hasTrustDialogAccepted:false (the state a headless run
 func TestEnsureClaudeFolderTrust_FlipsFalse(t *testing.T) {
 	d := newTestDispatcher(t)
-	dir := "/Users/kai/projects/coilysiren/agentic-os-kai"
+	dir := "/Users/example/projects/example-org/example-repo"
 	path := withClaudeConfig(t, d, `{"projects":{"`+dir+`":{"hasTrustDialogAccepted":false,"history":[]}}}`)
 
 	if err := d.ensureClaudeFolderTrust(dir); err != nil {

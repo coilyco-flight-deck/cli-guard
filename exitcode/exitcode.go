@@ -11,13 +11,13 @@ const (
 	// Generic = catch-all for errors that haven't been classified yet.
 	// New code should not return this; reach for one of the typed codes
 	Generic = 1
-	// PolicyDenied = coily's pre-flight rejected the invocation
+	// PolicyDenied = the consumer's pre-flight rejected the invocation
 	// (shell-metacharacter validation, missing required arg, etc).
 	PolicyDenied = 2
 	// UpstreamFailed = the underlying tool / SDK call ran and returned a
 	// non-zero exit. Stdout/stderr from the tool flow through; the
 	UpstreamFailed = 3
-	// Internal = coily-internal failure: config load, manifest miss,
+	// Internal = consumer-internal failure: config load, manifest miss,
 	// audit-write fail, etc. Distinct from PolicyDenied because there's
 	Internal = 4
 	// UserError = the user supplied something obviously wrong: missing
@@ -54,7 +54,7 @@ type CodedError struct {
 // Error returns the wrapped error's message.
 func (e *CodedError) Error() string { return e.Err.Error() }
 
-// Code returns the numeric exit code coily should exit with.
+// Code returns the numeric exit code the consumer should exit with.
 func (e *CodedError) Code() int { return e.C }
 
 // Kind returns the lowercase stable token written into the yaml error envelope.

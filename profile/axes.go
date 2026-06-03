@@ -1,5 +1,5 @@
 // Package profile declares the categorical operating-model axes that
-// cli-guard exposes for consumers (today: coily) to build per-session
+// cli-guard exposes for consumers to build per-session
 package profile
 
 import "fmt"
@@ -146,7 +146,7 @@ func StrictestTier(a Axis) Tier {
 }
 
 // Coordinate is a tier-per-axis assignment. Profiles declared by
-// consumers (coily's "mobile", "mac-tower", ...) resolve to a
+// consumers (e.g. "mobile", "mac-tower", ...) resolve to a
 type Coordinate struct {
 	DataSecurity    Tier
 	BlastRadius     Tier
@@ -171,7 +171,7 @@ func (c Coordinate) Get(a Axis) Tier {
 }
 
 // Strictest returns the coordinate where every axis is at its
-// strictest tier. Per coily#150, this is the headless-default and
+// strictest tier. This is the headless-default and
 func Strictest() Coordinate {
 	return Coordinate{
 		DataSecurity:    StrictestTier(AxisDataSecurity),

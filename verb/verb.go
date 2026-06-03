@@ -1,4 +1,4 @@
-// Package verb is the middleware that wraps every coily command action in
+// Package verb is the middleware that wraps every consumer command action in
 // the standard pipeline of:
 package verb
 
@@ -48,7 +48,7 @@ type Spec struct {
 	ResolveInvokeCWD func() string
 }
 
-// Wrap returns a cli.ActionFunc that runs the full coily verb pipeline.
+// Wrap returns a cli.ActionFunc that runs the full verb pipeline.
 func Wrap(spec Spec, writer *audit.Writer) cli.ActionFunc {
 	return func(ctx context.Context, cmd *cli.Command) error {
 		// os.Args is what the user typed. Better for audit than trying to
@@ -58,7 +58,7 @@ func Wrap(spec Spec, writer *audit.Writer) cli.ActionFunc {
 			args, positional := extractArgs(spec, cmd)
 			if err := policy.ValidateArgs(args); err != nil {
 				coded := exitcode.New(exitcode.PolicyDenied, "policy_denied", err,
-					"argv contains a shell metacharacter that coily refuses to forward")
+					"argv contains a shell metacharacter the security policy refuses to forward")
 				logReject(writer, spec.Name, argv, coded)
 				return coded
 			}

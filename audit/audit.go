@@ -285,7 +285,7 @@ func (w *Writer) now() time.Time {
 	return w.Now()
 }
 
-// ReadAll decodes every record from r. Useful for tests and for `coily audit
+// ReadAll decodes every record from r. Useful for tests and for `audit
 // tail`-style verbs.
 func ReadAll(r io.Reader) ([]Record, error) {
 	dec := json.NewDecoder(r)

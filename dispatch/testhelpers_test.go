@@ -18,8 +18,8 @@ func newTestDispatcher(t *testing.T) *Dispatcher {
 	d, err := New(Config{
 		Runner:       &shell.Runner{},
 		Wrap:         func(s verb.Spec) cli.ActionFunc { return s.Action },
-		AllowedOwner: "coilysiren",
-		BinaryName:   "coily",
+		AllowedOwner: "example-org",
+		BinaryName:   "example-cli",
 		RepoPath:     func(_ string) (string, error) { return repoRoot, nil },
 		WorktreeRoot: func() (string, error) { return worktreeRoot, nil },
 		LogRoot:      func() (string, error) { return logRoot, nil },

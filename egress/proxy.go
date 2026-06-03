@@ -1,4 +1,4 @@
-// Package egress is the per-invocation HTTP CONNECT proxy that coily starts
+// Package egress is the per-invocation HTTP CONNECT proxy that the consumer starts
 // for the duration of a wrapped subprocess. The child inherits HTTPS_PROXY /
 package egress
 
@@ -145,7 +145,7 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
 
 	if !p.allowed(host) {
 		p.record(host, audit.EgressDeny, 0, 0, 0)
-		http.Error(w, "egress: host denied by coily allowlist", http.StatusForbidden)
+		http.Error(w, "egress: host denied by allowlist", http.StatusForbidden)
 		return
 	}
 

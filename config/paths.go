@@ -35,7 +35,7 @@ const SessionsSubdir = "sessions"
 // containing the active lockdown profile name. Plain text, one line.
 const SessionProfileFile = "profile"
 
-// UnrootedAuditName is the slug used when coily is invoked outside any git
+// UnrootedAuditName is the slug used when the consumer is invoked outside any git
 // repo (or inside one with no origin remote). All such invocations land in
 const UnrootedAuditName = "_unrooted"
 
@@ -180,7 +180,7 @@ func SanitizeSlug(s string) string {
 }
 
 // gitOriginURL shells out to `git remote get-url origin`. A 2-second timeout
-// keeps a hung git from blocking every coily invocation. Returns the empty
+// keeps a hung git from blocking every invocation. Returns the empty
 func gitOriginURL() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

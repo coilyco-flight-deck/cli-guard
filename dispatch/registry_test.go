@@ -52,10 +52,10 @@ func TestDispatchHasRegistrySubverb(t *testing.T) {
 func TestRegistryPublicAPI(t *testing.T) {
 	root := t.TempDir()
 	livePID := os.Getpid()
-	writeFakeDispatch(t, root, "coily", 119, "20260527-130000", "", &dispatchMeta{
+	writeFakeDispatch(t, root, "example-repo", 119, "20260527-130000", "", &dispatchMeta{
 		PID:          livePID,
 		StartedAt:    time.Unix(1700000000, 0).UTC(),
-		Ref:          "coilysiren/coily#119",
+		Ref:          "example-org/example-repo#119",
 		PathsClaimed: []string{"/work/skills/tooling-foo"},
 	})
 	r := NewRegistry(root)
@@ -101,17 +101,17 @@ func TestRegistryListEmpty(t *testing.T) {
 func TestRegistryListFiltersDeadPIDs(t *testing.T) {
 	d := newTestDispatcher(t)
 	root, _ := d.cfg.LogRoot()
-	writeFakeDispatch(t, root, "coily", 99, "20260527-130000", "", &dispatchMeta{
+	writeFakeDispatch(t, root, "example-repo", 99, "20260527-130000", "", &dispatchMeta{
 		PID:           1, // init - alive but not ours; harmless. Use a definitely-dead pid instead.
 		StartedAt:     time.Now().UTC(),
-		Ref:           "coilysiren/coily#99",
+		Ref:           "example-org/example-repo#99",
 		ParentSession: "parent-abcd",
 	})
 	// Overwrite with a clearly-dead pid: pick a huge value unlikely to exist.
-	writeFakeDispatch(t, root, "coily", 99, "20260527-130001", "", &dispatchMeta{
+	writeFakeDispatch(t, root, "example-repo", 99, "20260527-130001", "", &dispatchMeta{
 		PID:       2_000_000_000,
 		StartedAt: time.Now().UTC(),
-		Ref:       "coilysiren/coily#99",
+		Ref:       "example-org/example-repo#99",
 	})
 	out, err := runRegistryCmd(t, d, []string{"list"})
 	if err != nil {
@@ -127,21 +127,21 @@ func TestRegistryListIncludesAliveSidequest(t *testing.T) {
 	d := newTestDispatcher(t)
 	root, _ := d.cfg.LogRoot()
 	livePID := os.Getpid()
-	writeFakeDispatch(t, root, "coily", 119, "20260527-130000", "", &dispatchMeta{
+	writeFakeDispatch(t, root, "example-repo", 119, "20260527-130000", "", &dispatchMeta{
 		PID:           livePID,
 		StartedAt:     time.Unix(1700000000, 0).UTC(),
-		Ref:           "coilysiren/coily#119",
+		Ref:           "example-org/example-repo#119",
 		ParentSession: "parent-e935",
-		PathsClaimed:  []string{"agentic-os-kai/.agents/skills/tooling-mcp-servers"},
+		PathsClaimed:  []string{"example-repo/.agents/skills/tooling-mcp-servers"},
 	})
 	out, err := runRegistryCmd(t, d, []string{"list"})
 	if err != nil {
 		t.Fatalf("registry list: %v", err)
 	}
 	for _, want := range []string{
-		"coilysiren/coily#119",
+		"example-org/example-repo#119",
 		"parent-e935",
-		"agentic-os-kai/.agents/skills/tooling-mcp-servers",
+		"example-repo/.agents/skills/tooling-mcp-servers",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in output, got %q", want, out)
@@ -202,10 +202,10 @@ func TestParseClaimsAbsolutizes(t *testing.T) {
 func TestRegistryCheckCleanReturnsZero(t *testing.T) {
 	d := newTestDispatcher(t)
 	root, _ := d.cfg.LogRoot()
-	writeFakeDispatch(t, root, "coily", 119, "20260527-130000", "", &dispatchMeta{
+	writeFakeDispatch(t, root, "example-repo", 119, "20260527-130000", "", &dispatchMeta{
 		PID:          os.Getpid(),
 		StartedAt:    time.Unix(1700000000, 0).UTC(),
-		Ref:          "coilysiren/coily#119",
+		Ref:          "example-org/example-repo#119",
 		PathsClaimed: []string{"/work/foo"},
 	})
 	out, err := runRegistryCheckCmd(t, d, []string{"/work/bar"})
@@ -222,10 +222,10 @@ func TestRegistryCheckCleanReturnsZero(t *testing.T) {
 func TestRegistryCheckExactConflict(t *testing.T) {
 	d := newTestDispatcher(t)
 	root, _ := d.cfg.LogRoot()
-	writeFakeDispatch(t, root, "coily", 119, "20260527-130000", "", &dispatchMeta{
+	writeFakeDispatch(t, root, "example-repo", 119, "20260527-130000", "", &dispatchMeta{
 		PID:          os.Getpid(),
 		StartedAt:    time.Unix(1700000000, 0).UTC(),
-		Ref:          "coilysiren/coily#119",
+		Ref:          "example-org/example-repo#119",
 		PathsClaimed: []string{"/work/foo"},
 	})
 	out, err := runRegistryCheckCmd(t, d, []string{"/work/foo"})
@@ -242,10 +242,10 @@ func TestRegistryCheckExactConflict(t *testing.T) {
 func TestRegistryCheckAncestorConflict(t *testing.T) {
 	d := newTestDispatcher(t)
 	root, _ := d.cfg.LogRoot()
-	writeFakeDispatch(t, root, "coily", 119, "20260527-130000", "", &dispatchMeta{
+	writeFakeDispatch(t, root, "example-repo", 119, "20260527-130000", "", &dispatchMeta{
 		PID:          os.Getpid(),
 		StartedAt:    time.Unix(1700000000, 0).UTC(),
-		Ref:          "coilysiren/coily#119",
+		Ref:          "example-org/example-repo#119",
 		PathsClaimed: []string{"/work/skills/tooling-foo"},
 	})
 	out, err := runRegistryCheckCmd(t, d, []string{"/work/skills/tooling-foo/SKILL.md"})
@@ -262,10 +262,10 @@ func TestRegistryCheckAncestorConflict(t *testing.T) {
 func TestRegistryCheckAncestorBoundary(t *testing.T) {
 	d := newTestDispatcher(t)
 	root, _ := d.cfg.LogRoot()
-	writeFakeDispatch(t, root, "coily", 119, "20260527-130000", "", &dispatchMeta{
+	writeFakeDispatch(t, root, "example-repo", 119, "20260527-130000", "", &dispatchMeta{
 		PID:          os.Getpid(),
 		StartedAt:    time.Unix(1700000000, 0).UTC(),
-		Ref:          "coilysiren/coily#119",
+		Ref:          "example-org/example-repo#119",
 		PathsClaimed: []string{"/work/skills/tooling-foo"},
 	})
 	out, err := runRegistryCheckCmd(t, d, []string{"/work/skills/tooling-foobar"})
@@ -280,10 +280,10 @@ func TestRegistryListJSON(t *testing.T) {
 	d := newTestDispatcher(t)
 	root, _ := d.cfg.LogRoot()
 	livePID := os.Getpid()
-	writeFakeDispatch(t, root, "coily", 119, "20260527-130000", "", &dispatchMeta{
+	writeFakeDispatch(t, root, "example-repo", 119, "20260527-130000", "", &dispatchMeta{
 		PID:       livePID,
 		StartedAt: time.Unix(1700000000, 0).UTC(),
-		Ref:       "coilysiren/coily#119",
+		Ref:       "example-org/example-repo#119",
 	})
 	out, err := runRegistryCmd(t, d, []string{"list", "--json"})
 	if err != nil {
@@ -293,7 +293,7 @@ func TestRegistryListJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("parse JSON output: %v\n%s", err, out)
 	}
-	if len(got) != 1 || got[0].PID != livePID || got[0].Ref != "coilysiren/coily#119" {
+	if len(got) != 1 || got[0].PID != livePID || got[0].Ref != "example-org/example-repo#119" {
 		t.Fatalf("unexpected entries: %+v", got)
 	}
 }

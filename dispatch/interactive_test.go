@@ -14,23 +14,23 @@ import (
 // TestInteractivePrompt_RefAndFirstAction pins the prompt contract. The
 // shim greps the owner/repo#N token out of the JSON payload via jq, but
 func TestInteractivePrompt_RefAndFirstAction(t *testing.T) {
-	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 270}
+	ref := &issueRef{Owner: "example-org", Repo: "example-repo", Number: 270}
 	issue := &ghIssue{
 		Number: 270,
 		Title:  "split dispatch into headless/interactive",
-		URL:    "https://github.com/coilysiren/coily/issues/270",
+		URL:    "https://github.com/example-org/example-repo/issues/270",
 		State:  "open",
 	}
 	got := interactivePrompt(ref, issue, "")
 
-	if !strings.HasPrefix(got, "Work on issue coilysiren/coily#270.") {
-		t.Errorf("interactivePrompt prefix = %q, want \"Work on issue coilysiren/coily#270.\" lead", got)
+	if !strings.HasPrefix(got, "Work on issue example-org/example-repo#270.") {
+		t.Errorf("interactivePrompt prefix = %q, want \"Work on issue example-org/example-repo#270.\" lead", got)
 	}
 	for _, want := range []string{
 		"First action",
-		"coily ops gh issue view",
-		"https://github.com/coilysiren/coily/issues/270",
-		"--comments",
+		"view the GitHub issue",
+		"https://github.com/example-org/example-repo/issues/270",
+		"with its comments",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("interactivePrompt missing %q, got %q", want, got)
@@ -38,14 +38,14 @@ func TestInteractivePrompt_RefAndFirstAction(t *testing.T) {
 	}
 }
 
-// TestInteractivePrompt_MainMode pins the supervised-surface contract
-// (coily#145): main-mode prompt, no worktree-merge instructions.
+// TestInteractivePrompt_MainMode pins the supervised-surface contract:
+// main-mode prompt, no worktree-merge instructions.
 func TestInteractivePrompt_MainMode(t *testing.T) {
-	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 300}
+	ref := &issueRef{Owner: "example-org", Repo: "example-repo", Number: 300}
 	issue := &ghIssue{
 		Number: 300,
 		Title:  "invert the surface-to-isolation mapping",
-		URL:    "https://github.com/coilysiren/coily/issues/300",
+		URL:    "https://github.com/example-org/example-repo/issues/300",
 		State:  "open",
 	}
 
@@ -79,15 +79,15 @@ func TestInteractivePrompt_MainMode(t *testing.T) {
 // TestInteractiveTitleLine pins the self-identifying header shape
 // dispatch embeds in the queue entry's title field and the shim echoes
 func TestInteractiveTitleLine(t *testing.T) {
-	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 279}
+	ref := &issueRef{Owner: "example-org", Repo: "example-repo", Number: 279}
 	issue := &ghIssue{
 		Number: 279,
 		Title:  "  dispatch interactive: echo issue title and prime first agent action  ",
-		URL:    "https://github.com/coilysiren/coily/issues/279",
+		URL:    "https://github.com/example-org/example-repo/issues/279",
 		State:  "open",
 	}
 	got := interactiveTitleLine(ref, issue)
-	want := "coilysiren/coily#279: dispatch interactive: echo issue title and prime first agent action"
+	want := "example-org/example-repo#279: dispatch interactive: echo issue title and prime first agent action"
 	if got != want {
 		t.Errorf("interactiveTitleLine = %q, want %q", got, want)
 	}
@@ -99,10 +99,10 @@ func TestWriteDispatchQueueEntry_ModeAndJSON(t *testing.T) {
 	dir := t.TempDir()
 	entry := dispatchQueueEntry{
 		SchemaVersion: dispatchQueueSchemaVersion,
-		Ref:           "coilysiren/coily#280",
+		Ref:           "example-org/example-repo#280",
 		Title:         "concurrency race on scratch path",
-		Cwd:           "/Users/kai/projects/coilysiren/coily",
-		Prompt:        "Work on issue coilysiren/coily#280. First action: ...",
+		Cwd:           "/Users/kai/projects/example-org/example-repo",
+		Prompt:        "Work on issue example-org/example-repo#280. First action: ...",
 	}
 	path, err := writeDispatchQueueEntry(dir, entry)
 	if err != nil {
@@ -142,10 +142,10 @@ func TestWriteDispatchQueueEntry_UniqueFilenames(t *testing.T) {
 	dir := t.TempDir()
 	entry := dispatchQueueEntry{
 		SchemaVersion: dispatchQueueSchemaVersion,
-		Ref:           "coilysiren/coily#280",
+		Ref:           "example-org/example-repo#280",
 		Title:         "concurrency race on scratch path",
-		Cwd:           "/Users/kai/projects/coilysiren/coily",
-		Prompt:        "Work on issue coilysiren/coily#280.",
+		Cwd:           "/Users/kai/projects/example-org/example-repo",
+		Prompt:        "Work on issue example-org/example-repo#280.",
 	}
 	seen := map[string]bool{}
 	for i := 0; i < 16; i++ {
@@ -239,7 +239,7 @@ func TestDispatchURL_RejectsUnknownSurface(t *testing.T) {
 func TestDispatchBare_ErrorsWithSurfaceGate(t *testing.T) {
 	d := newTestDispatcher(t)
 	cmd := d.Command()
-	err := cmd.Run(context.Background(), []string{"dispatch", "coilysiren/coily#270"})
+	err := cmd.Run(context.Background(), []string{"dispatch", "example-org/example-repo#270"})
 	if err == nil {
 		t.Fatal("bare dispatch <ref> should error with surface-gate, got nil")
 	}
@@ -267,13 +267,13 @@ func TestDispatchHasSurfaceSubverbs(t *testing.T) {
 	}
 }
 
-// TestDispatchInteractiveRejectsPostureFlag pins coily#144: --posture is gone,
+// TestDispatchInteractiveRejectsPostureFlag pins that --posture is gone,
 // so passing it to interactive must error as an unknown flag.
 func TestDispatchInteractiveRejectsPostureFlag(t *testing.T) {
 	d := newTestDispatcher(t)
 	cmd := d.Command()
 	err := cmd.Run(context.Background(), []string{
-		"dispatch", "interactive", "--posture", "consult", "coilysiren/coily#144",
+		"dispatch", "interactive", "--posture", "consult", "example-org/example-repo#144",
 	})
 	if err == nil {
 		t.Fatal("dispatch interactive --posture should error (flag removed), got nil")
@@ -289,19 +289,19 @@ func TestDispatchWorktreePath(t *testing.T) {
 	d := newTestDispatcher(t)
 	root := t.TempDir()
 	d.cfg.WorktreeRoot = func() (string, error) { return root, nil }
-	got, err := d.dispatchWorktreePath("coily", 285, "feat(dispatch): support X")
+	got, err := d.dispatchWorktreePath("example-repo", 285, "feat(dispatch): support X")
 	if err != nil {
 		t.Fatalf("dispatchWorktreePath: %v", err)
 	}
-	want := filepath.Join(root, "coily", "issue-285-feat-dispatch-support-x")
+	want := filepath.Join(root, "example-repo", "issue-285-feat-dispatch-support-x")
 	if got != want {
 		t.Errorf("dispatchWorktreePath = %q, want %q", got, want)
 	}
-	gotBare, err := d.dispatchWorktreePath("coily", 285, "  ::  ")
+	gotBare, err := d.dispatchWorktreePath("example-repo", 285, "  ::  ")
 	if err != nil {
 		t.Fatalf("dispatchWorktreePath (bare): %v", err)
 	}
-	if wantBare := filepath.Join(root, "coily", "issue-285"); gotBare != wantBare {
+	if wantBare := filepath.Join(root, "example-repo", "issue-285"); gotBare != wantBare {
 		t.Errorf("dispatchWorktreePath (no slug) = %q, want %q", gotBare, wantBare)
 	}
 }
@@ -325,7 +325,7 @@ func TestDispatchWorktreeBranch(t *testing.T) {
 // no worktree exists at the target path, ensure runs the WorktreeAdd
 func TestEnsureDispatchWorktree_CallsGit(t *testing.T) {
 	d := newTestDispatcher(t)
-	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 285}
+	ref := &issueRef{Owner: "example-org", Repo: "example-repo", Number: 285}
 	repoPath := t.TempDir()
 	root := t.TempDir()
 	d.cfg.WorktreeRoot = func() (string, error) { return root, nil }
@@ -351,8 +351,8 @@ func TestEnsureDispatchWorktree_CallsGit(t *testing.T) {
 	if gotBranch != "dispatch/issue-285-feat-dispatch-support-x" {
 		t.Errorf("branch = %q, want dispatch/issue-285-feat-dispatch-support-x", gotBranch)
 	}
-	if !strings.HasSuffix(gotPath, filepath.Join("coily", "issue-285-feat-dispatch-support-x")) {
-		t.Errorf("worktree path = %q, want suffix coily/issue-285-feat-dispatch-support-x", gotPath)
+	if !strings.HasSuffix(gotPath, filepath.Join("example-repo", "issue-285-feat-dispatch-support-x")) {
+		t.Errorf("worktree path = %q, want suffix example-repo/issue-285-feat-dispatch-support-x", gotPath)
 	}
 	if wt != gotPath {
 		t.Errorf("ensure returned %q, WorktreeAdd saw %q", wt, gotPath)
@@ -363,12 +363,12 @@ func TestEnsureDispatchWorktree_CallsGit(t *testing.T) {
 // .git entry already exists under the target worktree path, ensure
 func TestEnsureDispatchWorktree_Idempotent(t *testing.T) {
 	d := newTestDispatcher(t)
-	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 285}
+	ref := &issueRef{Owner: "example-org", Repo: "example-repo", Number: 285}
 	repoPath := t.TempDir()
 	root := t.TempDir()
 	d.cfg.WorktreeRoot = func() (string, error) { return root, nil }
 
-	existing := filepath.Join(root, "coily", "issue-285")
+	existing := filepath.Join(root, "example-repo", "issue-285")
 	if err := os.MkdirAll(existing, 0o755); err != nil {
 		t.Fatalf("mkdir existing worktree: %v", err)
 	}

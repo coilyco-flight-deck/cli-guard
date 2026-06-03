@@ -1,5 +1,5 @@
 // Package policy validates that verb arguments do not contain shell
-// metacharacters. Per SECURITY.md, coily's subprocess execution
+// metacharacters. Per SECURITY.md, the consumer's subprocess execution
 package policy
 
 import (

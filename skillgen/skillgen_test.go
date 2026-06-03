@@ -35,8 +35,8 @@ func sampleTree() []*cli.Command {
 }
 
 func TestRenderMarkdown_ContainsLeaf(t *testing.T) {
-	body := skillgen.RenderMarkdown(sampleTree(), "coily")
-	if !strings.Contains(body, "## `coily aws ssm get-parameter`") {
+	body := skillgen.RenderMarkdown(sampleTree(), "tool")
+	if !strings.Contains(body, "## `tool aws ssm get-parameter`") {
 		t.Error("markdown body missing leaf header")
 	}
 	if !strings.Contains(body, "Flags: --name, --with-decryption") {
@@ -52,7 +52,7 @@ func TestRenderMarkdown_HonorsRootName(t *testing.T) {
 }
 
 func TestRenderYAML_StructuredShape(t *testing.T) {
-	body, err := skillgen.RenderYAML(sampleTree(), "coily")
+	body, err := skillgen.RenderYAML(sampleTree(), "tool")
 	if err != nil {
 		t.Fatalf("RenderYAML: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestRenderYAML_StructuredShape(t *testing.T) {
 		t.Fatalf("got %d commands, want 1", len(parsed.Commands))
 	}
 	got := parsed.Commands[0]
-	wantPath := []string{"coily", "aws", "ssm", "get-parameter"}
+	wantPath := []string{"tool", "aws", "ssm", "get-parameter"}
 	if strings.Join(got.Path, ".") != strings.Join(wantPath, ".") {
 		t.Errorf("path = %v, want %v", got.Path, wantPath)
 	}

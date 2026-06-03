@@ -5,7 +5,9 @@ package gittree
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -139,7 +141,7 @@ func (s *State) FormatRefusal(verbName string) string {
 	b.WriteString("\nRepo verbs require a clean tree so the audit log can be reconstructed\n")
 	b.WriteString("from git history. Recover with:\n\n")
 	b.WriteString(s.Recovery)
-	fmt.Fprintf(&b, "  coily %s   # retry\n", verbName)
+	fmt.Fprintf(&b, "  %s %s   # retry\n", filepath.Base(os.Args[0]), verbName)
 	b.WriteString("\nOverride for genuine emergencies with --audit-override-dirty.\n")
 	b.WriteString("The audit row is tagged audit_override=true and captures the working\n")
 	b.WriteString("tree status so the run can still be reconstructed after the fact.")
@@ -203,7 +205,7 @@ func recoveryDirty(status string) string {
 
 func runGit(repoRoot string, args ...string) (string, error) {
 	full := append([]string{"-C", repoRoot}, args...)
-	cmd := exec.Command("git", full...) // #nosec G204 -- args are coily-controlled, not user-shaped
+	cmd := exec.Command("git", full...) // #nosec G204 -- args are caller-controlled, not user-shaped
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err

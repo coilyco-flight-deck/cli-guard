@@ -59,7 +59,7 @@ func TestWithEgress_SetsLoopbackNoProxyByDefault(t *testing.T) {
 	t.Setenv("no_proxy", "")
 	h := newEgressEnvHarness(t, nil)
 
-	if err := h.cmd.Run(context.Background(), []string{"coily-test"}); err != nil {
+	if err := h.cmd.Run(context.Background(), []string{"app-test"}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -89,7 +89,7 @@ func TestWithEgress_AppendsLoopbackNoProxyWithoutDroppingExisting(t *testing.T) 
 	t.Setenv("no_proxy", "internal.local,127.0.0.1")
 	h := newEgressEnvHarness(t, nil)
 
-	if err := h.cmd.Run(context.Background(), []string{"coily-test"}); err != nil {
+	if err := h.cmd.Run(context.Background(), []string{"app-test"}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 

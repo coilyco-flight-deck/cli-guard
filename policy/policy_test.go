@@ -20,7 +20,7 @@ func TestValidateArg_AcceptsSafeStrings(t *testing.T) {
 		"/path/to/thing.yaml",
 		"arn:aws:iam::1234:user/kai-mac-laptop",
 		"Z06714552N3MO04UBWF33",
-		"https://github.com/coilysiren/coily",
+		"https://github.com/example-org/example-repo",
 		"/eco/server-api-token",
 	}
 	for _, c := range cases {

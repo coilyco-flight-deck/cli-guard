@@ -27,7 +27,7 @@ type Config struct {
 	Runner *shell.Runner
 
 	// Wrap applies the consumer's verb pipeline (argv validation, audit
-	// logging) to a verb.Spec the package builds. coily
+	// logging) to a verb.Spec the package builds.
 	Wrap func(verb.Spec) cli.ActionFunc
 
 	// AllowedOwner is the primary org dispatch accepts issue refs from, and
@@ -61,7 +61,7 @@ type Config struct {
 	LogRoot func() (string, error)
 
 	// BinaryName is the host CLI's name, used only to format help text so
-	// it reads correctly per consumer ("coily dispatch ..." vs
+	// it reads correctly per consumer ("<bin> dispatch ..." vs
 	BinaryName string
 
 	// ClaudeConfigPath resolves the Claude Code config file holding
@@ -80,7 +80,7 @@ type Config struct {
 	WorktreeReapable func(ctx context.Context, runner *shell.Runner, repoPath, branch string) bool
 	WorktreeRemove   func(ctx context.Context, runner *shell.Runner, repoPath, worktreePath, branch string) error
 
-	// SpawnHealthWindow bounds the immediate-crash watch (coily#150). Zero
+	// SpawnHealthWindow bounds the immediate-crash watch. Zero
 	// applies defaultSpawnHealthWindow; negative disables the check.
 	SpawnHealthWindow time.Duration
 
@@ -508,7 +508,7 @@ func (d *Dispatcher) runDetached(ctx context.Context, c *cli.Command, spec detac
 	allowedTools := c.String("allowed-tools")
 
 	// Detached surfaces each get their own worktree+branch so concurrent
-	// workers never share a working tree (coilysiren/coily#145).
+	// workers never share a working tree.
 	if !c.Bool("dry-run") {
 		d.reapBeforeDetachedDispatch(ctx, spec.mode)
 	}
@@ -561,7 +561,7 @@ func (d *Dispatcher) spawnDetachedWorker(c *cli.Command, spec detachedSpec, ref 
 		fmt.Fprintf(os.Stderr, "dispatch %s: could not write status sidecar (%v); `dispatch status` will report pid unknown.\n", spec.mode, err)
 	}
 	// A startup crash exits within seconds having done no work; surface it
-	// as a nonzero failure rather than the cheerful "spawned" (coily#150).
+	// as a nonzero failure rather than the cheerful "spawned".
 	if d.watchForImmediateExit(pid) {
 		return d.reportImmediateExit(spec.mode, ref, logPath, pid)
 	}
@@ -574,7 +574,7 @@ func (d *Dispatcher) spawnDetachedWorker(c *cli.Command, spec detachedSpec, ref 
 }
 
 // defaultSpawnHealthWindow watches a fresh detached child for a startup
-// crash; a healthy claude -p run far outlasts it (coilysiren/coily#150).
+// crash; a healthy claude -p run far outlasts it.
 const defaultSpawnHealthWindow = 4 * time.Second
 
 // spawnHealthPollInterval is the pid re-probe cadence within the window.
@@ -767,6 +767,6 @@ func detachedWorktreeFooter(repoPath string, number int, title string) string {
 		"- When the work is complete and verified (tests, linters, builds green), land it: run `git -C %s merge %s` then `git -C %s push origin main`. Resolve any merge conflicts yourself. Never force-push.\n"+
 		"- If `git push origin main` is rejected as non-fast-forward (a sibling worker pushed first), run `git -C %s pull --rebase origin main`, re-run tests/build, then merge and push again. Repeat until it lands.\n"+
 		"- Close the issue with a commit trailer: closes #<N> (or fixes / resolves).\n"+
-		"- Leave the worktree directory in place - the next `coily dispatch` reaps it once the merge lands.\n",
+		"- Leave the worktree directory in place - the next `dispatch` run reaps it once the merge lands.\n",
 		branch, repoPath, branch, repoPath, repoPath)
 }

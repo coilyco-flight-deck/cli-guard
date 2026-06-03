@@ -4,7 +4,7 @@ Workspace-level conventions (git workflow, test/lint autonomy, readonly ops, wri
 
 ## Scope
 
-A security-boundary framework for urfave/cli v3 applications. The framework primitives here are the load-bearing core that [coilyco-bridge/coily](https://github.com/coilyco-bridge/coily) and any future consumer depend on.
+A security-boundary framework for urfave/cli v3 applications. The framework primitives here are the core that consumers depend on.
 
 ## Project shape
 
@@ -12,11 +12,11 @@ Inventory: [`docs/FEATURES.md`](docs/FEATURES.md). Per-feature demos: [`examples
 
 ## Repo boundaries
 
-Every package here must be importable from a different binary without coily-specific types or defaults leaking in. If a helper needs a coily-shaped argument, define the type in cli-guard and have the consumer adapt to it, not the other way around.
+Every package here must be importable from a different binary without consumer-specific types or defaults leaking in. If a helper needs a consumer-shaped argument, define the type in cli-guard and have the consumer adapt to it, not the other way around.
 
 ## Commands
 
-Run the dev verbs through `make`, not bare go. cli-guard is deliberately unguarded: it is the framework itself, not a consumer of it, so it carries no `.ward`/`.coily` config and routes dev verbs straight through the Makefile.
+Run the dev verbs through `make`, not bare go. cli-guard is deliberately unguarded: it is the framework itself, not a consumer of it, so it carries no per-repo consumer config and routes dev verbs straight through the Makefile.
 
 - `make build` - compile every package.
 - `make test` - run the unit test suite.
@@ -25,7 +25,7 @@ Run the dev verbs through `make`, not bare go. cli-guard is deliberately unguard
 - `make tidy` - `go mod tidy`.
 - `make cover` - tests with a coverage profile.
 
-The repocfg primitive cli-guard ships lets a consumer pick its own config filename (`.ward/ward.yaml`, `.coily/coily.yaml`, etc.). cli-guard itself uses none.
+The repocfg primitive cli-guard ships lets a consumer pick its own config filename (e.g. `.<app>/<app>.yaml`). cli-guard itself uses none.
 
 ## Validation
 
@@ -33,11 +33,11 @@ Pre-commit runs the Go checks (vet, golangci-lint, go-mod-tidy, godoc-current) p
 
 ## Safety
 
-The Claude Code lockdown writer is the security boundary for consumers; defaults live in `lockdown/defaults.yaml`. The deny list maps to wrapped binaries (`coily pkg / ops / docker / tailscale`) plus bare-denied binaries with no wrapper (`ssh`); bypass-prevention shapes fall back to auto-mode classifiers. See [#13, #14](https://forgejo.coilysiren.me/coilysiren/cli-guard).
+The Claude Code lockdown writer is the security boundary for consumers; defaults live in `lockdown/defaults.yaml`. The deny list maps to the consumer's wrapped binaries (e.g. `pkg / ops / docker / tailscale`) plus bare-denied binaries with no wrapper (`ssh`); bypass-prevention shapes fall back to auto-mode classifiers. See [#13, #14](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard).
 
 ## Cross-repo contracts
 
-v0.x. Minor API breaks ship in `main` with a note in the commit body; no semver deprecation cycle until v1.0.0. Consumers (coily, future others) pin a specific commit until then. Once a second consumer lands, lock the API and bump.
+v0.x. Minor API breaks ship in `main` with a note in the commit body; no semver deprecation cycle until v1.0.0. Consumers pin a specific commit until then. Once a second consumer lands, lock the API and bump.
 
 ## Release
 

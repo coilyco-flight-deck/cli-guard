@@ -2,38 +2,38 @@ package lockdown_test
 
 import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/lockdown"
 
-// testDriver returns a ClaudeCode-shaped driver pre-wired with the
-// historical coily-specific data. Tests parameterize over Driver via
+// testDriver returns a ClaudeCode-shaped driver pre-wired with sample
+// consumer data. Tests parameterize over Driver via
 func testDriver() *lockdown.Driver {
 	return lockdown.ClaudeCode(
-		"coily",
+		"app",
 		[]string{
-			"/opt/homebrew/bin/coily",
-			"/usr/local/bin/coily",
-			"/home/linuxbrew/.linuxbrew/bin/coily",
+			"/opt/homebrew/bin/app",
+			"/usr/local/bin/app",
+			"/home/linuxbrew/.linuxbrew/bin/app",
 		},
 		map[string]string{
-			"gh":        "coily ops gh",
-			"aws":       "coily ops aws",
-			"kubectl":   "coily ops kubectl",
-			"docker":    "coily docker",
-			"tailscale": "coily tailscale",
-			"npm":       "coily pkg npm",
-			"pnpm":      "coily pkg pnpm",
-			"yarn":      "coily pkg yarn",
-			"bun":       "coily pkg bun",
-			"uv":        "coily pkg uv",
-			"pip":       "coily pkg pip",
-			"pipx":      "coily pkg pipx",
-			"poetry":    "coily pkg poetry",
-			"cargo":     "coily pkg cargo",
-			"gem":       "coily pkg gem",
-			"bundle":    "coily pkg bundle",
-			"brew":      "coily brew",
-			"make":      "coily exec <verb>",
-			"just":      "coily exec <verb>",
-			"task":      "coily exec <verb>",
-			"invoke":    "coily exec <verb>",
+			"gh":        "app ops gh",
+			"aws":       "app ops aws",
+			"kubectl":   "app ops kubectl",
+			"docker":    "app docker",
+			"tailscale": "app tailscale",
+			"npm":       "app pkg npm",
+			"pnpm":      "app pkg pnpm",
+			"yarn":      "app pkg yarn",
+			"bun":       "app pkg bun",
+			"uv":        "app pkg uv",
+			"pip":       "app pkg pip",
+			"pipx":      "app pkg pipx",
+			"poetry":    "app pkg poetry",
+			"cargo":     "app pkg cargo",
+			"gem":       "app pkg gem",
+			"bundle":    "app pkg bundle",
+			"brew":      "app brew",
+			"make":      "app exec <verb>",
+			"just":      "app exec <verb>",
+			"task":      "app exec <verb>",
+			"invoke":    "app exec <verb>",
 		},
 	)
 }

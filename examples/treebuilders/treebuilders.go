@@ -280,7 +280,7 @@ load-bearing telemetry.
 
 Operating model: a row with decision=observe is not an alert; it is
 expected. Anomaly detection on the observed-row stream is a
-downstream concern, not a coily-internal one. Tools that aggregate
+downstream concern, not a consumer-internal one. Tools that aggregate
 these rows belong in the telemetry repo, not in cli-guard.`,
 				Action: func(ctx context.Context, _ *cli.Command) error {
 					return egressRun(ctx, "https://www.iana.org/", egress.ModeObserve)
@@ -305,16 +305,16 @@ The taxonomy:
 
     0 - Success      verb ran, underlying tool returned without error
     1 - Generic      catch-all, prefer a typed code over this
-    2 - PolicyDenied coily pre-flight rejected the call (metachar,
+    2 - PolicyDenied the security pre-flight rejected the call (metachar,
                      missing required arg, deny rule hit). The
                      underlying tool was never invoked.
     3 - UpstreamFailed the wrapped tool ran and returned non-zero.
                      Stdout/stderr from the tool flow through; the
                      envelope's message is the wrapping error.
-    4 - Internal     coily-internal failure (config load, manifest
+    4 - Internal     consumer-internal failure (config load, manifest
                      miss, audit-write fail). Distinct from
                      PolicyDenied because the user cannot fix it;
-                     this is a coily bug or a host problem.
+                     this is a consumer bug or a host problem.
     5 - UserError    obviously-wrong input that wasn't a metachar
                      rejection (missing flag, wrong arg count).
                      Distinct from PolicyDenied so a consumer can
@@ -376,7 +376,7 @@ Treat exit 2 as authoritative-non-retryable.`,
 				Description: `Returns exitcode.New(UpstreamFailed, ...). Process exits 3. Use this
 when the wrapped tool ran and returned non-zero; the wrapper passes
 the failure up but tags it as "from upstream" so the operator can
-tell "the tool said no" apart from "coily said no".
+tell "the tool said no" apart from "the consumer said no".
 
 Examples:
 
@@ -397,7 +397,7 @@ not retry for you.`,
 				Name:  "internal",
 				Usage: "exit 4 (Internal)",
 				Description: `Returns exitcode.New(Internal, ...). Process exits 4. Use this for
-coily-internal failures the user cannot fix from the call site:
+consumer-internal failures the user cannot fix from the call site:
 config load failure, manifest miss, audit-write fail.
 
 Examples:
@@ -443,7 +443,7 @@ reconstructable from git history later.
 
 Scope of the gate:
 
-    - Repo verbs only. Built-in coily verbs (lockdown, setup, audit
+    - Repo verbs only. Built-in consumer verbs (lockdown, setup, audit
       inspection) are reproducible from the binary version trailer
       in the audit row and are not gated.
     - The gate is run per call. A repo can be clean at call N and
@@ -546,17 +546,17 @@ Examples:
     # rejected by policy: shell metacharacter in argv
 
     # SkipFlagParsing means flags after the binary name go straight
-    # through. -n is a real /bin/echo flag, not a coily flag.
+    # through. -n is a real /bin/echo flag, not a consumer flag.
     passthrough-demo -- echo -n no-newline
 
 What the wrapper does NOT do: validate semantics. ` + "`-- echo --version`" + `
 runs ` + "`echo --version`" + `, which prints "--version" because /bin/echo
-ignores unknown flags. coily does not parse the wrapped tool's flag
+ignores unknown flags. The consumer does not parse the wrapped tool's flag
 syntax. Choosing safe binaries is part of the integration design.
 
 Agent behavior: surface rejection errors verbatim; do not retry with
 quoted/escaped variants. If a binary's legitimate use requires shell
-metacharacters in argv (rare), the right answer is a coily-side
+metacharacters in argv (rare), the right answer is a consumer-side
 wrapper script that pre-tokenizes the input, not a runtime escape.`
 	return &cli.Command{
 		Name:    "passthrough-demo",
@@ -564,13 +564,13 @@ wrapper script that pre-tokenizes the input, not a runtime escape.`
 		Version: "v0.0.0",
 		Description: `passthrough-demo exercises cli-guard's thin pass-through. The pattern
 wraps any external CLI (aws, gh, kubectl, docker, tailscale, plus
-every package manager) as a single coily verb with two properties:
+every package manager) as a single consumer verb with two properties:
 
     1. Audit. Every invocation produces a JSONL row in
        ~/.coily/audit/*.jsonl with timestamp, full argv, cwd, exit
        code. Reconstructable from the row alone.
     2. Argv validation. policy.ValidateArg rejects shell metacharacters
-       before execve. Blocks the dumbest injection paths (` + "`coily kubectl" + `
+       before execve. Blocks the dumbest injection paths (` + "`passthrough-demo kubectl" + `
        ` + "get pod 'foo; curl bad'`" + `).
 
 What the wrapper does NOT buy:
@@ -582,13 +582,13 @@ What the wrapper does NOT buy:
     - Not deep verb modeling. The pass-through has no idea what
       ` + "`kubectl apply`" + ` does differently from ` + "`kubectl get`" + `. Per-leaf
       readonly-vs-mutator gating is delegated to the lockdown deny
-      list, which fires before coily ever runs.
+      list, which fires before the consumer ever runs.
 
 Why per-CLI subcommand trees were ripped (issue #27): generator-
 driven trees that wrapped aws/gh/kubectl earned their cost only via
 the readonly-vs-mutator gate already handled by the lockdown deny
 list. The remaining benefits (help mirroring, tab completion below
-` + "`coily ops aws`" + `) were convenience without security value, and the
+` + "`passthrough-demo aws`" + `) were convenience without security value, and the
 cost was ~80k lines of generated Go plus a weekly refresh cadence
 per upstream. SkipFlagParsing + verb.Wrap is the same security
 boundary in 60 lines.
@@ -596,12 +596,12 @@ boundary in 60 lines.
 Operating model for an agent calling pass-through verbs:
 
     - The wrapper does not pre-validate the wrapped tool's flag
-      syntax. ` + "`coily ops aws --unknown-flag`" + ` reaches aws as
+      syntax. ` + "`passthrough-demo aws --unknown-flag`" + ` reaches aws as
       ` + "`aws --unknown-flag`" + `, and aws decides what to do with it.
     - On policy rejection (exit 2), the argv never reached the
       binary. Do not retry; the input contained a forbidden byte.
     - On upstream failure (exit 3), the binary ran. Stderr from the
-      binary is the authoritative reason; coily's wrapping error is
+      binary is the authoritative reason; the consumer's wrapping error is
       just the envelope.`,
 		Commands: []*cli.Command{echoCmd},
 	}
@@ -630,7 +630,7 @@ tools hand their last positional argument to a remote shell. Examples:
 If the agent driving cli-guard never sanitizes inputs and the wrapped
 tool unsplats argv into a shell on the other side, a single semicolon
 in an argument turns a benign verb into a chained injection. Rejecting
-the metacharacters at the coily boundary keeps that one-layer leak
+the metacharacters at the consumer boundary keeps that one-layer leak
 from becoming an execution surprise two hops downstream.
 
 Operating model for an agent calling these commands:
@@ -746,14 +746,14 @@ argv. Each argv token is policy.ValidateArg'd at load time, so the
 exposed surface at runtime can never be a shell pipeline or contain
 shell metacharacters.
 
-Why a per-repo file vs embedding the verbs in coily itself:
+Why a per-repo file vs embedding the verbs in the consumer itself:
 
     - Repo-specific dev tools change too often to warrant a
       rebuild+install cycle.
     - The file is checked into git where a human reviews diffs.
       Adding a verb is a PR-visible event.
     - The blast radius is bounded by the same policy.ValidateArg
-      gate as every other coily verb. There is no "it's just a dev
+      gate as every other consumer verb. There is no "it's just a dev
       script" carve-out.
 
 Threat-model corner cases the gate addresses:
@@ -775,7 +775,7 @@ Operating model for an agent calling repo verbs:
       shadows the parent's.
     - There is no merge / override semantics. The closest yaml
       wins; the rest is ignored.
-    - Verb arg appending: ` + "`coily test -v ./pkg/...`" + ` appends ` + "`-v" + `
+    - Verb arg appending: ` + "`repocfg-demo run test -v ./pkg/...`" + ` appends ` + "`-v" + `
       ` + "./pkg/...`" + ` to the yaml-declared argv, after the same gate.`,
 		Commands: []*cli.Command{
 			{
@@ -887,7 +887,7 @@ func Dispatch(runner *shell.Runner, writer *audit.Writer) *cli.Command {
 	if err != nil {
 		home = os.TempDir()
 	}
-	owner := "coilysiren"
+	owner := "example-org"
 	d, derr := dispatch.New(dispatch.Config{
 		Runner:       runner,
 		Wrap:         func(s verb.Spec) cli.ActionFunc { return verb.Wrap(s, writer) },
@@ -917,12 +917,12 @@ detached headless run or an interactive Warp tab.
 
 The package owns the verb logic; this demo supplies the host-specific
 seams - allowed org, workspace layout, verb pipeline - through
-dispatch.Config. coily and ward wire their own.
+dispatch.Config. Consumers wire their own.
 
 Try the dry-run paths, which resolve and print without spawning claude:
 
-    dispatch-demo dispatch headless    --dry-run coilysiren/coily#1
-    dispatch-demo dispatch interactive --dry-run coilysiren/coily#1`,
+    dispatch-demo dispatch headless    --dry-run example-org/example-repo#1
+    dispatch-demo dispatch interactive --dry-run example-org/example-repo#1`,
 		Commands: []*cli.Command{d.Command()},
 	}
 }

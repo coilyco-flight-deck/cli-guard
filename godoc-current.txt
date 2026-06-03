@@ -152,7 +152,7 @@ type Record struct {
     JSON-encoded as a number. Easier to sort and diff than RFC3339 strings.
 
 func ReadAll(r io.Reader) ([]Record, error)
-    ReadAll decodes every record from r. Useful for tests and for `coily audit
+    ReadAll decodes every record from r. Useful for tests and for `audit
     tail`-style verbs.
 
 type RedactPolicy struct {
@@ -165,7 +165,7 @@ type RedactPolicy struct {
 	IdentifierPatterns []*regexp.Regexp
 }
     RedactPolicy carries the patterns the consumer wants applied. cli-guard
-    supplies the mechanism; the consumer (today: coily) supplies the patterns.
+    supplies the mechanism; the consumer supplies the patterns.
 
 type Writer struct {
 	// Path is the JSONL file. Must be set.
@@ -248,8 +248,8 @@ const SessionsSubdir = "sessions"
     lives. One directory per CLAUDE_CODE_SESSION_ID. Currently holds
 
 const UnrootedAuditName = "_unrooted"
-    UnrootedAuditName is the slug used when coily is invoked outside any git
-    repo (or inside one with no origin remote). All such invocations land in
+    UnrootedAuditName is the slug used when the consumer is invoked outside any
+    git repo (or inside one with no origin remote). All such invocations land in
 
 
 FUNCTIONS
@@ -346,7 +346,7 @@ type Config struct {
 	Runner *shell.Runner
 
 	// Wrap applies the consumer's verb pipeline (argv validation, audit
-	// logging) to a verb.Spec the package builds. coily
+	// logging) to a verb.Spec the package builds.
 	Wrap func(verb.Spec) cli.ActionFunc
 
 	// AllowedOwner is the primary org dispatch accepts issue refs from, and
@@ -380,7 +380,7 @@ type Config struct {
 	LogRoot func() (string, error)
 
 	// BinaryName is the host CLI's name, used only to format help text so
-	// it reads correctly per consumer ("coily dispatch ..." vs
+	// it reads correctly per consumer ("<bin> dispatch ..." vs
 	BinaryName string
 
 	// ClaudeConfigPath resolves the Claude Code config file holding
@@ -399,7 +399,7 @@ type Config struct {
 	WorktreeReapable func(ctx context.Context, runner *shell.Runner, repoPath, branch string) bool
 	WorktreeRemove   func(ctx context.Context, runner *shell.Runner, repoPath, worktreePath, branch string) error
 
-	// SpawnHealthWindow bounds the immediate-crash watch (coily#150). Zero
+	// SpawnHealthWindow bounds the immediate-crash watch. Zero
 	// applies defaultSpawnHealthWindow; negative disables the check.
 	SpawnHealthWindow time.Duration
 
@@ -491,8 +491,8 @@ type Sidequest struct {
 
 package egress // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/egress"
 
-Package egress is the per-invocation HTTP CONNECT proxy that coily starts for
-the duration of a wrapped subprocess. The child inherits HTTPS_PROXY /
+Package egress is the per-invocation HTTP CONNECT proxy that the consumer starts
+for the duration of a wrapped subprocess. The child inherits HTTPS_PROXY /
 
 VARIABLES
 
@@ -553,13 +553,13 @@ const (
 	// Generic = catch-all for errors that haven't been classified yet.
 	// New code should not return this; reach for one of the typed codes
 	Generic = 1
-	// PolicyDenied = coily's pre-flight rejected the invocation
+	// PolicyDenied = the consumer's pre-flight rejected the invocation
 	// (shell-metacharacter validation, missing required arg, etc).
 	PolicyDenied = 2
 	// UpstreamFailed = the underlying tool / SDK call ran and returned a
 	// non-zero exit. Stdout/stderr from the tool flow through; the
 	UpstreamFailed = 3
-	// Internal = coily-internal failure: config load, manifest miss,
+	// Internal = consumer-internal failure: config load, manifest miss,
 	// audit-write fail, etc. Distinct from PolicyDenied because there's
 	Internal = 4
 	// UserError = the user supplied something obviously wrong: missing
@@ -597,7 +597,7 @@ func New(code int, kind string, err error, hint string) *CodedError
     attach a reason after construction via WithReason if desired.
 
 func (e *CodedError) Code() int
-    Code returns the numeric exit code coily should exit with.
+    Code returns the numeric exit code the consumer should exit with.
 
 func (e *CodedError) Error() string
     Error returns the wrapped error's message.
@@ -686,7 +686,7 @@ func Store(path string, data []byte) bool
 package ghidcache // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghidcache"
 
 Package ghidcache caches GitHub identity reads - `gh auth status` and `gh api
-user` - that re-resolve on every coily invocation but are stable
+user` - that re-resolve on every invocation but are stable
 
 CONSTANTS
 
@@ -804,7 +804,7 @@ func (s *State) FormatRefusal(verbName string) string
 package hook // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/hook"
 
 Package hook implements the Claude Code PreToolUse hook engine in the shared
-substrate. Each cli-guard consumer (coily, ward,
+substrate. Each cli-guard consumer wires it in.
 
 FUNCTIONS
 
@@ -1032,8 +1032,8 @@ kubectl, docker, tailscale, plus every package manager) as a
 FUNCTIONS
 
 func Command(bin string, r *shell.Runner, w *audit.Writer, opts ...Option) *cli.Command
-    Command returns the *cli.Command for `coily <bin>`. Every argument after the
-    binary name is forwarded verbatim through the pass-through
+    Command returns the *cli.Command for the wrapped `<bin>`. Every argument
+    after the binary name is forwarded verbatim through the pass-through
 
 
 TYPES
@@ -1081,7 +1081,7 @@ type ReadCacheClassifier func(argv []string) (path string, maxAge time.Duration,
 package policy // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/policy"
 
 Package policy validates that verb arguments do not contain shell
-metacharacters. Per SECURITY.md, coily's subprocess execution
+metacharacters. Per SECURITY.md, the consumer's subprocess execution
 
 CONSTANTS
 
@@ -1117,7 +1117,7 @@ func ValidateArgs(args map[string]string) error
 package profile // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/profile"
 
 Package profile declares the categorical operating-model axes that cli-guard
-exposes for consumers (today: coily) to build per-session
+exposes for consumers to build per-session
 
 FUNCTIONS
 
@@ -1160,11 +1160,11 @@ type Coordinate struct {
 	FilesystemReach Tier
 }
     Coordinate is a tier-per-axis assignment. Profiles declared by consumers
-    (coily's "mobile", "mac-tower", ...) resolve to a
+    (e.g. "mobile", "mac-tower", ...) resolve to a
 
 func Strictest() Coordinate
     Strictest returns the coordinate where every axis is at its strictest tier.
-    Per coily#150, this is the headless-default and
+    This is the headless-default and
 
 func (c Coordinate) Get(a Axis) Tier
     Get returns the tier on the named axis. Returns the empty string if the axis
@@ -1236,7 +1236,7 @@ func OverridePath() (string, error)
 
 func ParseAndValidate(body []byte, sourceDesc string) (map[string]profile.Coordinate, error)
     ParseAndValidate decodes a YAML body and validates every profile. Exposed
-    for tests and for `coily lockdown init-config` to check the
+    for tests and for the consumer's `lockdown init-config` to check the
 
 
 TYPES
@@ -1335,7 +1335,7 @@ type Command struct {
 	// resolved via $PATH at exec time. Every token has been run through
 	Argv []string
 	// Egress, when true, opts the command into the per-invocation CONNECT
-	// proxy that consumers (coily) wire around exec. The audit row picks up
+	// proxy that consumers wire around exec. The audit row picks up
 	Egress bool
 	// AllowMetacharacters opts this command out of the shell-metacharacter
 	// validator for both the YAML-declared argv tokens (skipped at load)
@@ -1447,7 +1447,7 @@ type Runner struct {
 	// child as cmd.Env. Used by the egress-proxy plumbing to inject
 	Env []string
 }
-    Runner executes subprocesses on behalf of coily verbs. Build one in main
+    Runner executes subprocesses on behalf of consumer verbs. Build one in main
     with the default Resolver and plumb it through to verbs that need it.
 
 func (r *Runner) Capture(ctx context.Context, bin string, argv ...string) ([]byte, error)
@@ -1459,8 +1459,9 @@ func (r *Runner) Exec(ctx context.Context, bin string, argv ...string) error
     fields. Returns the underlying exec error on failure.
 
 func (r *Runner) ExecIn(ctx context.Context, dir, bin string, argv ...string) error
-    ExecIn is like Exec but runs the child with cmd.Dir set to dir. Used by
-    coily exec when the matched coily.yaml lives in a direct child of cwd:
+    ExecIn is like Exec but runs the child with cmd.Dir set to dir. Used by the
+    consumer's exec verb when the matched coily.yaml lives in a direct child of
+    cwd:
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/skillgen
@@ -1497,7 +1498,7 @@ type Entry struct {
 package stscache // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/stscache"
 
 Package stscache caches `aws sts get-caller-identity` JSON for callers that
-re-resolve the active AWS identity on every coily invocation. STS
+re-resolve the active AWS identity on every invocation. STS
 
 CONSTANTS
 
@@ -1551,7 +1552,7 @@ func Zero(b []byte)
 package ttlcache // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ttlcache"
 
 Package ttlcache is a small on-disk key/value cache with per-entry TTLs.
-Built for coily after the lockdown inversion: every aws / kubectl / gh
+Built for the consumer after the lockdown inversion: every aws / kubectl / gh
 
 TYPES
 
@@ -1590,13 +1591,13 @@ func (c *Cache) Set(key string, value []byte, ttl time.Duration) error
 
 package verb // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/verb"
 
-Package verb is the middleware that wraps every coily command action in the
+Package verb is the middleware that wraps every consumer command action in the
 standard pipeline of:
 
 FUNCTIONS
 
 func Wrap(spec Spec, writer *audit.Writer) cli.ActionFunc
-    Wrap returns a cli.ActionFunc that runs the full coily verb pipeline.
+    Wrap returns a cli.ActionFunc that runs the full verb pipeline.
 
 
 TYPES
@@ -1641,7 +1642,7 @@ type Spec struct {
 package workdir // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/workdir"
 
 Package workdir does best-effort detection of the "primary working directory"
-that a coily invocation is operating against. Subcommands
+that a consumer invocation is operating against. Subcommands
 
 CONSTANTS
 

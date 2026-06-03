@@ -29,8 +29,8 @@ func TestEnsureUserHook_FreshHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read hook: %v", err)
 	}
-	if !strings.Contains(string(body), "Coily binary check") {
-		t.Error("rendered hook missing coily binary check block")
+	if !strings.Contains(string(body), "App binary check") {
+		t.Error("rendered hook missing consumer binary check block")
 	}
 	settings := readJSON(t, filepath.Join(home, ".claude", "settings.json"))
 	hooks := settings["hooks"].(map[string]any)
@@ -107,7 +107,7 @@ func TestEnsureUserHook_PreservesExistingFields(t *testing.T) {
 	}
 	inner := pre[0].(map[string]any)["hooks"].([]any)
 	if len(inner) != 2 {
-		t.Fatalf("inner hooks should have 2 entries (existing + coily), got %d", len(inner))
+		t.Fatalf("inner hooks should have 2 entries (existing + consumer), got %d", len(inner))
 	}
 }
 
@@ -123,7 +123,7 @@ func TestEnsureUserHook_MalformedJSON(t *testing.T) {
 	}
 }
 
-func TestEnsureUserHook_ScriptBlocksDevCoily(t *testing.T) {
+func TestEnsureUserHook_ScriptBlocksDevConsumer(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("no sh on PATH")
 	}
@@ -137,9 +137,9 @@ func TestEnsureUserHook_ScriptBlocksDevCoily(t *testing.T) {
 		stdin  string
 		wantRC int
 	}{
-		{"~/go/bin/coily denied", `{"tool_input":{"command":"/Users/kai/go/bin/coily systemctl"}}`, 2},
-		{"/tmp/coily denied", `{"tool_input":{"command":"/tmp/coily systemctl"}}`, 2},
-		{"/opt/homebrew/bin/coily allowed", `{"tool_input":{"command":"/opt/homebrew/bin/coily systemctl"}}`, 0},
+		{"~/go/bin/app denied", `{"tool_input":{"command":"/Users/kai/go/bin/app systemctl"}}`, 2},
+		{"/tmp/app denied", `{"tool_input":{"command":"/tmp/app systemctl"}}`, 2},
+		{"/opt/homebrew/bin/app allowed", `{"tool_input":{"command":"/opt/homebrew/bin/app systemctl"}}`, 0},
 		{"unrelated command allowed", `{"tool_input":{"command":"ls -la"}}`, 0},
 		{"empty command allowed", `{"tool_input":{"command":""}}`, 0},
 	}

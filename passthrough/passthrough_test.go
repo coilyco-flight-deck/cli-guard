@@ -16,7 +16,7 @@ import (
 )
 
 // TestCommand_ForwardsArgvVerbatim_AllBinaries pins the per-binary
-// pass-through shape across every CLI coily wraps. One row per `coily
+// pass-through shape across every wrapped CLI. One row per `<bin>
 type rcHarness struct {
 	cmd    *cli.Command
 	stdout *bytes.Buffer
@@ -267,7 +267,7 @@ func TestCommand_ForwardsArgvVerbatim_AllBinaries(t *testing.T) {
 			}
 
 			cmd := passthrough.Command(tc.bin, r, w)
-			argv := append([]string{"coily-test"}, tc.args...)
+			argv := append([]string{"app-test"}, tc.args...)
 			if err := cmd.Run(context.Background(), argv); err != nil {
 				t.Fatalf("Run: %v", err)
 			}
@@ -315,7 +315,7 @@ func TestCommand_ForwardsArgvVerbatim(t *testing.T) {
 
 	// urfave/cli treats argv[0] as the program name when Run is called on
 	// a *cli.Command directly. Everything after that is the arg slice.
-	argv := []string{"coily-test", "add", "date-fns"}
+	argv := []string{"app-test", "add", "date-fns"}
 	if err := cmd.Run(context.Background(), argv); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -355,7 +355,7 @@ func TestCommand_CapturesStderrTailOnFailure(t *testing.T) {
 	cmd := passthrough.Command("kubectl", r, w, passthrough.WithSkipPolicy())
 	cmd.ExitErrHandler = func(_ context.Context, _ *cli.Command, _ error) {}
 	const sentinel = "Error from server (Forbidden): pods is forbidden"
-	argv := []string{"coily-test", "-c", "printf '%s\\n' '" + sentinel + "' >&2; exit 1"}
+	argv := []string{"app-test", "-c", "printf '%s\\n' '" + sentinel + "' >&2; exit 1"}
 	if err := cmd.Run(context.Background(), argv); err == nil {
 		t.Fatalf("Run: expected non-nil error from exit-1 subprocess")
 	}
@@ -392,7 +392,7 @@ func TestCommand_OmitsStderrTailOnSuccess(t *testing.T) {
 		Resolve: func(_ string) (string, error) { return "/bin/sh", nil },
 	}
 	cmd := passthrough.Command("kubectl", r, w, passthrough.WithSkipPolicy())
-	argv := []string{"coily-test", "-c", "printf 'noise\\n' >&2; exit 0"}
+	argv := []string{"app-test", "-c", "printf 'noise\\n' >&2; exit 0"}
 	if err := cmd.Run(context.Background(), argv); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -424,7 +424,7 @@ func TestCommand_WithSkipPolicy_AllowsShellMetacharacters(t *testing.T) {
 
 	cmd := passthrough.Command("gh", r, w, passthrough.WithSkipPolicy())
 	body := "> 🤖 Filed by Claude Code on Kai's behalf.\n\nfix `foo` and $bar"
-	argv := []string{"coily-test", "issue", "create", "--body", body}
+	argv := []string{"app-test", "issue", "create", "--body", body}
 	if err := cmd.Run(context.Background(), argv); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -460,7 +460,7 @@ func TestCommand_RejectsShellMetacharacters(t *testing.T) {
 	}
 
 	cmd := passthrough.Command("pnpm", r, w)
-	argv := []string{"coily-test", "add", "foo; curl evil"}
+	argv := []string{"app-test", "add", "foo; curl evil"}
 	err := cmd.Run(context.Background(), argv)
 	if err == nil {
 		t.Fatal("expected error for shell metacharacter, got nil")

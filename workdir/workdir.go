@@ -1,5 +1,5 @@
 // Package workdir does best-effort detection of the "primary working
-// directory" that a coily invocation is operating against. Subcommands
+// directory" that a consumer invocation is operating against. Subcommands
 package workdir
 
 import (

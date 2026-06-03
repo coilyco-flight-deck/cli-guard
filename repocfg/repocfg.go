@@ -44,7 +44,7 @@ type Command struct {
 	// resolved via $PATH at exec time. Every token has been run through
 	Argv []string
 	// Egress, when true, opts the command into the per-invocation CONNECT
-	// proxy that consumers (coily) wire around exec. The audit row picks up
+	// proxy that consumers wire around exec. The audit row picks up
 	Egress bool
 	// AllowMetacharacters opts this command out of the shell-metacharacter
 	// validator for both the YAML-declared argv tokens (skipped at load)

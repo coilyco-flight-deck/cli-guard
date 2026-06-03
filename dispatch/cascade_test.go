@@ -63,7 +63,7 @@ func TestResolveCascadeBudget_FloorErrorIsActionable(t *testing.T) {
 // it may spawn both cascade sub-trees and headless leaves.
 func TestCascadePreamble_AboveFloor(t *testing.T) {
 	got := cascadePreamble(3)
-	for _, want := range []string{"budget of 3", "coily dispatch cascade", "coily dispatch headless", "do NOT pass --depth"} {
+	for _, want := range []string{"budget of 3", "dispatch cascade", "dispatch headless", "do NOT pass --depth"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("budget-3 preamble missing %q, got %q", want, got)
 		}
@@ -77,7 +77,7 @@ func TestCascadePreamble_AtFloor(t *testing.T) {
 	if !strings.Contains(got, "budget is 1") {
 		t.Errorf("budget-1 preamble should name the floor, got %q", got)
 	}
-	if !strings.Contains(got, "may NOT spawn") || !strings.Contains(got, "coily dispatch headless") {
+	if !strings.Contains(got, "may NOT spawn") || !strings.Contains(got, "dispatch headless") {
 		t.Errorf("budget-1 preamble must forbid cascade and allow headless, got %q", got)
 	}
 }
@@ -85,18 +85,18 @@ func TestCascadePreamble_AtFloor(t *testing.T) {
 // TestCascadeSeedPrompt verifies the composed prompt leads with the
 // recursion posture and carries the issue body and cascade footer.
 func TestCascadeSeedPrompt(t *testing.T) {
-	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 130, Platform: PlatformForgejo}
+	ref := &issueRef{Owner: "example-org", Repo: "example-repo", Number: 130, Platform: PlatformForgejo}
 	issue := &ghIssue{
 		Number: 130,
 		Title:  "swarm migration",
 		Body:   "migrate repos A B C",
 		State:  "open",
-		URL:    "https://forgejo.coilysiren.me/coilysiren/coily/issues/130",
+		URL:    "https://forgejo.coilysiren.me/example-org/example-repo/issues/130",
 	}
-	got := cascadeSeedPrompt(ref, issue, "/repo/coily", 3)
+	got := cascadeSeedPrompt(ref, issue, "/repo/example-repo", 3)
 	for _, want := range []string{
 		"cascade worker with a recursion depth budget of 3",
-		"Work on Forgejo issue coilysiren/coily#130.",
+		"Work on Forgejo issue example-org/example-repo#130.",
 		"migrate repos A B C",
 		"do NOT close this issue",
 		"closes #",
@@ -104,7 +104,7 @@ func TestCascadeSeedPrompt(t *testing.T) {
 		"non-fast-forward",
 		"force-push",
 		"worktree on branch `dispatch/issue-130-swarm-migration`",
-		"git -C /repo/coily merge dispatch/issue-130-swarm-migration",
+		"git -C /repo/example-repo merge dispatch/issue-130-swarm-migration",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("cascadeSeedPrompt missing %q, got %q", want, got)
@@ -147,7 +147,7 @@ func TestDispatchHasCascadeSubverb(t *testing.T) {
 func TestDispatchBare_NamesCascade(t *testing.T) {
 	d := newTestDispatcher(t)
 	cmd := d.Command()
-	err := cmd.Run(context.Background(), []string{"dispatch", "coilysiren/coily#130"})
+	err := cmd.Run(context.Background(), []string{"dispatch", "example-org/example-repo#130"})
 	if err == nil {
 		t.Fatal("bare dispatch <ref> should error")
 	}

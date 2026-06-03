@@ -96,7 +96,7 @@ func WithEnvFunc(fn func() (map[string]string, error)) Option {
 	}
 }
 
-// Command returns the *cli.Command for `coily <bin>`. Every argument
+// Command returns the *cli.Command for the wrapped `<bin>`. Every argument
 // after the binary name is forwarded verbatim through the pass-through
 func Command(bin string, r *shell.Runner, w *audit.Writer, opts ...Option) *cli.Command {
 	cfg := config{}

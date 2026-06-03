@@ -34,18 +34,18 @@ func TestHeadlessPreamble(t *testing.T) {
 // TestInteractivePrompt_ConsultSurface verifies the consult preamble leads
 // the prompt with the work instruction following intact.
 func TestInteractivePrompt_ConsultSurface(t *testing.T) {
-	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 144}
+	ref := &issueRef{Owner: "example-org", Repo: "example-repo", Number: 144}
 	issue := &ghIssue{
 		Number: 144,
 		Title:  "make consult a 4th positional surface",
-		URL:    "https://github.com/coilysiren/coily/issues/144",
+		URL:    "https://github.com/example-org/example-repo/issues/144",
 		State:  "open",
 	}
 	got := interactivePrompt(ref, issue, consultPreamble)
 	if !strings.HasPrefix(got, "You are in auto mode.") {
 		t.Errorf("consult prompt should lead with the consult preamble, got %q", got)
 	}
-	if !strings.Contains(got, "Work on issue coilysiren/coily#144.") {
+	if !strings.Contains(got, "Work on issue example-org/example-repo#144.") {
 		t.Errorf("consult prompt missing the work instruction, got %q", got)
 	}
 }
@@ -53,15 +53,15 @@ func TestInteractivePrompt_ConsultSurface(t *testing.T) {
 // TestInteractivePrompt_InteractiveSurface verifies the interactive (watch)
 // surface injects no preamble, leading straight with the work instruction.
 func TestInteractivePrompt_InteractiveSurface(t *testing.T) {
-	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 144}
+	ref := &issueRef{Owner: "example-org", Repo: "example-repo", Number: 144}
 	issue := &ghIssue{
 		Number: 144,
 		Title:  "make consult a 4th positional surface",
-		URL:    "https://github.com/coilysiren/coily/issues/144",
+		URL:    "https://github.com/example-org/example-repo/issues/144",
 		State:  "open",
 	}
 	got := interactivePrompt(ref, issue, "")
-	if !strings.HasPrefix(got, "Work on issue coilysiren/coily#144.") {
+	if !strings.HasPrefix(got, "Work on issue example-org/example-repo#144.") {
 		t.Errorf("interactive prompt should lead with the work instruction, got %q", got)
 	}
 }
@@ -69,18 +69,18 @@ func TestInteractivePrompt_InteractiveSurface(t *testing.T) {
 // TestSeedPrompt_HeadlessPreamble verifies the detached prompt carries the
 // never-consult preamble ahead of the work instruction and keeps its footer.
 func TestSeedPrompt_HeadlessPreamble(t *testing.T) {
-	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 144, Platform: PlatformForgejo}
+	ref := &issueRef{Owner: "example-org", Repo: "example-repo", Number: 144, Platform: PlatformForgejo}
 	issue := &ghIssue{
 		Number: 144,
 		Title:  "make consult a 4th positional surface",
-		URL:    "https://forgejo.coilysiren.me/coilysiren/coily/issues/144",
+		URL:    "https://forgejo.coilysiren.me/example-org/example-repo/issues/144",
 		State:  "open",
 	}
-	got := seedPrompt(ref, issue, "/repo/coily")
+	got := seedPrompt(ref, issue, "/repo/example-repo")
 	if !strings.HasPrefix(got, "Complete this work end to end") {
 		t.Errorf("headless seed prompt should lead with the headless preamble, got %q", got)
 	}
-	for _, want := range []string{"Work on Forgejo issue coilysiren/coily#144.", "Workflow rules"} {
+	for _, want := range []string{"Work on Forgejo issue example-org/example-repo#144.", "Workflow rules"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("headless seed prompt missing %q, got %q", want, got)
 		}

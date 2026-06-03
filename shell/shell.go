@@ -25,7 +25,7 @@ func PathResolver(bin string) (string, error) {
 	return p, nil
 }
 
-// Runner executes subprocesses on behalf of coily verbs. Build one in main
+// Runner executes subprocesses on behalf of consumer verbs. Build one in main
 // with the default Resolver and plumb it through to verbs that need it.
 type Runner struct {
 	Stdout io.Writer
@@ -55,7 +55,7 @@ func (r *Runner) Exec(ctx context.Context, bin string, argv ...string) error {
 }
 
 // ExecIn is like Exec but runs the child with cmd.Dir set to dir. Used by
-// coily exec when the matched coily.yaml lives in a direct child of cwd:
+// the consumer's exec verb when the matched coily.yaml lives in a direct child of cwd:
 func (r *Runner) ExecIn(ctx context.Context, dir, bin string, argv ...string) error {
 	return r.execIn(ctx, dir, bin, argv...)
 }

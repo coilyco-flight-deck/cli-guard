@@ -1,5 +1,5 @@
 // Package stscache caches `aws sts get-caller-identity` JSON for callers
-// that re-resolve the active AWS identity on every coily invocation. STS
+// that re-resolve the active AWS identity on every invocation. STS
 package stscache
 
 import (

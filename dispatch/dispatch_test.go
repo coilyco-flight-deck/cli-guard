@@ -23,17 +23,17 @@ func TestParseIssueRef(t *testing.T) {
 		repo   string
 		num    int
 	}{
-		{"coilysiren/coily#136", true, "coilysiren", "coily", 136},
-		{"  coilysiren/coily#136  ", true, "coilysiren", "coily", 136},
-		{"https://github.com/coilysiren/coily/issues/136", true, "coilysiren", "coily", 136},
-		{"https://github.com/coilysiren/coily/issues/136/", true, "coilysiren", "coily", 136},
-		{"http://github.com/coilysiren/coily/issues/1", true, "coilysiren", "coily", 1},
-		{"coilysiren/coily/issues/136", false, "", "", 0},
-		{"coilysiren/coily#0", false, "", "", 0},
-		{"coilysiren#136", false, "", "", 0},
+		{"example-org/example-repo#136", true, "example-org", "example-repo", 136},
+		{"  example-org/example-repo#136  ", true, "example-org", "example-repo", 136},
+		{"https://github.com/example-org/example-repo/issues/136", true, "example-org", "example-repo", 136},
+		{"https://github.com/example-org/example-repo/issues/136/", true, "example-org", "example-repo", 136},
+		{"http://github.com/example-org/example-repo/issues/1", true, "example-org", "example-repo", 1},
+		{"example-org/example-repo/issues/136", false, "", "", 0},
+		{"example-org/example-repo#0", false, "", "", 0},
+		{"example-org#136", false, "", "", 0},
 		{"", false, "", "", 0},
 		{"random gibberish", false, "", "", 0},
-		{"github.com/coilysiren/coily/issues/136", false, "", "", 0}, // missing scheme
+		{"github.com/example-org/example-repo/issues/136", false, "", "", 0}, // missing scheme
 	}
 	d := newTestDispatcher(t)
 	for _, tc := range cases {
@@ -54,28 +54,28 @@ func TestParseIssueRef(t *testing.T) {
 }
 
 func TestSeedPrompt_IncludesIssueAndFooter(t *testing.T) {
-	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 136}
+	ref := &issueRef{Owner: "example-org", Repo: "example-repo", Number: 136}
 	issue := &ghIssue{
 		Number: 136,
-		Title:  "coily dispatch",
+		Title:  "example dispatch",
 		Body:   "design body here",
 		State:  "OPEN",
-		URL:    "https://github.com/coilysiren/coily/issues/136",
+		URL:    "https://github.com/example-org/example-repo/issues/136",
 	}
-	got := seedPrompt(ref, issue, "/repo/coily")
+	got := seedPrompt(ref, issue, "/repo/example-repo")
 	for _, want := range []string{
-		"coilysiren/coily#136",
-		"coily dispatch",
+		"example-org/example-repo#136",
+		"example dispatch",
 		"design body here",
-		"https://github.com/coilysiren/coily/issues/136",
+		"https://github.com/example-org/example-repo/issues/136",
 		"AGENTS.md",
 		"closes #",
 		"--no-verify",
 		"pull --rebase",
 		"non-fast-forward",
 		"force-push",
-		"worktree on branch `dispatch/issue-136-coily-dispatch`",
-		"git -C /repo/coily merge dispatch/issue-136-coily-dispatch",
+		"worktree on branch `dispatch/issue-136-example-dispatch`",
+		"git -C /repo/example-repo merge dispatch/issue-136-example-dispatch",
 		"push origin main",
 	} {
 		if !strings.Contains(got, want) {
@@ -85,8 +85,8 @@ func TestSeedPrompt_IncludesIssueAndFooter(t *testing.T) {
 }
 
 func TestIssueRef_String(t *testing.T) {
-	ref := issueRef{Owner: "coilysiren", Repo: "coily", Number: 136}
-	if got, want := ref.String(), "coilysiren/coily#136"; got != want {
+	ref := issueRef{Owner: "example-org", Repo: "example-repo", Number: 136}
+	if got, want := ref.String(), "example-org/example-repo#136"; got != want {
 		t.Errorf("issueRef.String() = %q, want %q", got, want)
 	}
 }
@@ -111,12 +111,12 @@ func TestDispatchLogPath(t *testing.T) {
 	root := t.TempDir()
 	d.cfg.LogRoot = func() (string, error) { return root, nil }
 
-	got, err := d.dispatchLogPath("coily", 302)
+	got, err := d.dispatchLogPath("example-repo", 302)
 	if err != nil {
 		t.Fatalf("dispatchLogPath: %v", err)
 	}
-	if dir := filepath.Dir(got); dir != filepath.Join(root, "coily") {
-		t.Errorf("log dir = %q, want %q", dir, filepath.Join(root, "coily"))
+	if dir := filepath.Dir(got); dir != filepath.Join(root, "example-repo") {
+		t.Errorf("log dir = %q, want %q", dir, filepath.Join(root, "example-repo"))
 	}
 	base := filepath.Base(got)
 	if !strings.HasPrefix(base, "issue-302-") || !strings.HasSuffix(base, ".log") {
@@ -190,7 +190,7 @@ func TestWatchForImmediateExit(t *testing.T) {
 	}
 }
 
-// TestSpawnDetachedWorker_ImmediateExitSurfacesFailure (coily#150): a child
+// TestSpawnDetachedWorker_ImmediateExitSurfacesFailure: a child
 // gone within the window surfaces as a nonzero failure with the log tail.
 func TestSpawnDetachedWorker_ImmediateExitSurfacesFailure(t *testing.T) {
 	d := newTestDispatcher(t)
@@ -210,15 +210,15 @@ func TestSpawnDetachedWorker_ImmediateExitSurfacesFailure(t *testing.T) {
 		return 4242, nil
 	}
 
-	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 150}
+	ref := &issueRef{Owner: "example-org", Repo: "example-repo", Number: 150}
 	issue := &ghIssue{Number: 150, Title: "t", URL: "https://example/150"}
-	c := parsedHeadlessCmd(t, d, "coilysiren/coily#150")
+	c := parsedHeadlessCmd(t, d, "example-org/example-repo#150")
 
 	err := d.spawnDetachedWorker(c, detachedSpec{mode: "headless"}, ref, issue, t.TempDir(), "prompt", "auto", "Bash")
 	if err == nil {
 		t.Fatal("expected immediate-exit failure, got nil")
 	}
-	for _, want := range []string{"coilysiren/coily#150", "no work done", "pid 4242", "API Error: 400"} {
+	for _, want := range []string{"example-org/example-repo#150", "no work done", "pid 4242", "API Error: 400"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error missing %q in:\n%s", want, err.Error())
 		}
@@ -236,9 +236,9 @@ func TestSpawnDetachedWorker_LiveChildSucceeds(t *testing.T) {
 	d.cfg.ProcessAlive = func(int) bool { return true }
 	d.cfg.SpawnDetached = func(_, _, _ string, _, _ []string) (int, error) { return 4242, nil }
 
-	ref := &issueRef{Owner: "coilysiren", Repo: "coily", Number: 150}
+	ref := &issueRef{Owner: "example-org", Repo: "example-repo", Number: 150}
 	issue := &ghIssue{Number: 150, Title: "t", URL: "https://example/150"}
-	c := parsedHeadlessCmd(t, d, "coilysiren/coily#150")
+	c := parsedHeadlessCmd(t, d, "example-org/example-repo#150")
 
 	if err := d.spawnDetachedWorker(c, detachedSpec{mode: "headless"}, ref, issue, t.TempDir(), "prompt", "auto", "Bash"); err != nil {
 		t.Fatalf("live child should succeed, got: %v", err)
@@ -253,8 +253,8 @@ func TestResolveDispatchIssue_RejectsForeignOwner(t *testing.T) {
 	if err == nil {
 		t.Fatal("resolveDispatchIssue should refuse a foreign owner, got nil")
 	}
-	if !strings.Contains(err.Error(), "refusing to dispatch outside coilysiren/*") {
-		t.Errorf("error = %q, want a coilysiren/* refusal", err)
+	if !strings.Contains(err.Error(), "refusing to dispatch outside example-org/*") {
+		t.Errorf("error = %q, want an example-org/* refusal", err)
 	}
 }
 
@@ -265,7 +265,7 @@ func TestParseIssueRef_ForgejoURL(t *testing.T) {
 	d, err := New(Config{
 		Runner:         &shell.Runner{},
 		Wrap:           func(s verb.Spec) cli.ActionFunc { return s.Action },
-		AllowedOwner:   "coilysiren",
+		AllowedOwner:   "example-org",
 		RepoPath:       func(string) (string, error) { return "/tmp", nil },
 		WorktreeRoot:   func() (string, error) { return "/tmp", nil },
 		LogRoot:        func() (string, error) { return "/tmp", nil },
@@ -299,15 +299,15 @@ func TestResolveDispatchIssue_ForgejoFirstThenGitHub(t *testing.T) {
 	d, err := New(Config{
 		Runner:         &shell.Runner{},
 		Wrap:           func(s verb.Spec) cli.ActionFunc { return s.Action },
-		AllowedOwner:   "coilysiren",
+		AllowedOwner:   "example-org",
 		RepoPath:       func(string) (string, error) { return "/tmp", nil },
 		WorktreeRoot:   func() (string, error) { return "/tmp", nil },
 		LogRoot:        func() (string, error) { return "/tmp", nil },
 		ForgejoBaseURL: "https://forgejo.coilysiren.me",
 		FetchForgejoIssue: func(_ context.Context, owner, repo string, n int) (*Issue, error) {
 			forgejoCalled = true
-			if owner == "coilysiren" && repo == "coily" && n == 99 {
-				return &Issue{Number: 99, Title: "from forgejo", State: "open", URL: "https://forgejo.coilysiren.me/coilysiren/coily/issues/99"}, nil
+			if owner == "example-org" && repo == "example-repo" && n == 99 {
+				return &Issue{Number: 99, Title: "from forgejo", State: "open", URL: "https://forgejo.coilysiren.me/example-org/example-repo/issues/99"}, nil
 			}
 			return nil, fmt.Errorf("forgejo: 404 not found")
 		},
@@ -316,7 +316,7 @@ func TestResolveDispatchIssue_ForgejoFirstThenGitHub(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	_ = ghCalled
-	ref, issue, err := d.resolveDispatchIssue(context.Background(), "coilysiren/coily#99")
+	ref, issue, err := d.resolveDispatchIssue(context.Background(), "example-org/example-repo#99")
 	if err != nil {
 		t.Fatalf("resolveDispatchIssue: %v", err)
 	}
@@ -337,7 +337,7 @@ func TestNew_RequiresFields(t *testing.T) {
 	ok := Config{
 		Runner:       &shell.Runner{},
 		Wrap:         func(s verb.Spec) cli.ActionFunc { return s.Action },
-		AllowedOwner: "coilysiren",
+		AllowedOwner: "example-org",
 		RepoPath:     func(string) (string, error) { return "/tmp", nil },
 		WorktreeRoot: func() (string, error) { return "/tmp", nil },
 		LogRoot:      func() (string, error) { return "/tmp", nil },

@@ -237,7 +237,7 @@ func TestWrap_OnCompleteMutatesRecord(t *testing.T) {
 }
 
 // TestWrap_IDOverridePinsAuditRowID proves Spec.IDOverride wins over the
-// audit writer's auto-generated UUID v7. Used by coily's ssh passthrough
+// audit writer's auto-generated UUID v7. Used by the consumer's ssh passthrough
 func TestWrap_IDOverridePinsAuditRowID(t *testing.T) {
 	w := newTestWriter(t)
 	const pinned = "01234567-89ab-7def-0123-456789abcdef"
