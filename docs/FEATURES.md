@@ -15,6 +15,7 @@ Per-primitive detail in [features-detail.md](features-detail.md).
 - **gittree** - Clean+synced gate for repo-shaped verbs.
 - **passthrough** - Audited urfave subcommand around an existing binary.
 - **repocfg** - Per-repo command allowlist from a configurable YAML.
+- **allowlist** - Validate a repocfg-shaped yaml against the repo Makefile.
 - **egress** - Per-invocation CONNECT proxy with consumer allowlist.
 - **mcporter** - Pre-exec preflight for the mcporter tool, secret resolver.
 - **dispatch** - Fire `claude` against a real open GitHub issue.
