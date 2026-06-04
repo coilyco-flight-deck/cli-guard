@@ -16,6 +16,7 @@ Per-primitive detail in [features-detail.md](features-detail.md).
 - **passthrough** - Audited urfave subcommand around an existing binary.
 - **repocfg** - Per-repo command allowlist from a configurable YAML.
 - **allowlist** - Validate a repocfg-shaped yaml against the repo Makefile.
+- **catalog** - Assert a repo's config YAML carries a `catalog:` block with the required descriptor keys (ports agentic-os's catalog-block-present hook into Go).
 - **hookcfg** - Map `repocfg.Security` into `hook.Protected` for hook consumers.
 - **cmd/cli-guard-hook** - Buildable PreToolUse binary for shell-only consumers (kap, future siblings).
 - **egress** - Per-invocation CONNECT proxy with consumer allowlist.

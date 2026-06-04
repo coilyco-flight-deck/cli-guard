@@ -11,6 +11,7 @@ Per-primitive detail behind the [FEATURES.md](FEATURES.md) index.
 - **gittree** - Clean+synced gate refusing repo-shaped verbs on a dirty tree.
 - **passthrough** - Thin wrapper that embeds an existing binary (aws, gh, kubectl, ...) as an audited urfave subcommand.
 - **repocfg** - Per-repo command allowlist loaded from a configurable YAML file.
+- **catalog** - Port of agentic-os's catalog-block-present hook. `Check` takes caller-supplied candidate paths, uses the first that exists, and asserts it carries a top-level `catalog:` mapping with the required descriptor keys (kind, type, system, owner, lifecycle, description, dependsOn; `dependsOn` a list). Returns `[]Problem` like allowlist.
 - **egress** - Per-invocation CONNECT proxy with consumer-supplied allowlist. Enforce / observe modes.
 - **mcporter** - Pre-exec preflight for the mcporter tool. Scans `~/.mcporter/mcporter.json` for `${VAR}` references and resolves via a consumer-supplied `SecretResolver`, injecting values as env vars on the child only. `WithTTLCache` adds on-disk caching. Wired into passthrough via `WithSecretResolver`.
 - **dispatch** - Fire `claude` against a real open GitHub issue, headless or interactive. Prompt from the issue body, never free text. Host bits inject through `dispatch.Config`. Sub-verbs: `reap` (merged worktrees), `status` (pid + log tail, `--follow`).

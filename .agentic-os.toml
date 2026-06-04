@@ -17,6 +17,7 @@ enabled = false
 [code-comments]
 excludes = [
   "allowlist/allowlist.go",
+  "catalog/catalog.go",
   "cmd/cli-guard-hook/main.go",
   "hook/hook.go",
   "hookcfg/hookcfg.go",
