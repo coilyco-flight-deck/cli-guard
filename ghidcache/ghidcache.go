@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ttlcache"
 )
 
@@ -19,15 +20,7 @@ const TTL = 1 * time.Hour
 // get resolves the cache directory on every call rather than memoizing
 // behind sync.Once. Resolution is cheap and tests can flip
 func get(subdir string) *ttlcache.Cache {
-	dir := os.Getenv("COILY_CACHE_DIR")
-	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil || home == "" {
-			home = os.TempDir()
-		}
-		dir = filepath.Join(home, ".coily", "cache")
-	}
-	return ttlcache.New(filepath.Join(dir, subdir))
+	return ttlcache.New(filepath.Join(config.CacheDir(), subdir))
 }
 
 // APIUser returns the JSON body of `gh api user`, served from cache if a

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shell"
 )
 
@@ -163,8 +164,11 @@ func TestWriteDispatchQueueEntry_UniqueFilenames(t *testing.T) {
 // TestDispatchInteractiveDefaults pins the seam strings between dispatch
 // and the agentic-os shim. Changing either side without the other breaks
 func TestDispatchInteractiveDefaults(t *testing.T) {
-	if defaultDispatchQueueDir != "/tmp/coily-dispatch-queue" {
-		t.Errorf("defaultDispatchQueueDir = %q, want /tmp/coily-dispatch-queue", defaultDispatchQueueDir)
+	// With app dir ".coily" the queue dir derives the long-standing
+	// coily seam path the agentic-os shim reads.
+	config.SetAppDir(".coily")
+	if got := defaultDispatchQueueDir(); got != "/tmp/coily-dispatch-queue" {
+		t.Errorf("defaultDispatchQueueDir() = %q, want /tmp/coily-dispatch-queue", got)
 	}
 	if defaultDispatchLaunchName != "claude-dispatch-interactive" {
 		t.Errorf("defaultDispatchLaunchName = %q, want claude-dispatch-interactive", defaultDispatchLaunchName)

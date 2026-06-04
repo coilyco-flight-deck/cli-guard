@@ -25,7 +25,7 @@ Per-primitive detail in [features-detail.md](features-detail.md).
 - **sudo** - Policy-free interactive sudo plumbing over any stdin-piping transport.
 - **respfmt** - JSON response renderer with JMESPath + five output formats.
 - **skillgen** - Render an urfave/cli command tree into markdown or yaml.
-- **config** - Layered-config primitives and a generic `OverlayFile[T]`.
+- **config** - Layered-config primitives and a generic `OverlayFile[T]`. The consumer sets its app-dir once via `config.SetAppDir(".coily")`; cli-guard derives every per-user path (global config dir, local overlay, cache dir, dispatch queue) and the cache-override env var from it, so the framework hardcodes no consumer's filesystem layout.
 - **profiles** - Per-host lockdown profile registry.
 - **decision** - Per-call profile-aware evaluator.
 

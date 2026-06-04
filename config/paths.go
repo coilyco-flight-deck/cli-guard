@@ -1,5 +1,5 @@
-// Path defaults and per-repo audit derivation. Globals live under
-// ~/.coily so they outlive any individual repo. Locals live under
+// Path defaults and per-repo audit derivation, rooted at the consumer's
+// app dir (see appdir.go) so cli-guard hardcodes no consumer's directory.
 package config
 
 import (
@@ -14,14 +14,6 @@ import (
 	"sync"
 	"time"
 )
-
-// GlobalDirName is the single directory under $HOME that holds every coily
-// global - configs and the per-repo audit subtree.
-const GlobalDirName = ".coily"
-
-// LocalDirName is the per-repo overlay directory. Lives at the root of the
-// checkout. Holds the local config overlay and the per-repo command
-const LocalDirName = ".coily"
 
 // AuditSubdir is the subdirectory under the global dir where per-repo audit
 // logs live. One JSONL file per repo slug.
@@ -39,17 +31,17 @@ const SessionProfileFile = "profile"
 // repo (or inside one with no origin remote). All such invocations land in
 const UnrootedAuditName = "_unrooted"
 
-// GlobalDir returns ~/.coily, expanded against $HOME. Returns an error only
-// if $HOME cannot be resolved.
+// GlobalDir returns ~/<app-dir> (e.g. ~/.coily), expanded against $HOME.
+// Returns an error only if $HOME cannot be resolved.
 func GlobalDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("config: resolve home: %w", err)
 	}
-	return filepath.Join(home, GlobalDirName), nil
+	return filepath.Join(home, AppDir()), nil
 }
 
-// GlobalConfigPath returns ~/.coily/config.yaml.
+// GlobalConfigPath returns ~/<app-dir>/config.yaml.
 func GlobalConfigPath() (string, error) {
 	dir, err := GlobalDir()
 	if err != nil {
@@ -58,14 +50,14 @@ func GlobalConfigPath() (string, error) {
 	return filepath.Join(dir, "config.yaml"), nil
 }
 
-// LocalConfigPath returns ./.coily/config.yaml relative to the current
+// LocalConfigPath returns ./<app-dir>/config.yaml relative to the current
 // working directory. The file may or may not exist.
 func LocalConfigPath() (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("config: getwd: %w", err)
 	}
-	return filepath.Join(cwd, LocalDirName, "config.yaml"), nil
+	return filepath.Join(cwd, AppDir(), "config.yaml"), nil
 }
 
 // SessionDir returns ~/.coily/audit/sessions/<sessionID>. Caller is

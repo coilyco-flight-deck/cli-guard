@@ -6,8 +6,16 @@ import (
 	"path/filepath"
 	"testing"
 
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/scope"
 )
+
+// TestMain pins an app dir so the COILY_CACHE_DIR override the subtests set
+// is honored and the toplevel cache lands in the tempdir, not real $HOME.
+func TestMain(m *testing.M) {
+	config.SetAppDir(".coily")
+	os.Exit(m.Run())
+}
 
 func initRepo(t *testing.T) string {
 	t.Helper()

@@ -271,11 +271,14 @@ never wedges Claude Code.
 
 package config // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config"
 
+App-dir namespacing. The consumer-supplied directory name (coily ".coily",
+ward ".ward") roots every per-user path; cli-guard hardcodes no consumer.
+
 Package config carries the layered-config primitives shared across cli-guard
 consumers: path helpers, repo-slug derivation, the Audit
 
-Path defaults and per-repo audit derivation. Globals live under ~/.coily so they
-outlive any individual repo. Locals live under
+Path defaults and per-repo audit derivation, rooted at the consumer's app dir
+(see appdir.go) so cli-guard hardcodes no consumer's directory.
 
 CONSTANTS
 
@@ -283,13 +286,12 @@ const AuditSubdir = "audit"
     AuditSubdir is the subdirectory under the global dir where per-repo audit
     logs live. One JSONL file per repo slug.
 
-const GlobalDirName = ".coily"
-    GlobalDirName is the single directory under $HOME that holds every coily
-    global - configs and the per-repo audit subtree.
+const CacheSubdir = "cache"
+    CacheSubdir is the subdirectory under the app dir holding the ttl caches.
 
-const LocalDirName = ".coily"
-    LocalDirName is the per-repo overlay directory. Lives at the root of the
-    checkout. Holds the local config overlay and the per-repo command
+const FallbackAppDir = ".cli-guard"
+    FallbackAppDir is the app dir used when the consumer never calls SetAppDir.
+    It is the framework's own name, so an unconfigured deployment owns nobody.
 
 const SessionProfileFile = "profile"
     SessionProfileFile is the basename of the per-session sentinel file
@@ -306,6 +308,22 @@ const UnrootedAuditName = "_unrooted"
 
 FUNCTIONS
 
+func AppDir() string
+    AppDir returns the value the consumer set, or FallbackAppDir when unset.
+    Always begins with a dot so it lands hidden under $HOME and the repo root.
+
+func BaseName() string
+    BaseName returns the app dir with leading dots stripped, e.g. ".coily" ->
+    "coily", for the non-hidden cache env var and dispatch queue dir.
+
+func CacheDir() string
+    CacheDir resolves the ttl-cache root: the <BASE>_CACHE_DIR env override,
+    else ~/<app-dir>/cache, else $TMPDIR/<app-dir>/cache when $HOME is unset.
+
+func CacheDirEnv() string
+    CacheDirEnv derives the cache-dir override env var from the app dir so no
+    consumer name is baked in: ".coily" -> "COILY_CACHE_DIR".
+
 func DefaultAuditPath() (string, error)
     DefaultAuditPath returns ~/.coily/audit/<slug>.jsonl, where slug is derived
     from the current git repo's origin remote. Falls back to
@@ -315,15 +333,15 @@ func ExpandHome(p string) string
     Returns the input unchanged if it doesn't start with "~" or if $HOME
 
 func GlobalConfigPath() (string, error)
-    GlobalConfigPath returns ~/.coily/config.yaml.
+    GlobalConfigPath returns ~/<app-dir>/config.yaml.
 
 func GlobalDir() (string, error)
-    GlobalDir returns ~/.coily, expanded against $HOME. Returns an error only if
-    $HOME cannot be resolved.
+    GlobalDir returns ~/<app-dir> (e.g. ~/.coily), expanded against $HOME.
+    Returns an error only if $HOME cannot be resolved.
 
 func LocalConfigPath() (string, error)
-    LocalConfigPath returns ./.coily/config.yaml relative to the current working
-    directory. The file may or may not exist.
+    LocalConfigPath returns ./<app-dir>/config.yaml relative to the current
+    working directory. The file may or may not exist.
 
 func OverlayFile[T any](dst *T, path string) error
     OverlayFile reads path (if it exists) and yaml-unmarshals onto dst. Missing
@@ -347,6 +365,10 @@ func SessionDir(sessionID string) (string, error)
 func SessionProfilePath(sessionID string) (string, error)
     SessionProfilePath returns the per-session profile sentinel file path for
     sessionID. Errors propagate from SessionDir.
+
+func SetAppDir(name string)
+    SetAppDir registers the directory name rooting every per-user path.
+    The consumer calls it once at startup - coily ".coily", ward ".ward".
 
 
 TYPES

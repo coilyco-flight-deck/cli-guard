@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ttlcache"
 )
 
@@ -38,15 +39,7 @@ const (
 // get returns a ttlcache rooted under the gh-api-cache subdir. The
 // directory is shared across tiers; per-entry TTLs encode the freshness
 func get() *ttlcache.Cache {
-	dir := os.Getenv("COILY_CACHE_DIR")
-	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil || home == "" {
-			home = os.TempDir()
-		}
-		dir = filepath.Join(home, ".coily", "cache")
-	}
-	return ttlcache.New(filepath.Join(dir, "gh-api-cache"))
+	return ttlcache.New(filepath.Join(config.CacheDir(), "gh-api-cache"))
 }
 
 // GetJSON fetches the response body for a `GET <path>` GitHub REST call,

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ttlcache"
 )
 
@@ -23,15 +24,7 @@ var (
 
 func toplevelCache() *ttlcache.Cache {
 	gitToplevelCacheOnce.Do(func() {
-		dir := os.Getenv("COILY_CACHE_DIR")
-		if dir == "" {
-			home, err := os.UserHomeDir()
-			if err != nil || home == "" {
-				home = os.TempDir()
-			}
-			dir = filepath.Join(home, ".coily", "cache")
-		}
-		gitToplevelCache = ttlcache.New(filepath.Join(dir, "git-toplevel"))
+		gitToplevelCache = ttlcache.New(filepath.Join(config.CacheDir(), "git-toplevel"))
 	})
 	return gitToplevelCache
 }

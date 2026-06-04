@@ -7,11 +7,15 @@ import (
 	"testing"
 	"time"
 
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghcache"
 )
 
 func reset(t *testing.T) {
 	t.Helper()
+	// App dir ".coily" makes the cache-dir override env COILY_CACHE_DIR and
+	// roots the home fallback at ~/.coily/cache.
+	config.SetAppDir(".coily")
 	t.Setenv("COILY_CACHE_DIR", t.TempDir())
 	t.Setenv("GH_HOST", "")
 	t.Setenv("GH_TOKEN", "")
@@ -390,6 +394,7 @@ func TestGetJSON_BurstCollapsesToOneFetch(t *testing.T) {
 }
 
 func TestGetJSON_HomeFallback(t *testing.T) {
+	config.SetAppDir(".coily")
 	home := t.TempDir()
 	t.Setenv("COILY_CACHE_DIR", "")
 	t.Setenv("HOME", home)

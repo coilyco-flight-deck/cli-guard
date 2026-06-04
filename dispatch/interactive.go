@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shell"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/verb"
 	"github.com/urfave/cli/v3"
@@ -19,11 +20,16 @@ import (
 // Defaults for the dispatch <-> Warp seam. The agentic-os shim reads from
 // the queue dir, the URI fires warp(preview)://(tab_config|launch)/<name>.
 const (
-	defaultDispatchQueueDir   = "/tmp/coily-dispatch-queue"
 	defaultDispatchLaunchName = "claude-dispatch-interactive"
 	defaultDispatchChannel    = "preview"
 	defaultDispatchSurface    = "tab"
 )
+
+// defaultDispatchQueueDir derives /tmp/<base>-dispatch-queue from the
+// consumer's app dir (config.BaseName), e.g. /tmp/coily-dispatch-queue.
+func defaultDispatchQueueDir() string {
+	return filepath.Join("/tmp", config.BaseName()+"-dispatch-queue")
+}
 
 // dispatchQueueSchemaVersion lets the shim reject queue entries it does
 // not understand once the schema evolves. Bump when adding required
@@ -181,7 +187,7 @@ func (d *Dispatcher) interactiveSurfaceCommand(s interactiveSurfaceSpec) *cli.Co
 			&cli.StringFlag{
 				Name:  "queue-dir",
 				Usage: "override the dispatch queue directory. Must match the path the Warp shim reads.",
-				Value: defaultDispatchQueueDir,
+				Value: defaultDispatchQueueDir(),
 			},
 			&cli.StringFlag{
 				Name:  "launch-name",

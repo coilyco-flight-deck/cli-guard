@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ttlcache"
 )
 
@@ -17,15 +18,7 @@ const TTL = 1 * time.Hour
 // get resolves the cache directory on every call rather than caching it
 // behind sync.Once. Resolution is cheap (one getenv plus a join) and
 func get() *ttlcache.Cache {
-	dir := os.Getenv("COILY_CACHE_DIR")
-	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil || home == "" {
-			home = os.TempDir()
-		}
-		dir = filepath.Join(home, ".coily", "cache")
-	}
-	return ttlcache.New(filepath.Join(dir, "aws-sts-identity"))
+	return ttlcache.New(filepath.Join(config.CacheDir(), "aws-sts-identity"))
 }
 
 // CallerIdentity returns the JSON body of `aws sts get-caller-identity

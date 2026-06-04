@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/stscache"
 )
 
@@ -13,6 +14,9 @@ import (
 // profile env vars so subtests do not alias each other through the
 func resetCacheDir(t *testing.T) string {
 	t.Helper()
+	// App dir ".coily" makes the cache-dir override env COILY_CACHE_DIR and
+	// roots the home fallback at ~/.coily/cache.
+	config.SetAppDir(".coily")
 	dir := t.TempDir()
 	t.Setenv("COILY_CACHE_DIR", dir)
 	t.Setenv("AWS_PROFILE", "")
@@ -146,6 +150,7 @@ func TestCallerIdentity_InvalidateForcesRefetch(t *testing.T) {
 // TestCallerIdentity_HomeFallback exercises the $HOME-based default
 // cache dir by unsetting COILY_CACHE_DIR and pointing HOME at a tempdir.
 func TestCallerIdentity_HomeFallback(t *testing.T) {
+	config.SetAppDir(".coily")
 	home := t.TempDir()
 	t.Setenv("COILY_CACHE_DIR", "")
 	t.Setenv("HOME", home)

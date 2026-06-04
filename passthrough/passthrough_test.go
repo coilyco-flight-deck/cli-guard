@@ -10,10 +10,18 @@ import (
 	"time"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/audit"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/passthrough"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shell"
 	"github.com/urfave/cli/v3"
 )
+
+// TestMain pins an app dir so the COILY_CACHE_DIR override the read-cache
+// subtests set is honored by the underlying ghcache.
+func TestMain(m *testing.M) {
+	config.SetAppDir(".coily")
+	os.Exit(m.Run())
+}
 
 // TestCommand_ForwardsArgvVerbatim_AllBinaries pins the per-binary
 // pass-through shape across every wrapped CLI. One row per `<bin>
