@@ -9,3 +9,16 @@ enabled = false
 
 [catalog-trifecta]
 enabled = false
+
+# The v0.11.1 code-comments 2-line cap conflicts with Go doc comments on
+# exported symbols, which this repo deliberately maintains (godoc-current.txt
+# is pinned). Grandfather the files carrying legacy multi-line doc comments so
+# the guard stays on for everything else. Durable fix tracked in #72.
+[code-comments]
+excludes = [
+  "allowlist/allowlist.go",
+  "cmd/cli-guard-hook/main.go",
+  "hook/hook.go",
+  "hookcfg/hookcfg.go",
+  "repocfg/security.go",
+]
