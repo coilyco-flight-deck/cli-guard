@@ -1,3 +1,39 @@
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/allowlist
+
+package allowlist // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/allowlist"
+
+Package allowlist validates a repocfg-shaped command allowlist against the
+repo's Makefile so the verb surface and the make-target surface cannot drift.
+Consumers (ward, coily) wrap Lint in their own doctor / lint subcommands and
+supply already-resolved paths; this package owns the engine, not the resolution
+policy or the CLI surface.
+
+TYPES
+
+type Problem struct {
+	File string
+	Line int
+	Msg  string
+}
+    Problem is one contract violation. File is the source the problem is
+    anchored to (the yaml for verb-side problems, the Makefile for target- side
+    drift). Consumers format `File:Line: Msg` however suits them.
+
+func Lint(yamlPath, makefilePath string) ([]Problem, error)
+    Lint validates yamlPath against makefilePath. Both must be absolute or
+    already cleaned by the caller; the package does not resolve paths.
+
+    Rules:
+      - commands.<verb>.run must equal "make <verb>".
+      - The Makefile must declare a target named <verb>.
+      - The verb description must equal the Makefile target's `## desc`
+        auto-help comment.
+
+    An empty []Problem with nil error means clean. A non-nil error means
+    the inputs could not be parsed (malformed yaml, unreadable Makefile);
+    rule violations come back as Problems, never as errors.
+
+
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/audit
 
 package audit // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/audit"
@@ -215,6 +251,22 @@ func (w *Writer) WrapHook(ctx context.Context, base Record, fn func() error, onC
     fn returns and before the record is appended; it gets a pointer
 
 
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cmd/cli-guard-hook
+
+Command cli-guard-hook is a single-purpose Claude Code PreToolUse binary for
+shell-only consumers. It reads a hook payload from stdin, evaluates it against a
+repocfg-shaped yaml file's `security:` block, emits any block message to stderr,
+and exits 0 on pass / 2 on block.
+
+Usage:
+
+    cli-guard-hook --config /path/to/policy.yaml [--source kap]
+
+The config path comes from --config or $CLI_GUARD_HOOK_CONFIG. There is no
+walk-up: the consumer's install script names the exact file. Empty resolution,
+missing file, or unreadable yaml all exit 0 silently so a half-installed host
+never wedges Claude Code.
+
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config
 
 package config // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config"
@@ -349,14 +401,12 @@ type Config struct {
 	// logging) to a verb.Spec the package builds.
 	Wrap func(verb.Spec) cli.ActionFunc
 
-	// AllowedOwner is the primary org dispatch accepts issue refs from, and
-	// the owner named in help and status text. This is the security claim,
-	// not a knob: dispatch refuses anything
+	// AllowedOwner is the primary org dispatch accepts issue refs from, and the
+	// owner named in help and status text. This is the security claim, not a knob.
 	AllowedOwner string
 
-	// AllowedOwners is an optional set of additional owners dispatch will
-	// accept alongside AllowedOwner, for consumers whose trusted repos span
-	// more than one org. Empty means single-owner (AllowedOwner only).
+	// AllowedOwners is an optional set of additional owners dispatch accepts
+	// alongside AllowedOwner. Empty means single-owner (AllowedOwner only).
 	AllowedOwners []string
 
 	// ForgejoBaseURL enables Forgejo issue refs when set (scheme://host).
@@ -898,6 +948,35 @@ type Route struct {
 }
     Route maps a bare leading-token in argv to a recovery hint string the
     consumer wants surfaced when the harness denies that token.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/hookcfg
+
+package hookcfg // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/hookcfg"
+
+Package hookcfg bridges repocfg.Security into the hook engine's Protected shape,
+so consumers (cmd/cli-guard-hook, ward, future shell consumers via go.mod) share
+one mapping rather than each carrying their own copy.
+
+repocfg and hook stay independent of each other; this small bridge owns the
+direction repocfg.Security -> []hook.Protected.
+
+FUNCTIONS
+
+func ProtectedFor(sec repocfg.Security) []hook.Protected
+    ProtectedFor maps a parsed repocfg.Security block into the hook engine's
+    Protected list. Merges two sources:
+
+      - Every protected_binaries entry becomes a Protected. The engine matches
+        by basename so bare / absolute / relative spellings all trigger the same
+        deny.
+      - Every hooks.deny_bare_binaries entry that is NOT already covered by a
+        protected_binaries entry becomes a hint-only Protected (no wrappers),
+        so a downstream config can deny additional bare invocations without
+        declaring the full protected schema.
+
+    Hint precedence: hooks.route_hints[name] when set, else the engine
+    synthesizes from Wrappers, else a bare deny.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/lockdown
@@ -1619,7 +1698,7 @@ func Invalidate() error
 package sudo // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/sudo"
 
 Package sudo is policy-free plumbing for driving an interactive sudo over any
-transport that pipes a process's stdin without either (a) carrying a password
+transport that pipes a process's stdin without carrying a password.
 
 VARIABLES
 

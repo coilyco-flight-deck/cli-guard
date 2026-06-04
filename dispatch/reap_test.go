@@ -49,10 +49,10 @@ func TestReapDispatchWorktrees_RemovesMergedOnly(t *testing.T) {
 	// Two repos, each with a merged + an unmerged worktree, plus a stray
 	// file the reaper must ignore.
 	for _, dir := range []string{
-		filepath.Join(root, "example-repo", "issue-1"),  // merged
-		filepath.Join(root, "example-repo", "issue-2"),  // unmerged
-		filepath.Join(root, "another-repo", "issue-5"),  // merged
-		filepath.Join(root, "another-repo", "issue-7"),  // remove fails
+		filepath.Join(root, "example-repo", "issue-1"), // merged
+		filepath.Join(root, "example-repo", "issue-2"), // unmerged
+		filepath.Join(root, "another-repo", "issue-5"), // merged
+		filepath.Join(root, "another-repo", "issue-7"), // remove fails
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
