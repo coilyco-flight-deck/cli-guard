@@ -7,7 +7,7 @@ Each subdirectory is a self-contained urfave/cli app that exercises one feature 
 | [`audit/`](audit/main.go) | The foundation. `audit.NewWriter` + `verb.Wrap` produce one JSONL row per invocation. |
 | [`passthrough/`](passthrough/main.go) | Wrap an existing binary (`echo`) as an audited urfave subcommand via `passthrough.Command`. |
 | [`policy/`](policy/main.go) | `policy.ValidateArgSlice` rejecting argv with shell metacharacters. |
-| [`scope/`](scope/main.go) | `scope.Resolve` mapping `--commit-scope=auto` to a git toplevel. |
+| [`scope/`](scope/main.go) | `scope.RepoRoot` resolving cwd to its git toplevel for an audit row's forensic `RepoRoot`. |
 | [`gittree/`](gittree/main.go) | `gittree.CheckClean` refusing a verb on a dirty tree. |
 | [`repocfg/`](repocfg/main.go) | Per-repo verb allowlist loaded from `.coily/coily.yaml`. |
 | [`exitcode/`](exitcode/main.go) | The public exit-code taxonomy for orchestrators. |
