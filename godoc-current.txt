@@ -417,6 +417,10 @@ type Config struct {
 	// (message contains "404") fall back to GitHub for shortform refs.
 	FetchForgejoIssue func(ctx context.Context, owner, repo string, number int) (*Issue, error)
 
+	// IssueFetcher overrides the default gh resolver for GitHub and shortform
+	// refs. Unset keeps gh (GitHub is the right default for a reusable library).
+	IssueFetcher func(ctx context.Context, owner, repo string, number int) (*Issue, error)
+
 	// RepoPath resolves a repo name to its expected local checkout. The
 	// consumer owns the workspace layout. Required.
 	RepoPath func(repo string) (string, error)

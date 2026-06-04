@@ -46,6 +46,10 @@ type Config struct {
 	// (message contains "404") fall back to GitHub for shortform refs.
 	FetchForgejoIssue func(ctx context.Context, owner, repo string, number int) (*Issue, error)
 
+	// IssueFetcher overrides the default gh resolver for GitHub and shortform
+	// refs. Unset keeps gh (GitHub is the right default for a reusable library).
+	IssueFetcher func(ctx context.Context, owner, repo string, number int) (*Issue, error)
+
 	// RepoPath resolves a repo name to its expected local checkout. The
 	// consumer owns the workspace layout. Required.
 	RepoPath func(repo string) (string, error)
@@ -433,7 +437,7 @@ func (d *Dispatcher) resolveDispatchIssue(ctx context.Context, raw string) (*iss
 func (d *Dispatcher) fetchIssueForRef(ctx context.Context, ref *issueRef) (*ghIssue, error) {
 	switch ref.Platform {
 	case PlatformGitHub:
-		return d.fetchIssue(ctx, ref)
+		return d.resolveIssue(ctx, ref)
 	case PlatformForgejo:
 		return d.cfg.FetchForgejoIssue(ctx, ref.Owner, ref.Repo, ref.Number)
 	}
@@ -447,12 +451,21 @@ func (d *Dispatcher) fetchIssueForRef(ctx context.Context, ref *issueRef) (*ghIs
 			return nil, err
 		}
 	}
-	issue, err := d.fetchIssue(ctx, ref)
+	issue, err := d.resolveIssue(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
 	ref.Platform = PlatformGitHub
 	return issue, nil
+}
+
+// resolveIssue calls the consumer's IssueFetcher when set, else the gh
+// default. The Forgejo path keeps its own FetchForgejoIssue seam.
+func (d *Dispatcher) resolveIssue(ctx context.Context, ref *issueRef) (*ghIssue, error) {
+	if d.cfg.IssueFetcher != nil {
+		return d.cfg.IssueFetcher(ctx, ref.Owner, ref.Repo, ref.Number)
+	}
+	return d.fetchIssue(ctx, ref)
 }
 
 // isNotFound matches host-wrapped 404 errors so we can fall back forges.

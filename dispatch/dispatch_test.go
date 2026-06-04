@@ -331,6 +331,68 @@ func TestResolveDispatchIssue_ForgejoFirstThenGitHub(t *testing.T) {
 	}
 }
 
+// TestIssueFetcher_OverridesGHDefault proves a configured IssueFetcher
+// replaces the gh-based resolver for shortform refs, with no Forgejo seam set.
+func TestIssueFetcher_OverridesGHDefault(t *testing.T) {
+	var gotOwner, gotRepo string
+	var gotNum int
+	d, err := New(Config{
+		Runner:       &shell.Runner{},
+		Wrap:         func(s verb.Spec) cli.ActionFunc { return s.Action },
+		AllowedOwner: "example-org",
+		RepoPath:     func(string) (string, error) { return "/tmp", nil },
+		WorktreeRoot: func() (string, error) { return "/tmp", nil },
+		LogRoot:      func() (string, error) { return "/tmp", nil },
+		IssueFetcher: func(_ context.Context, owner, repo string, n int) (*Issue, error) {
+			gotOwner, gotRepo, gotNum = owner, repo, n
+			return &Issue{Number: n, Title: "from hook", State: "open", URL: "https://example/issues/77"}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ref, issue, err := d.resolveDispatchIssue(context.Background(), "example-org/example-repo#77")
+	if err != nil {
+		t.Fatalf("resolveDispatchIssue: %v", err)
+	}
+	if gotOwner != "example-org" || gotRepo != "example-repo" || gotNum != 77 {
+		t.Errorf("IssueFetcher got %s/%s#%d, want example-org/example-repo#77", gotOwner, gotRepo, gotNum)
+	}
+	if issue.Title != "from hook" {
+		t.Errorf("issue.Title = %q, want from hook", issue.Title)
+	}
+	if ref.Platform != PlatformGitHub {
+		t.Errorf("ref.Platform = %q, want github", ref.Platform)
+	}
+}
+
+// TestIssueFetcher_UsedForGitHubURL proves a GitHub-tagged ref (from a
+// github.com URL) also routes through IssueFetcher when set.
+func TestIssueFetcher_UsedForGitHubURL(t *testing.T) {
+	called := false
+	d, err := New(Config{
+		Runner:       &shell.Runner{},
+		Wrap:         func(s verb.Spec) cli.ActionFunc { return s.Action },
+		AllowedOwner: "example-org",
+		RepoPath:     func(string) (string, error) { return "/tmp", nil },
+		WorktreeRoot: func() (string, error) { return "/tmp", nil },
+		LogRoot:      func() (string, error) { return "/tmp", nil },
+		IssueFetcher: func(_ context.Context, _, _ string, n int) (*Issue, error) {
+			called = true
+			return &Issue{Number: n, Title: "from hook", State: "open", URL: "https://github.com/example-org/example-repo/issues/5"}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, _, err := d.resolveDispatchIssue(context.Background(), "https://github.com/example-org/example-repo/issues/5"); err != nil {
+		t.Fatalf("resolveDispatchIssue: %v", err)
+	}
+	if !called {
+		t.Error("expected IssueFetcher to be called for a github.com URL ref")
+	}
+}
+
 // TestNew_RequiresFields proves New fails loud when a required Config
 // field is missing rather than panicking deep in a verb later.
 func TestNew_RequiresFields(t *testing.T) {

@@ -20,7 +20,7 @@ Per-primitive detail in [features-detail.md](features-detail.md).
 - **cmd/cli-guard-hook** - Buildable PreToolUse binary for shell-only consumers (kap, future siblings).
 - **egress** - Per-invocation CONNECT proxy with consumer allowlist.
 - **mcporter** - Pre-exec preflight for the mcporter tool, secret resolver.
-- **dispatch** - Fire `claude` against a real open GitHub issue.
+- **dispatch** - Fire `claude` against a real open issue. Defaults to GitHub (`gh api`); a consumer swaps the resolver via `Config.IssueFetcher` (or adds Forgejo via `FetchForgejoIssue`).
 - **shell**, **ttlcache**, **workdir** - Supporting utilities.
 - **sudo** - Policy-free interactive sudo plumbing over any stdin-piping transport.
 - **respfmt** - JSON response renderer with JMESPath + five output formats.
