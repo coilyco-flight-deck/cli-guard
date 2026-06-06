@@ -14,6 +14,11 @@ enabled = false
 # exported symbols, which this repo deliberately maintains (godoc-current.txt
 # is pinned). Grandfather the files carrying legacy multi-line doc comments so
 # the guard stays on for everything else. Durable fix tracked in #72.
+#
+# The post-v0.11.1 YAML rule (one comment, top-of-file only) assumes a
+# key-sorter would drift inline comments off their target. cli-guard does not
+# sort these config/profile/workflow YAMLs, and their per-key inline comments
+# ARE the documentation, so carve them out rather than gut them. See #72.
 [code-comments]
 excludes = [
   "allowlist/allowlist.go",
@@ -22,4 +27,10 @@ excludes = [
   "hook/hook.go",
   "hookcfg/hookcfg.go",
   "repocfg/security.go",
+  "profiles/**",
+  "lockdown/defaults.yaml",
+  ".golangci.yaml",
+  ".forgejo/**",
+  ".github/**",
+  ".pre-commit-config.yaml",
 ]
