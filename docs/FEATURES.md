@@ -38,6 +38,7 @@ Per-primitive detail in [features-detail.md](features-detail.md).
 - `.golangci.yaml` mirrors urfave/cli's minimal config.
 - `staticcheck.conf` enables all checks (mirrors urfave/cli).
 - CI runs `go vet`, `go build`, `go test -race`, golangci-lint v2.12.2.
+- Release is automated and Forgejo-canonical: push to `main` cuts a conventional-commit-driven semver tag, then cascades dependency-bump PRs to the downstream consumers (ward, coily). See [release-pipeline.md](release-pipeline.md).
 
 ## Deferred to v0.1
 

@@ -41,7 +41,7 @@ v0.x. Minor API breaks ship in `main` with a note in the commit body; no semver 
 
 ## Release
 
-Tag-based, manual. `git tag -a vX.Y.Z -m "vX.Y.Z"` then `git push origin vX.Y.Z`. No release pipeline yet. The Go module path is `forgejo.coilysiren.me/coilyco-flight-deck/cli-guard` (sourced direct from canonical Forgejo, not the GitHub mirror); consumers set `GOPRIVATE=forgejo.coilysiren.me` and pin in `go.mod` (`require forgejo.coilysiren.me/coilyco-flight-deck/cli-guard vX.Y.Z`).
+Automated and Forgejo-canonical. Push to `main` fires [`.forgejo/workflows/release.yml`](.forgejo/workflows/release.yml): conventional commits drive the semver bump (`feat` minor, `fix` patch, `!:`/`BREAKING CHANGE` major, patch default), the workflow cuts the tag + Forgejo release, then a cascade job opens an automatic dependency-bump PR on each downstream consumer (ward, coily). Merging that PR fires the downstream's own release. cli-guard ships no Homebrew formula (library + `cmd/cli-guard-hook`, consumed via `go.mod`). The cascade needs the `CI_RELEASE_TOKEN` secret (forgejo PAT, `write:repository` on ward + coily) and fails soft without it. Full flow in [docs/release-pipeline.md](docs/release-pipeline.md). The Go module path is `forgejo.coilysiren.me/coilyco-flight-deck/cli-guard` (sourced direct from canonical Forgejo); consumers set `GOPRIVATE=forgejo.coilysiren.me` and pin in `go.mod`.
 
 ## Agent rules
 
