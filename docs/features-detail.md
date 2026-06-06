@@ -21,3 +21,4 @@ Per-primitive detail behind the [FEATURES.md](FEATURES.md) index.
 - **config** - Layered-config primitives: `~/.coily` and `./.coily` path helpers, `ExpandHome`, audit-slug derivation from `git remote get-url origin`, the `Audit` rotation-knobs struct, and a generic `OverlayFile[T]` helper.
 - **profiles** - Per-host lockdown profile registry. Loads `~/.coily/coily.yaml`, validates each declared profile against the profile axis vocabulary, resolves a name to a Coordinate. Missing file or unknown name falls back to `profile.Strictest()`.
 - **decision** - Per-call profile-aware evaluator. Resolves a session profile through profiles and returns an `audit.ProfileDecision` ready to attach to an audit row. Plug in via `verb.Spec.OnEvaluate`. Ships a default `audit.RedactPolicy` covering common secret-flag names and identifier patterns.
+- **shim**, **doctor** - Deny-by-structure pair (PATH-shim UX + sudo/ownership floor). See [deny-by-structure.md](deny-by-structure.md).

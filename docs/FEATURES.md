@@ -19,6 +19,8 @@ Per-primitive detail in [features-detail.md](features-detail.md).
 - **catalog** - Assert a repo's config YAML carries a `catalog:` block with the required descriptor keys (ports agentic-os's catalog-block-present hook into Go).
 - **hookcfg** - Map `repocfg.Security` into `hook.Protected` for hook consumers.
 - **cmd/cli-guard-hook** - Buildable PreToolUse binary for shell-only consumers (kap, future siblings).
+- **shim** - Render a PATH shim per protected binary from the same `hook.Protected` set. UX layer (shadows the bare name, prints the recovery path), not the enforcement boundary. See [deny-by-structure.md](deny-by-structure.md).
+- **doctor** - Verify the deny-by-structure enforcement floor: no passwordless sudo, real binary not agent-executable, credential env absent from the agent session. See [deny-by-structure.md](deny-by-structure.md).
 - **egress** - Per-invocation CONNECT proxy with consumer allowlist.
 - **mcporter** - Pre-exec preflight for the mcporter tool, secret resolver.
 - **dispatch** - Fire `claude` against a real open issue. Defaults to GitHub (`gh api`); a consumer swaps the resolver via `Config.IssueFetcher` (or adds Forgejo via `FetchForgejoIssue`).

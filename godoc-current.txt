@@ -631,6 +631,71 @@ type Sidequest struct {
     Sidequest is one active headless dispatch as exposed to consumers.
 
 
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/doctor
+
+package doctor // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/doctor"
+
+Package doctor checks a host's posture against a consumer's declared
+repocfg.Security policy: the enforcement floor. See docs/features-detail.md.
+
+TYPES
+
+type Finding struct {
+	Check    string
+	Severity Severity
+	Message  string
+}
+    Finding is one posture observation: Check names the dimension, Severity the
+    outcome, Message the detail.
+
+type Probes struct {
+	// Sudo runs `sudo -n true` and reports success plus stderr. success
+	// means the agent has passwordless sudo.
+	Sudo func() (succeeded bool, stderr string)
+	// Stat resolves a path to file info, like os.Stat.
+	Stat func(path string) (os.FileInfo, error)
+	// CanExec reports whether the agent user can exec the file, and whether
+	// that was determinable (known=false on unsupported platforms).
+	CanExec func(info os.FileInfo) (canExec bool, known bool)
+	// LookupEnv resolves an environment variable, like os.LookupEnv.
+	LookupEnv func(key string) (value string, present bool)
+}
+    Probes are the host seams Check reads. DefaultProbes wires the real sudo /
+    filesystem / environment; tests inject fakes.
+
+func DefaultProbes() Probes
+    DefaultProbes wires Check to the real host: sudo -n true, os.Stat,
+    os.LookupEnv, and a platform-specific exec-for-current-user check.
+
+type Report struct {
+	Findings []Finding
+}
+    Report is the result of Check. Findings are appended in check order (sudo,
+    binaries, credential env).
+
+func Check(sec repocfg.Security, p Probes) Report
+    Check runs every posture check the policy asks for and returns a Report.
+    It reads only what the policy declares.
+
+func (r Report) OK() bool
+    OK reports whether the report has no Fail finding. Warnings do not fail OK.
+
+func (r Report) Worst() Severity
+    Worst returns the highest severity present, or Pass for an empty report.
+
+type Severity int
+    Severity ranks a finding: Pass informational, Warn unverifiable or softer
+    risk, Fail the floor is broken.
+
+const (
+	Pass Severity = iota
+	Warn
+	Fail
+)
+func (s Severity) String() string
+    String renders the severity as a short uppercase label.
+
+
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/egress
 
 package egress // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/egress"
@@ -1731,6 +1796,29 @@ func (r *Runner) ExecIn(ctx context.Context, dir, bin string, argv ...string) er
     ExecIn is like Exec but runs the child with cmd.Dir set to dir. Used by the
     consumer's exec verb when the matched coily.yaml lives in a direct child of
     cwd:
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shim
+
+package shim // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shim"
+
+Package shim renders PATH shims for a consumer's protected binaries: a deny shim
+per binary that shadows the bare name. See docs/features-detail.md.
+
+TYPES
+
+type Spec struct {
+	// Name is the binary basename the shim shadows and the install filename.
+	Name string
+	// Body is the rendered POSIX-sh script. It has passed sh -n.
+	Body string
+}
+    Spec is one rendered PATH shim. The consumer installs Body under Name on a
+    PATH dir ahead of the real binary.
+
+func For(protected []hook.Protected) ([]Spec, error)
+    For expands a protected set into one deny shim per entry, sorted by Name.
+    Every body is sh -n validated; a bad render fails the whole call.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/skillgen
