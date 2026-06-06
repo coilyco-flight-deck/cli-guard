@@ -87,3 +87,13 @@ deny:
   - Bash(git clean -fd:*)
   - Bash(git push --force:*)
   - Bash(git push -f:*)
+
+  # git config-injection RCE (cli-guard#84). `git -c <key>=<value>` sets
+  # an arbitrary config knob for one invocation, and several knobs run a
+  # command: core.sshCommand, core.fsmonitor, core.pager, alias.*=!sh.
+  # This leading-token deny catches the common top-level form at the
+  # built-in matcher (the primary CLI gate); the rendered hook adds a
+  # content scan that also catches --config-env / --exec-path= and the
+  # positional --upload-pack / --receive-pack remote-exec flags. The
+  # Bash(git:*) allow above would otherwise auto-approve all of these.
+  - Bash(git -c:*)

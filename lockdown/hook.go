@@ -59,6 +59,22 @@ func renderScratchExecCheck() string {
 `
 }
 
+// renderGitFlagCheck content-scans git segments for config-injection +
+// remote-exec RCE flags that Bash(git:*) would auto-allow (cli-guard#84).
+func renderGitFlagCheck() string {
+	return `  # git config-injection + remote-exec flags (cli-guard#84): RCE
+  # primitives that wear a git prefix, so Bash(git:*) would auto-allow.
+  case "$seg_first" in
+    git|*/git)
+      if printf '%s' "$seg" | grep -qE -- '(^| )(-c[[:space:]]+[^[:space:]]+=|--config-env[ =]|--exec-path=|--upload-pack[ =]|--receive-pack[ =])'; then
+        printf 'lockdown: blocked: git config/remote-exec flag. -c <k>=<v> / --config-env / --exec-path= / --upload-pack / --receive-pack can run an arbitrary command (core.sshCommand, alias=!sh, a local pack program). Use plain git subcommands.\n' >&2
+        exit 2
+      fi
+      ;;
+  esac
+`
+}
+
 // renderHookHeader emits the script preamble: shebang, header comment,
 // stdin parse, segment split, and check_segment open through env strip.
 func renderHookHeader() string {
@@ -200,7 +216,7 @@ func claudeCodeRenderHookScript(d *Defaults, drv *Driver) (string, error) {
 	if len(prefixes) == 0 {
 		return "", fmt.Errorf("lockdown: no Bash(...:*) deny rules to render")
 	}
-	return renderHookHeader() + renderBinaryCheck(drv) + renderScratchExecCheck() + renderDenyPrefixCase(prefixes, drv.WrapperRecovery) + renderHookFooter(), nil
+	return renderHookHeader() + renderBinaryCheck(drv) + renderScratchExecCheck() + renderGitFlagCheck() + renderDenyPrefixCase(prefixes, drv.WrapperRecovery) + renderHookFooter(), nil
 }
 
 // claudeCodeRenderUserHookScript emits the user-level PreToolUse hook:
