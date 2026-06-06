@@ -10,18 +10,16 @@ name: release
 # cmd/cli-guard-hook binary, consumed by ward and coily through go.mod, not
 # installed via brew. So unlike ward and coily there is no formula-bump job.
 #
-# Instead, the cascade job opens an automatic PR on each downstream consumer
-# (ward, coily) bumping their cli-guard dependency to the just-cut tag. Those
-# PRs, once merged, fire each downstream's own release. That is what makes
-# this a coordinated triple rather than three independent pipelines, and it
-# retires coily's floating cli-guard pseudo-version.
+# This pipeline is deliberately tag-only. cli-guard is the BASE of the
+# dependency tree, so it must not reach up into its consumers: an upstream
+# repo opening PRs on ward/coily would reverse the dependsOn edge. Downstream
+# bumps are the consumers' job, pulled along the dependency arrow (a scheduled
+# self-bump in ward and coily watching cli-guard's tags). The tree-direction
+# rule is being made enforceable in agentic-os-kai#626.
 #
-# Shared composite actions live at coilysiren/agentic-os/actions/*. The
-# release job's same-repo tag + release writes use the auto-issued job token.
-# The cascade writes cross-repo, so it needs CI_RELEASE_TOKEN, a forgejo PAT
-# with write:repository on coilyco-flight-deck/ward and coilyco-bridge/coily.
-# The cascade fails soft when that secret is absent, so this workflow can land
-# and cut its first tag before the secret is provisioned.
+# Shared composite actions live at coilysiren/agentic-os/actions/*. The tag +
+# release writes use the auto-issued job token, so no cross-repo secret is
+# needed.
 
 on:
   push:
@@ -53,110 +51,3 @@ jobs:
           tag: ${{ steps.tag.outputs.new_tag }}
           name: ${{ steps.tag.outputs.new_tag }}
           body: ${{ steps.tag.outputs.changelog }}
-
-  cascade:
-    # Open a dependency-bump PR on each downstream consumer pinning the
-    # just-cut cli-guard tag. Cross-repo writes use CI_RELEASE_TOKEN.
-    needs: release
-    if: ${{ needs.release.outputs.tag != '' }}
-    runs-on: docker
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - repo: coilyco-flight-deck/ward
-          - repo: coilyco-bridge/coily
-    env:
-      TAG: ${{ needs.release.outputs.tag }}
-      DOWNSTREAM: ${{ matrix.repo }}
-      CLI_GUARD_MODULE: forgejo.coilysiren.me/coilyco-flight-deck/cli-guard
-      FORGEJO_BASE_URL: https://forgejo.coilysiren.me
-      FORGEJO_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
-    steps:
-      - name: Skip when no cross-repo token
-        id: guard
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${FORGEJO_TOKEN}" ]; then
-            echo "cascade: CI_RELEASE_TOKEN not set; skipping ${DOWNSTREAM} bump." >&2
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Check out downstream consumer
-        if: ${{ steps.guard.outputs.skip == 'false' }}
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ matrix.repo }}
-          ref: main
-          token: ${{ secrets.CI_RELEASE_TOKEN }}
-          fetch-depth: 0
-          path: downstream
-
-      - name: Set up Go
-        if: ${{ steps.guard.outputs.skip == 'false' }}
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: downstream/go.mod
-          cache: false
-
-      - name: Bump cli-guard, push branch, open PR
-        if: ${{ steps.guard.outputs.skip == 'false' }}
-        shell: bash
-        working-directory: downstream
-        run: |
-          set -euo pipefail
-
-          if ! command -v jq >/dev/null 2>&1; then
-            if command -v apt-get >/dev/null 2>&1; then
-              apt-get update -qq && apt-get install -y -qq jq
-            elif command -v apk >/dev/null 2>&1; then
-              apk add --no-cache jq
-            fi
-          fi
-
-          owner="${DOWNSTREAM%%/*}"
-          name="${DOWNSTREAM##*/}"
-          branch="chore/bump-cli-guard-${TAG}"
-
-          git config user.name "cli-guard-release[bot]"
-          git config user.email "release@coilysiren.me"
-
-          # Fresh cli-guard tags are not in any module proxy yet, so fetch
-          # straight from the forgejo git source and skip sumdb verification.
-          # go mod tidy recomputes go.sum from the fetched source.
-          export GOPROXY=direct GOSUMDB=off GOFLAGS=-mod=mod
-          go get "${CLI_GUARD_MODULE}@${TAG}"
-          go mod tidy
-
-          if git diff --quiet -- go.mod go.sum; then
-            echo "cascade: ${DOWNSTREAM} already on ${CLI_GUARD_MODULE}@${TAG}; nothing to do."
-            exit 0
-          fi
-
-          git switch -c "$branch"
-          git add go.mod go.sum
-          git commit -m "chore(deps): bump cli-guard to ${TAG}" \
-            -m "Automated downstream bump from the cli-guard release cascade. Merge fires ${name}'s own release."
-          # Authenticated push via the PAT-backed origin from checkout.
-          git push -f origin "HEAD:${branch}"
-
-          # Open (or refresh) the PR. 201 created, 409/422 already exists.
-          payload=$(jq -n \
-            --arg head "$branch" \
-            --arg base main \
-            --arg title "chore(deps): bump cli-guard to ${TAG}" \
-            --arg body "Automated downstream bump from the cli-guard release cascade. Merging this fires ${name}'s own release. Generated by cli-guard ${TAG}." \
-            '{head:$head, base:$base, title:$title, body:$body}')
-          code=$(curl -sS -o /tmp/pr.json -w '%{http_code}' -X POST \
-            -H "Authorization: token ${FORGEJO_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "$payload" \
-            "${FORGEJO_BASE_URL}/api/v1/repos/${owner}/${name}/pulls")
-          case "$code" in
-            201) echo "cascade: opened PR on ${DOWNSTREAM} for ${TAG}." ;;
-            409|422) echo "cascade: PR for ${branch} on ${DOWNSTREAM} already open." ;;
-            *) echo "::error::cascade PR create on ${DOWNSTREAM} failed: HTTP $code"; cat /tmp/pr.json; exit 1 ;;
-          esac
