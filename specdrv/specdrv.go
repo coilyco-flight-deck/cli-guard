@@ -11,10 +11,12 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/guardfile"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specgen"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specverb"
 )
 
 // Options are the inputs shared by every driver verb.
@@ -80,6 +82,36 @@ func Gen(opts Options) error {
 		return fmt.Errorf("specdrv: write %s: %w", out, err)
 	}
 	fmt.Fprintf(os.Stderr, "specverb-gen: wrote %s\n", out)
+	return emitReferenceDocFromLock(filepath.Dir(opts.GuardfilePath), gf, p)
+}
+
+// emitReferenceDocFromLock writes the reference doc from the committed spec lock,
+// or no-ops with a note when the lock is absent (so a pre-lock gen still succeeds).
+func emitReferenceDocFromLock(dir string, gf *guardfile.Guardfile, p specgen.Params) error {
+	specBytes, err := os.ReadFile(filepath.Join(dir, p.SpecLockName)) //nolint:gosec // committed spec snapshot
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "specverb-gen: skipped reference doc (no spec lock %s; run lock)\n", p.SpecLockName)
+			return nil
+		}
+		return fmt.Errorf("specdrv: read spec lock for reference doc: %w", err)
+	}
+	return writeReferenceDoc(dir, gf, p, specBytes)
+}
+
+// writeReferenceDoc renders Surface.Markdown() beside the Guardfile as <name>.md,
+// the committed artifact refreshed alongside main.go and the locks.
+func writeReferenceDoc(dir string, gf *guardfile.Guardfile, p specgen.Params, specBytes []byte) error {
+	surface, err := specverb.Describe(specverb.Config{Guardfile: gf, Spec: specBytes})
+	if err != nil {
+		return fmt.Errorf("specdrv: build reference surface: %w", err)
+	}
+	name := strings.TrimSuffix(p.GuardfileName, filepath.Ext(p.GuardfileName)) + ".md"
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(surface.Markdown()), 0o644); err != nil { //nolint:gosec // human-facing committed reference
+		return fmt.Errorf("specdrv: write reference doc: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "specverb-gen: wrote %s (%d verbs)\n", path, len(surface.Verbs))
 	return nil
 }
 
@@ -119,7 +151,7 @@ func Lock(opts Options) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "specverb-gen: locked %s (%d bytes) + %s (cli-guard %s)\n", p.SpecLockName, len(specBytes), LockName, dl.CLIGuard)
-	return nil
+	return writeReferenceDoc(dir, gf, p, specBytes)
 }
 
 // Skew reports operation-level drift between the committed spec lock and live

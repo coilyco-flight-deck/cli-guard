@@ -5,13 +5,10 @@ package specverb
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/exitcode"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/guardfile"
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/respfmt"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/verb"
 	"github.com/urfave/cli/v3"
 )
@@ -119,39 +116,140 @@ func paramsOf(d opDescriptor) []ParamInfo {
 	return params
 }
 
-// buildDescribeLeaf mounts `describe` as a real verb on the group, rendering the
-// surface through the same --query/--output rail as a live response.
+// buildDescribeLeaf mounts `describe` as a stdout-only reference verb; the build
+// emits the committed doc beside the Guardfile. See docs/specverb-describe.md.
 func (rt *runtime) buildDescribeLeaf(gf *guardfile.Guardfile, surface *Surface) *cli.Command {
 	name := strings.Join(gf.Group, ".") + ".describe"
 	return &cli.Command{
 		Name:  "describe",
-		Usage: "print the mounted surface (noun -> verb -> method/path, auth, grants)",
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: flagQuery, Usage: "JMESPath projection applied to the model"},
-			&cli.StringFlag{Name: flagOutput, Usage: "output format: yaml | yaml-stream | json | text | table"},
-		},
+		Usage: "print the mounted surface as a readable reference",
 		Action: rt.wrap(verb.Spec{
 			Name: name,
-			Action: func(_ context.Context, c *cli.Command) error {
-				return renderSurface(surface, c.String(flagQuery), c.String(flagOutput))
+			Action: func(_ context.Context, _ *cli.Command) error {
+				fmt.Print(surface.Markdown())
+				return nil
 			},
 		}),
 	}
 }
 
-// renderSurface marshals the model and pushes it through respfmt, so describe
-// reads identically to every other verb's output.
-func renderSurface(surface *Surface, query, output string) error {
-	raw, err := json.Marshal(surface)
-	if err != nil {
-		return exitcode.New(exitcode.Internal, "internal", err, "")
+// Markdown renders the surface as the readable reference doc: the same artifact
+// the describe verb prints and the driver writes beside the Guardfile at build time.
+func (s *Surface) Markdown() string {
+	return renderProse(s)
+}
+
+// renderProse renders the Surface as the readable reference: header, auth
+// sentence, then a full-command-path stanza per verb. See docs/specverb-describe.md.
+func renderProse(s *Surface) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n\n", strings.Join(s.Group, " "))
+	fmt.Fprintf(&b, "Spec-driven CLI. Every verb issues an HTTP request against the API base %s.\n", s.BaseURL)
+	fmt.Fprintf(&b, "%s\n", authSentence(s.Auth))
+
+	prefix := strings.Join(s.Group, " ")
+	for _, v := range s.Verbs {
+		heading := fmt.Sprintf("## %s %s %s", prefix, v.Group, v.Leaf)
+		if v.Describe != "" { // the Guardfile note adds intent the path can't; bare heading otherwise
+			heading += " - " + v.Describe
+		}
+		fmt.Fprintf(&b, "\n%s\n", heading)
+		fmt.Fprintf(&b, "  %s %s\n", v.Method, v.Path)
+		fmt.Fprintf(&b, "  Authorized by grant: %s\n", v.Grant)
+		if v.Destructive {
+			b.WriteString("  Destructive - mutates irreversibly.\n")
+		} else {
+			b.WriteString("  Not destructive.\n")
+		}
+		writeParamSections(&b, v.Params)
 	}
-	rendered, err := respfmt.Render(raw, query, output)
-	if err != nil {
-		return exitcode.New(exitcode.Internal, "internal", err, "")
+	return b.String()
+}
+
+// writeParamSections prints a verb's params as two separate lists, positional
+// arguments and options; a verb with neither says so, and empty sections are omitted.
+func writeParamSections(b *strings.Builder, params []ParamInfo) {
+	var positional, options []ParamInfo
+	for _, p := range params {
+		if p.Kind == "path" {
+			positional = append(positional, p)
+		} else {
+			options = append(options, p)
+		}
 	}
-	fmt.Print(string(rendered))
-	return nil
+	if len(positional) == 0 && len(options) == 0 {
+		b.WriteString("  Takes no arguments.\n")
+		return
+	}
+	if len(positional) > 0 {
+		fmt.Fprintf(b, "  Positional arguments (%d):\n", len(positional))
+		for _, line := range positionalLines(positional) {
+			fmt.Fprintf(b, "    - %s\n", line)
+		}
+	}
+	if len(options) > 0 {
+		fmt.Fprintf(b, "  Options (%d):\n", len(options))
+		for _, line := range optionLines(options) {
+			fmt.Fprintf(b, "    - %s\n", line)
+		}
+	}
+}
+
+// authSentence states how the engine authenticates in plain language, naming the
+// SSM path but never the secret it holds.
+func authSentence(a AuthInfo) string {
+	if a.Scheme == "" {
+		return "No authentication is configured."
+	}
+	return fmt.Sprintf("Authenticates with the %q header (scheme %s), reading the token from SSM at %s. The token value is never shown.", a.Header, a.Scheme, a.SSM)
+}
+
+// positionalLines renders path params as aligned `<name>  type` rows. They are
+// always required by construction, so requiredness is left implicit.
+func positionalLines(params []ParamInfo) []string {
+	labels, width := alignedLabels(params)
+	lines := make([]string, len(params))
+	for i, p := range params {
+		lines[i] = fmt.Sprintf("%-*s  %s", width, labels[i], p.Type)
+	}
+	return lines
+}
+
+// optionLines renders body flags as aligned `--name  type · required · desc`
+// rows, carrying the requiredness and any upstream description path params lack.
+func optionLines(params []ParamInfo) []string {
+	labels, width := alignedLabels(params)
+	lines := make([]string, len(params))
+	for i, p := range params {
+		req := "optional"
+		if p.Required {
+			req = "required"
+		}
+		line := fmt.Sprintf("%-*s  %s · %s", width, labels[i], p.Type, req)
+		if p.Desc != "" {
+			line += " · " + p.Desc
+		}
+		lines[i] = line
+	}
+	return lines
+}
+
+// alignedLabels formats each param's display token - <name> for a positional,
+// --name for an option - and returns the column width that right-pads them all.
+func alignedLabels(params []ParamInfo) ([]string, int) {
+	labels := make([]string, len(params))
+	width := 0
+	for i, p := range params {
+		display := "--" + p.Name
+		if p.Kind == "path" {
+			display = "<" + p.Name + ">"
+		}
+		labels[i] = display
+		if len(display) > width {
+			width = len(display)
+		}
+	}
+	return labels, width
 }
 
 // leafDescription is the rich per-verb help body, always populated even where the

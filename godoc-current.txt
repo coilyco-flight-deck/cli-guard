@@ -1797,9 +1797,8 @@ const (
 
 FUNCTIONS
 
-func IsJailInvocation(argv []string) bool
-    IsJailInvocation reports whether argv is the internal jail-helper re-exec;
-    the consumer's main calls RunJail when true.
+func IsJailInvocation(_ []string) bool
+    IsJailInvocation is always false off Linux.
 
 func Jailed() bool
     Jailed reports whether the current process is already running inside a jail.
@@ -1812,13 +1811,12 @@ func RealBinEnv(tool string) string
     RealBinEnv returns the env-var name carrying tool's stashed real path,
     upper-casing the name and mapping non-alphanumerics to '_'.
 
-func RunJail(args []string) error
-    RunJail is the in-namespace helper: it shims the wrapped tools, installs the
-    seccomp denylist, and execs the real tool (args is os.Args[2:]).
+func RunJail(_ []string) error
+    RunJail is unsupported off Linux.
 
-func Wrap(cmd *exec.Cmd, realPath string, argv []string, spec *Spec)
-    Wrap rewrites cmd to re-exec the consumer binary as the jail helper in a
-    fresh user+mount namespace. No-op when already jailed or spec is unusable.
+func Wrap(_ *exec.Cmd, _ string, _ []string, _ *Spec)
+    Wrap is a no-op off Linux: OS-level jailing is unsupported, so the caller
+    execs the real binary directly (pre-sandbox behavior).
 
 
 TYPES
@@ -2147,6 +2145,11 @@ func Describe(cfg Config) (*Surface, error)
     Describe builds the surface model for cfg without mounting a command tree,
     so a caller (skill, completions, docs) can read it directly. Fails closed
     like Build.
+
+func (s *Surface) Markdown() string
+    Markdown renders the surface as the readable reference doc: the same
+    artifact the describe verb prints and the driver writes beside the Guardfile
+    at build time.
 
 type TokenResolver func(ctx context.Context, ssmPath string) (string, error)
     TokenResolver fetches the auth secret named by an SSM path. Injected so the

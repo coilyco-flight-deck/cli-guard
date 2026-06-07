@@ -6,8 +6,8 @@
 
 Every verb reads a `--guardfile`, defaulting to the lone `*.guardfile.kdl` in the current directory.
 
-- **`gen`** - render `main.go` into the cache (or `--out` to inspect it). A debug step; `run` does it for you.
-- **`lock`** - the deliberate online step. Fetches the upstream Swagger to the committed spec lock (`<spec>.lock.json`), then resolves the build's module graph (`go mod tidy` in a throwaway module) and freezes it into `specverb.lock`. `--cli-guard-ref` pins the framework version (defaults to the driver's own); `--cli-guard-replace` points at a local checkout for development.
+- **`gen`** - render `main.go` into the cache (or `--out` to inspect it), and write the reference doc (`<name>.md`) beside the Guardfile from the committed spec lock. A debug step for the source; `run` materializes for you.
+- **`lock`** - the deliberate online step. Fetches the upstream Swagger to the committed spec lock (`<spec>.lock.json`), then resolves the build's module graph (`go mod tidy` in a throwaway module) and freezes it into `specverb.lock`, and refreshes the reference doc from the freshly fetched spec. `--cli-guard-ref` pins the framework version (defaults to the driver's own); `--cli-guard-replace` points at a local checkout for development.
 - **`skew`** - diff the committed spec lock against live upstream at the operation level (added / removed / changed paths and definitions). Exit 3 on drift, never writes; a fetch failure is a plain error, so offline is distinguishable from drift.
 - **`run`** - materialize the consumer binary **out-of-band** and exec it with the passed-through args.
 

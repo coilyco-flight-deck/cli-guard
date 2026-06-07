@@ -11,10 +11,15 @@ Gold-standard visibility for the fanatically thin generated CLI. The surface is 
 - **`ParamInfo`** - each param tagged by kind (`path` positional, `body` flag) plus type and requiredness. The `Kind` taxonomy also names `query`, which the engine does not yet promote to a flag.
 - **`AuthInfo`** - the scheme, header, and SSM token **path**. The secret value never appears in the model.
 
-## The two consumer surfaces
+## The three consumer surfaces
+
+The `Surface` feeds one model into three readers, each `Surface.Markdown()` or a structural read of the same descriptors:
 
 - **Rich per-verb help.** Every mounted leaf's `--help` is populated with method/path, the authorizing grant, the `describe` note, each param tagged by kind and required/optional, and the dry-run hint. Always present, even where the upstream spec description is blank.
-- **The `describe` verb.** `Build` mounts `describe` as a real verb on the group (e.g. `ward ops forgejo describe`), rendering the `Surface` through the same `--query`/`--output` rail as a live response - per the no-code direction, a driver verb, not a Makefile target.
+- **The `describe` verb.** `Build` mounts `describe` as a real verb on the group (e.g. `ward ops forgejo describe`). It renders `Surface.Markdown()` to stdout: a header and plain-language auth sentence, then a stanza per verb whose heading is the **full command path** and whose body frames the HTTP op, grant, and destructive flag in prose above two flat, aligned enumerations - **positional arguments** (the path slots) and **options** (the body flags), kept in separate lists. The verb takes no flags; capture elsewhere is a shell redirect.
+- **The committed reference doc.** At build time the driver (`specverb-gen gen`, and `lock`) writes the same `Surface.Markdown()` beside the Guardfile as `<name>.md`, in the pass that materializes `main.go` and the locks. That is the artifact the consumer commits and reviews in diffs - the binary, embedding its Guardfile, cannot recover the source path at runtime, so the doc is generated where the path is known.
+
+Machine consumers (skills, completions) read the model directly through `specverb.Describe(Config)` in Go rather than a `--query`/`--output` rail on the verb.
 
 ## Guardfile `describe "..."` annotations
 

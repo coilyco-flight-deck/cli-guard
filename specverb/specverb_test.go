@@ -356,17 +356,41 @@ func TestDescribeModel(t *testing.T) {
 }
 
 // TestDescribeVerbRenders proves `describe` is a real, runnable verb on the
-// group whose output names the surface and honors --output.
+// group whose default output is the readable prose reference.
 func TestDescribeVerbRenders(t *testing.T) {
 	gf, spec := loadFixtures(t)
-	out, err := runTree(t, Config{Guardfile: gf, Spec: spec}, "forgejo", "describe", "--output", "json")
+	out, err := runTree(t, Config{Guardfile: gf, Spec: spec}, "forgejo", "describe")
 	if err != nil {
 		t.Fatalf("run describe: %v", err)
 	}
-	for _, want := range []string{"/user/repos", "can create repos", "/forgejo/api-token", "destructive", "deletes the repo"} {
+	for _, want := range []string{
+		"## ward ops forgejo repo create", // heading carries the full command path
+		"/user/repos",
+		"Authorized by grant: can create repos",
+		"/forgejo/api-token",
+		"Destructive - mutates irreversibly.",
+		"deletes the repo",
+		"Positional arguments (", // path params, their own list
+		"Options (",              // body flags, kept separate
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("describe output missing %q:\n%s", want, out)
 		}
+	}
+}
+
+// TestListOrgsExpands proves `list orgs` resolves to the non-destructive org list
+// leaf (orgGetAll, GET /orgs), asserted at the table since the test spec has no orgs.
+func TestListOrgsExpands(t *testing.T) {
+	e, ok := lookupExpansion("list", "orgs")
+	if !ok {
+		t.Fatal("list orgs should be in the expansion allowlist")
+	}
+	if e.Group != "org" || e.Leaf != "list" || e.OperationID != "orgGetAll" {
+		t.Errorf("list orgs = %+v, want org/list/orgGetAll", e)
+	}
+	if destructiveLeaves[e.Leaf] {
+		t.Errorf("list leaf must not be destructive")
 	}
 }
 
