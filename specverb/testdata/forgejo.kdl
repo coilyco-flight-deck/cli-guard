@@ -1,0 +1,15 @@
+// specverb M0 proving-slice Guardfile: the forgejo repo read/create/delete trio.
+// Policy body is flat declarative sentences; quotes live only in the header.
+wrap ward ops forgejo {
+    spec forgejo.swagger.v1.json
+    base-url "https://forgejo.coilysiren.me/api/v1"
+    auth header-token {
+        header Authorization
+        prefix "token "
+        ssm "/forgejo/api-token"
+    }
+
+    can read repos
+    can create repos
+    can delete repos
+}

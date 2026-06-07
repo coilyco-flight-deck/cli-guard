@@ -1891,6 +1891,50 @@ type Entry struct {
     Programmatic consumers (an external orchestrator, a plan-time
 
 
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specverb
+
+package specverb // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specverb"
+
+Package specverb is the runtime engine of the spec-driven verb design: it builds
+a guarded cli tree from a Guardfile + spec. See docs/specverb.md.
+
+FUNCTIONS
+
+func Build(cfg Config) (*cli.Command, error)
+    Build assembles the guarded command tree and returns the Guardfile group's
+    leaf command (e.g. `forgejo`). Fails closed: an unresolvable grant is an
+    error.
+
+
+TYPES
+
+type Config struct {
+	// Guardfile is the parsed L2 policy: the command path, auth, and grants.
+	Guardfile *guardfile.Guardfile
+
+	// Spec is the raw Swagger 2.0 document bytes (embedded by the consumer).
+	Spec []byte
+
+	// Wrap adapts a verb.Spec into a guarded cli.ActionFunc (the audit + argv
+	// pipeline). nil mounts the bare action, for doc rendering only.
+	Wrap func(verb.Spec) cli.ActionFunc
+
+	// Token resolves the auth secret. nil is tolerated for a dry-run-only tree.
+	Token TokenResolver
+
+	// HTTPClient fires the live request. nil uses http.DefaultClient.
+	HTTPClient *http.Client
+
+	// BaseURL overrides the Guardfile base-url. "" uses the Guardfile value.
+	BaseURL string
+}
+    Config is everything the engine needs to build a command tree.
+
+type TokenResolver func(ctx context.Context, ssmPath string) (string, error)
+    TokenResolver fetches the auth secret named by an SSM path. Injected so the
+    AWS SDK stays out of cli-guard; nil is only valid for dry-run-only use.
+
+
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/stscache
 
 package stscache // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/stscache"

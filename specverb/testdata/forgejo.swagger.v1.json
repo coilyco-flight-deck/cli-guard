@@ -1,0 +1,53 @@
+{
+  "swagger": "2.0",
+  "info": { "title": "Forgejo API (M0 proving subset)", "version": "1.0" },
+  "basePath": "/api/v1",
+  "securityDefinitions": {
+    "AuthorizationHeaderToken": {
+      "description": "API tokens must be prepended with \"token\" followed by a space.",
+      "type": "apiKey", "name": "Authorization", "in": "header"
+    }
+  },
+  "paths": {
+    "/repos/{owner}/{repo}": {
+      "get": {
+        "operationId": "repoGet",
+        "parameters": [
+          { "name": "owner", "in": "path", "required": true, "type": "string" },
+          { "name": "repo", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": { "200": {}, "404": {} }
+      },
+      "delete": {
+        "operationId": "repoDelete",
+        "parameters": [
+          { "name": "owner", "in": "path", "required": true, "type": "string" },
+          { "name": "repo", "in": "path", "required": true, "type": "string" }
+        ],
+        "responses": { "204": {}, "403": {}, "404": {} }
+      }
+    },
+    "/user/repos": {
+      "post": {
+        "operationId": "createCurrentUserRepo",
+        "parameters": [
+          { "name": "body", "in": "body", "schema": { "$ref": "#/definitions/CreateRepoOption" } }
+        ],
+        "responses": { "201": {}, "409": {}, "422": {} }
+      }
+    }
+  },
+  "definitions": {
+    "CreateRepoOption": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "description": "Name of the repository to create" },
+        "description": { "type": "string", "description": "Description of the repository to create" },
+        "private": { "type": "boolean", "description": "Whether the repository is private" },
+        "auto_init": { "type": "boolean", "description": "Whether the repository should be auto-initialized" },
+        "default_branch": { "type": "string", "description": "DefaultBranch of the repository" }
+      }
+    }
+  }
+}

@@ -23,14 +23,15 @@ Per-primitive detail in [features-detail.md](features-detail.md).
 - **doctor** - Verify the deny-by-structure enforcement floor: no passwordless sudo, real binary not agent-executable, credential env absent from the agent session. See [deny-by-structure.md](deny-by-structure.md).
 - **egress** - Per-invocation CONNECT proxy with consumer allowlist.
 - **mcporter** - Pre-exec preflight for the mcporter tool, secret resolver.
-- **dispatch** - Fire `claude` against a real open issue. Defaults to GitHub (`gh api`); a consumer swaps the resolver via `Config.IssueFetcher` (or adds Forgejo via `FetchForgejoIssue`).
+- **dispatch** - Fire `claude` against a real open issue. Defaults to GitHub (`gh api`); a consumer swaps the resolver via `Config.IssueFetcher`.
 - **shell**, **ttlcache**, **workdir** - Supporting utilities.
 - **sudo** - Policy-free interactive sudo plumbing over any stdin-piping transport.
 - **respfmt** - JSON response renderer with JMESPath + five output formats.
 - **skillgen** - Render an urfave/cli command tree into markdown or yaml.
-- **config** - Layered-config primitives and a generic `OverlayFile[T]`. The consumer sets its app-dir once via `config.SetAppDir(".coily")`; cli-guard derives every per-user path (global config dir, local overlay, cache dir, dispatch queue) and the cache-override env var from it, so the framework hardcodes no consumer's filesystem layout.
+- **config** - Layered-config primitives and a generic `OverlayFile[T]`; the consumer sets its app-dir once and cli-guard derives every per-user path from it.
 - **profiles** - Per-host lockdown profile registry.
 - **decision** - Per-call profile-aware evaluator.
+- **guardfile** / **specverb** - Spec-driven verb subsystem: a non-executable KDL Guardfile (L2) + an embedded Swagger 2.0 spec compile to a guarded command tree, one generic action per verb, deny-by-default. See [specverb.md](specverb.md).
 
 ## Repo development
 
