@@ -14,6 +14,21 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+// shellMetaReason is the consumer-agnostic Reasoner why-line for a
+// policy_denied from the shell-metacharacter gate.
+const shellMetaReason = "the shell-metacharacter gate refuses argv a downstream shell could reinterpret; " +
+	"some wrapped verbs forward argv into a remote shell (ssh, ssm send-command) and the gate cannot tell them " +
+	"apart from the safe ones, so it refuses metacharacters for all. Pass shell-bearing values through a file " +
+	"instead of inline (a --body-file rather than an inline --body, a file:// URL rather than an inline JSON " +
+	"batch, an external pipe rather than an inline --jq), or opt a known-safe verb out with allow_metacharacters " +
+	"in its declaring config (the audit row stamps policy_skipped so forensics still see it)"
+
+// lockdownAxisReason is the Reasoner why-line for a policy_denied raised
+// when the active lockdown profile refuses a verb on its axis.
+const lockdownAxisReason = "a lockdown profile is the boundary that stops an agent operating under it from " +
+	"widening its own permissions; a denied axis can only be relaxed from outside the agent by editing the " +
+	"verb's profile in its declaring config, never by the caller bypassing the gate"
+
 // Spec describes a verb before it is wrapped into a cli.ActionFunc.
 type Spec struct {
 	// Name is the dotted verb path used for audit logging, e.g.
@@ -58,13 +73,17 @@ func Wrap(spec Spec, writer *audit.Writer) cli.ActionFunc {
 			args, positional := extractArgs(spec, cmd)
 			if err := policy.ValidateArgs(args); err != nil {
 				coded := exitcode.New(exitcode.PolicyDenied, "policy_denied", err,
-					"argv contains a shell metacharacter the security policy refuses to forward")
+					"move the flag value with the metacharacter into a file and pass it by path "+
+						"(a --<flag>-file or a file:// URL), or set allow_metacharacters on the verb if it is known-safe").
+					WithReason(shellMetaReason)
 				logReject(writer, spec.Name, argv, coded)
 				return coded
 			}
 			if err := policy.ValidateArgSlice("positional", positional); err != nil {
 				coded := exitcode.New(exitcode.PolicyDenied, "policy_denied", err,
-					"a positional argument failed shell-metacharacter validation")
+					"move the positional argument with the metacharacter into a file and pass it by path, "+
+						"or set allow_metacharacters on the verb if it is known-safe").
+					WithReason(shellMetaReason)
 				logReject(writer, spec.Name, argv, coded)
 				return coded
 			}
@@ -126,7 +145,8 @@ func runOnEvaluate(ctx context.Context, cmd *cli.Command, spec Spec, base audit.
 	}
 	if pd != nil && !pd.Allowed {
 		coded := exitcode.New(exitcode.PolicyDenied, "policy_denied", evalErr,
-			"the active lockdown profile refuses this verb on the current axis")
+			"relax the denied axis in the verb's profile config, or run from a context the active profile allows").
+			WithReason(lockdownAxisReason)
 		writeDenyRecord(writer, base, pd, evalErr)
 		return pd, coded
 	}

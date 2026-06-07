@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/audit"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/exitcode"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/policy"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/verb"
 	"github.com/urfave/cli/v3"
@@ -59,6 +60,12 @@ func TestWrap_RejectsShellMetacharInArg(t *testing.T) {
 	err := runWrapped(t, spec, w)
 	if !errors.Is(err, policy.ErrShellMeta) {
 		t.Errorf("err = %v, want ErrShellMeta", err)
+	}
+	// The shell-meta gate must attach a Reasoner why-line so a consumer
+	// envelope needs no fallback map (coilyco-flight-deck/cli-guard#2).
+	var rsn exitcode.Reasoner
+	if !errors.As(err, &rsn) || rsn.Reason() == "" {
+		t.Errorf("policy_denied carried no Reason(); want the shell-meta invariant why-line")
 	}
 	b, _ := os.ReadFile(w.Path)
 	records, _ := audit.ReadAll(bytes.NewReader(b))
