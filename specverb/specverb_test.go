@@ -257,3 +257,60 @@ func TestComposesWithVerbWrap(t *testing.T) {
 		t.Errorf("audit row missing the verb name; got:\n%s", string(data))
 	}
 }
+
+// TestMountGeneratesIntermediatePath proves Mount grafts the built group onto a
+// root, creating the `ops` path segment the Guardfile names but root lacks.
+func TestMountGeneratesIntermediatePath(t *testing.T) {
+	gf, spec := loadFixtures(t)
+	root := &cli.Command{Name: "ward"}
+	if err := Mount(root, Config{Guardfile: gf, Spec: spec}); err != nil {
+		t.Fatalf("Mount: %v", err)
+	}
+	ops := childNamed(root, "ops")
+	if ops == nil {
+		t.Fatalf("root has no generated `ops` group; got %v", names(root.Commands))
+	}
+	if childNamed(ops, "forgejo") == nil {
+		t.Fatalf("`ops` has no `forgejo` group; got %v", names(ops.Commands))
+	}
+}
+
+// TestMountReusesExistingPath proves Mount attaches to an `ops` group that
+// already exists rather than creating a duplicate.
+func TestMountReusesExistingPath(t *testing.T) {
+	gf, spec := loadFixtures(t)
+	existing := &cli.Command{Name: "ops"}
+	root := &cli.Command{Name: "ward", Commands: []*cli.Command{existing}}
+	if err := Mount(root, Config{Guardfile: gf, Spec: spec}); err != nil {
+		t.Fatalf("Mount: %v", err)
+	}
+	if n := len(root.Commands); n != 1 {
+		t.Fatalf("root should keep one `ops` group, got %d: %v", n, names(root.Commands))
+	}
+	if childNamed(existing, "forgejo") == nil {
+		t.Errorf("existing `ops` did not gain `forgejo`; got %v", names(existing.Commands))
+	}
+}
+
+func TestDefaultScheme(t *testing.T) {
+	cases := map[string]string{
+		"forgejo.coilysiren.me/api/v1":         "https://forgejo.coilysiren.me/api/v1",
+		"https://forgejo.coilysiren.me/api/v1": "https://forgejo.coilysiren.me/api/v1",
+		"http://127.0.0.1:8080":                "http://127.0.0.1:8080",
+		"":                                     "",
+	}
+	for in, want := range cases {
+		if got := defaultScheme(in); got != want {
+			t.Errorf("defaultScheme(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func childNamed(parent *cli.Command, name string) *cli.Command {
+	for _, c := range parent.Commands {
+		if c.Name == name {
+			return c
+		}
+	}
+	return nil
+}

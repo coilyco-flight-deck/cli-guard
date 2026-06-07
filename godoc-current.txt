@@ -1905,6 +1905,10 @@ func Build(cfg Config) (*cli.Command, error)
     leaf command (e.g. `forgejo`). Fails closed: an unresolvable grant is an
     error.
 
+func Mount(root *cli.Command, cfg Config) error
+    Mount builds the guarded group and grafts it onto root, generating the
+    intermediate path groups the Guardfile names. See docs/specverb.md.
+
 
 TYPES
 

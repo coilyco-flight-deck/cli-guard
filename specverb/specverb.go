@@ -8,11 +8,16 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/guardfile"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/verb"
 	"github.com/urfave/cli/v3"
 )
+
+// defaultHTTPTimeout bounds a single live request made through the engine's
+// default client (Config.HTTPClient nil).
+const defaultHTTPTimeout = 30 * time.Second
 
 // TokenResolver fetches the auth secret named by an SSM path. Injected so the
 // AWS SDK stays out of cli-guard; nil is only valid for dry-run-only use.
@@ -81,14 +86,14 @@ func Build(cfg Config) (*cli.Command, error) {
 	}
 
 	rt := &runtime{
-		baseURL: strings.TrimRight(baseURL, "/"),
+		baseURL: defaultScheme(strings.TrimRight(baseURL, "/")),
 		auth:    gf.Auth,
 		token:   cfg.Token,
 		client:  cfg.HTTPClient,
 		wrap:    cfg.Wrap,
 	}
 	if rt.client == nil {
-		rt.client = http.DefaultClient
+		rt.client = defaultHTTPClient()
 	}
 	if rt.wrap == nil {
 		// identity: bare action, no audit pipeline. Doc-render path only.
@@ -108,6 +113,69 @@ func Build(cfg Config) (*cli.Command, error) {
 		Commands: groupCmds,
 	}
 	return root, nil
+}
+
+// Mount builds the guarded group and grafts it onto root, generating the
+// intermediate path groups the Guardfile names. See docs/specverb.md.
+func Mount(root *cli.Command, cfg Config) error {
+	if root == nil {
+		return fmt.Errorf("specverb: Mount root is nil")
+	}
+	group, err := Build(cfg)
+	if err != nil {
+		return err
+	}
+	// Group [ward, ops, forgejo]: index 0 is root, the last is group.Name, the
+	// middle is the path to find-or-create under root.
+	path := cfg.Guardfile.Group
+	parent := root
+	if len(path) > 1 {
+		for _, seg := range path[1 : len(path)-1] {
+			parent = findOrCreateGroup(parent, seg)
+		}
+	}
+	parent.Commands = append(parent.Commands, group)
+	return nil
+}
+
+// findOrCreateGroup returns parent's child named name, creating an empty group
+// command for it when absent so an intermediate path segment is mounted once.
+func findOrCreateGroup(parent *cli.Command, name string) *cli.Command {
+	for _, c := range parent.Commands {
+		if c.Name == name {
+			return c
+		}
+	}
+	g := &cli.Command{Name: name, Usage: name + " operations"}
+	parent.Commands = append(parent.Commands, g)
+	return g
+}
+
+// defaultScheme prepends https:// to a base-url that carries no scheme, so a
+// Guardfile may write `base-url "host/api/v1"` and rely on TLS by default.
+func defaultScheme(baseURL string) string {
+	if baseURL == "" || strings.Contains(baseURL, "://") {
+		return baseURL
+	}
+	return "https://" + baseURL
+}
+
+// defaultHTTPClient (used when Config.HTTPClient is nil) follows GET/HEAD
+// redirects but refuses them for mutating methods. See docs/specverb.md.
+func defaultHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: defaultHTTPTimeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) == 0 {
+				return nil
+			}
+			switch via[0].Method {
+			case http.MethodGet, http.MethodHead:
+				return nil
+			}
+			return fmt.Errorf("specverb: refusing to follow a %s redirect to %s; a mutating verb must not be silently downgraded", via[0].Method, req.URL)
+		},
+	}
 }
 
 // mountGrants resolves every `can` grant into a guarded leaf, bucketed into
