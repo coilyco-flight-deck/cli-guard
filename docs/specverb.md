@@ -5,7 +5,7 @@ The spec-driven verb subsystem replaces hand-rolled per-verb CLI wrappers with o
 Three layers:
 
 - **L0 - upstream spec.** The vendor's API truth (Forgejo's `swagger.v1.json`), embedded.
-- **L1 - policy IR.** The compiled operation set the runtime mounts from, resolved in-process from the expansion table.
+- **L1 - policy IR.** The compiled operation set, resolved from the expansion table.
 - **L2 - KDL Guardfile.** The human authoring layer. Pure data, parsed never evaluated, compiling to L1.
 
 ## guardfile (L2)
@@ -45,17 +45,17 @@ One generic action backs every verb:
 - **Auth** (header-token) resolves the secret through an injected `TokenResolver`, keeping the AWS SDK out of cli-guard - the consumer wires the real SSM resolver, tests inject a fake.
 - **`--dry-run`** prints the resolved request with the secret redacted and fires nothing; live responses render through the `respfmt` `--query`/`--output` rail.
 
-The Guardfile and expansion table resolve to a concrete operation set at build time - a compiler, never an interpreter - and anything unresolved is a refusal, not a guess.
+`specverb.Mount(root, Config)` is the consumer entry point: it `Build`s the group and grafts it onto root, generating the intermediate path groups the `wrap` line names (`wrap ward ops forgejo` -> find-or-create `ops`), so a consumer registers the whole surface in one call. Two defaults keep it thin: a scheme-less `base-url` defaults to `https://`, and a nil `HTTPClient` refuses redirects for mutating methods (net/http would otherwise downgrade a redirected POST, dropping the body).
 
-`specverb.Mount(root, Config)` is the consumer entry point: it `Build`s the group and grafts it onto root, generating the intermediate path groups the `wrap` line names (`wrap ward ops forgejo` -> find-or-create `ops`, attach `forgejo`), so a consumer registers the whole surface in one call. Two defaults keep it thin: a scheme-less `base-url` defaults to `https://`, and a nil `HTTPClient` follows GET/HEAD redirects but refuses them for mutating methods (net/http would otherwise downgrade a redirected POST to GET, dropping the body).
+`specgen.Render` (via `cmd/specverb-gen`) goes further, generating a consumer's whole `main.go` from the Guardfile - spec resolution, audit `Wrap`, SSM resolver, `Mount` - so the consumer declares only the `.kdl`. The generated, gitignored file keeps the AWS SDK in the consumer module, out of cli-guard.
 
 ## Milestone status
 
-M0 mounts the forgejo repo read/create/delete trio from a fixture spec, unit-tested over tree shape, deny-by-default, the Swagger-2.0 gate, dry-run, live create/delete, and `verb.Wrap` composition. M1 wires it into ward (`Mount` + the real SSM resolver, diffed against coily's `repo create`).
+M0 mounts the forgejo repo read/create/delete trio, unit-tested over tree shape, deny-by-default, the Swagger-2.0 gate, dry-run, live create/delete, and `verb.Wrap`. M1 wires it into ward via `Mount` + the real SSM resolver, diffed against coily's `repo create`.
 
 Named follow-ups (not silent gaps):
 
-- **M2** - fanatical-UX: `--yes` destructive-confirm, teaching errors, generated help.
-- **M4** - embed + pin the spec by hash; migrate coily's verbs to specverb.
+- **M2** - fanatical-UX: `--yes` destructive-confirm, teaching errors.
+- **M4** - pin the spec by hash; migrate coily's verbs to specverb.
 
 Design: [cli-guard#75](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/75).

@@ -335,6 +335,12 @@ walk-up: the consumer's install script names the exact file. Empty resolution,
 missing file, or unreadable yaml all exit 0 silently so a half-installed host
 never wedges Claude Code.
 
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cmd/specverb-gen
+
+Command specverb-gen renders a consumer `main.go` from a KDL Guardfile
+via specgen, so a spec-driven consumer declares only its policy. See
+docs/specverb.md.
+
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config
 
 package config // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config"
@@ -1889,6 +1895,21 @@ type Entry struct {
 }
     Entry is one leaf verb in the structured (yaml) form of the command tree.
     Programmatic consumers (an external orchestrator, a plan-time
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specgen
+
+package specgen // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specgen"
+
+Package specgen renders a complete consumer `main.go` from a KDL Guardfile,
+so a consumer never hand-writes the specverb wiring. See docs/specverb.md.
+
+FUNCTIONS
+
+func Render(gf *guardfile.Guardfile, guardfileName string) ([]byte, error)
+    Render emits a gofmt'd `package main` wiring specverb.Mount for gf.
+    guardfileName is the Guardfile's filename in the consumer dir (for the
+    embed).
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specverb
