@@ -18,9 +18,9 @@ import (
 type params struct {
 	Binary        string // binary name, e.g. ward-kdl (Guardfile group[0])
 	GuardfileName string // embedded Guardfile filename, e.g. forgejo.guardfile.kdl
-	SpecURL       string // where the Swagger doc is fetched on a cache miss
-	SpecEnvVar    string // env var overriding the spec path, e.g. WARD_KDL_SPEC
-	CacheDir      string // cache subdir under os.UserCacheDir, e.g. ward-kdl
+	SpecLockName  string // committed, embedded spec lock filename, e.g. forgejo.swagger.lock.json
+	SpecURL       string // upstream Swagger URL; the `make lock` source and bootstrap fallback
+	SpecEnvVar    string // env var overriding the embedded lock, e.g. WARD_KDL_SPEC
 }
 
 // Render emits a gofmt'd `package main` wiring specverb.Mount for gf.
@@ -37,9 +37,9 @@ func Render(gf *guardfile.Guardfile, guardfileName string) ([]byte, error) {
 	p := params{
 		Binary:        binary,
 		GuardfileName: guardfileName,
+		SpecLockName:  deriveLockName(gf.Spec),
 		SpecURL:       specURL,
 		SpecEnvVar:    strings.ToUpper(strings.ReplaceAll(binary, "-", "_")) + "_SPEC",
-		CacheDir:      binary,
 	}
 	var buf bytes.Buffer
 	if err := mainTemplate.Execute(&buf, p); err != nil {
@@ -50,6 +50,15 @@ func Render(gf *guardfile.Guardfile, guardfileName string) ([]byte, error) {
 		return nil, fmt.Errorf("specgen: gofmt generated source: %w", err)
 	}
 	return out, nil
+}
+
+// deriveLockName maps the Guardfile spec filename to the committed lock name:
+// forgejo.swagger.v1.json -> forgejo.swagger.lock.json (a distinct, tracked name).
+func deriveLockName(spec string) string {
+	if strings.HasSuffix(spec, ".v1.json") {
+		return strings.TrimSuffix(spec, ".v1.json") + ".lock.json"
+	}
+	return spec + ".lock"
 }
 
 // deriveSpecURL turns the Guardfile base-url into the Swagger fetch URL: the
@@ -85,7 +94,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/audit"
@@ -100,6 +108,12 @@ import (
 
 //go:embed {{.GuardfileName}}
 var embeddedGuardfile []byte
+
+// embeddedSpec is the committed spec lock: a hermetic, reproducible view of the
+// upstream API, refreshed only by the consumer's 'make lock'.
+
+//go:embed {{.SpecLockName}}
+var embeddedSpec []byte
 
 const specURL = "{{.SpecURL}}"
 
@@ -132,27 +146,17 @@ func mountOps(app *cli.Command) error {
 	})
 }
 
+// resolveSpec prefers the override, then the embedded lock, then a live-fetch
+// bootstrap used only before the first 'make lock'.
 func resolveSpec() ([]byte, error) {
-	path := os.Getenv("{{.SpecEnvVar}}")
-	if path == "" {
-		cache, err := os.UserCacheDir()
-		if err != nil {
-			return nil, err
-		}
-		path = filepath.Join(cache, "{{.CacheDir}}", "forgejo.swagger.v1.json")
+	if path := os.Getenv("{{.SpecEnvVar}}"); path != "" {
+		return os.ReadFile(path) //nolint:gosec // operator-supplied dev/skew override
 	}
-	if b, err := os.ReadFile(path); err == nil {
-		return b, nil
+	if len(embeddedSpec) > 0 {
+		return embeddedSpec, nil
 	}
-	fmt.Fprintf(os.Stderr, "{{.Binary}}: fetching spec -> %s\n", path)
-	b, err := fetchSpec(specURL)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err == nil {
-		_ = os.WriteFile(path, b, 0o600)
-	}
-	return b, nil
+	fmt.Fprintf(os.Stderr, "{{.Binary}}: no embedded spec lock; fetching %s (run 'make lock')\n", specURL)
+	return fetchSpec(specURL)
 }
 
 func fetchSpec(u string) ([]byte, error) {

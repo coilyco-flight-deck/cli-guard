@@ -17,12 +17,16 @@ type tableEntry struct {
 	OperationID string
 }
 
-// expansionTable is the M0 allowlist: the forgejo repo read/create/delete trio.
-// Everything else fails closed.
+// expansionTable is the M0 allowlist: the forgejo repo and org
+// read/create/delete trios. Everything else fails closed.
 var expansionTable = map[grantKey]tableEntry{
 	{Verb: "read", Resource: "repos"}:   {Group: "repo", Leaf: "get", OperationID: "repoGet"},
 	{Verb: "create", Resource: "repos"}: {Group: "repo", Leaf: "create", OperationID: "createCurrentUserRepo"},
 	{Verb: "delete", Resource: "repos"}: {Group: "repo", Leaf: "delete", OperationID: "repoDelete"},
+
+	{Verb: "read", Resource: "orgs"}:   {Group: "org", Leaf: "get", OperationID: "orgGet"},
+	{Verb: "create", Resource: "orgs"}: {Group: "org", Leaf: "create", OperationID: "orgCreate"},
+	{Verb: "delete", Resource: "orgs"}: {Group: "org", Leaf: "delete", OperationID: "orgDelete"},
 }
 
 // destructiveLeaves names the irreversibly-mutating leaves. The descriptor
