@@ -24,6 +24,7 @@ cli-guard is a security-boundary framework. Issues here can have outsized impact
 - scope-token bypasses (a read token executing a write action, etc)
 - `gittree.CheckClean` returning OK on a tree that does not reconstruct from git history
 - CONNECT-proxy allowlist bypasses in the `egress` package
+- `sandbox` jail escapes: a wrapped tool spawned under the jail — or any descendant of it — invoking a wrapped tool (by name **or** absolute path) without re-entering the consumer gate (shim-mask bypass), or defeating the seccomp denylist / namespace confinement (ptrace, kernel-module load, re-namespacing to undo the bind-mounts). These properties are pinned by `TestSecurityClaim_GrandchildRoutesThroughGate` and `TestSecurityClaim_SeccompDeniesPtrace` in `sandbox/`; a passing test that does not actually hold is itself a vulnerability.
 
 Out of scope (file as regular issues, not vulnerabilities):
 

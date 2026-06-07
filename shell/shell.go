@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/sandbox"
 )
 
 // Resolver turns a binary name into an executable path. Pluggable so tests
@@ -36,6 +38,9 @@ type Runner struct {
 	// Env, when non-nil, is appended to os.Environ() and passed to the
 	// child as cmd.Env. Used by the egress-proxy plumbing to inject
 	Env []string
+	// Sandbox, when non-nil, jails the child (Linux) so it and its descendants
+	// re-enter the gate before invoking a wrapped tool. nil = run directly.
+	Sandbox *sandbox.Spec
 }
 
 // ErrEmptyBinary is returned when Exec or Capture is called with "".
@@ -46,6 +51,15 @@ func (r *Runner) resolver() Resolver {
 		return r.Resolve
 	}
 	return PathResolver
+}
+
+// resolvePath resolves bin, preferring the jail's stashed real binary so the
+// gate execs the tool itself rather than looping back into the shim.
+func (r *Runner) resolvePath(bin string) (string, error) {
+	if p := sandbox.RealBin(bin); p != "" {
+		return p, nil
+	}
+	return r.resolver()(bin)
 }
 
 // Exec runs bin with argv, streaming stdin/stdout/stderr through the Runner's
@@ -64,7 +78,7 @@ func (r *Runner) execIn(ctx context.Context, dir, bin string, argv ...string) er
 	if bin == "" {
 		return ErrEmptyBinary
 	}
-	path, err := r.resolver()(bin)
+	path, err := r.resolvePath(bin)
 	if err != nil {
 		return err
 	}
@@ -78,6 +92,10 @@ func (r *Runner) execIn(ctx context.Context, dir, bin string, argv ...string) er
 	if r.Env != nil {
 		cmd.Env = append(os.Environ(), r.Env...)
 	}
+	if r.Sandbox != nil {
+		// Linux + not-already-jailed: re-exec through the jail helper; else no-op.
+		sandbox.Wrap(cmd, path, argv, r.Sandbox)
+	}
 	return cmd.Run()
 }
 
@@ -87,7 +105,7 @@ func (r *Runner) Capture(ctx context.Context, bin string, argv ...string) ([]byt
 	if bin == "" {
 		return nil, ErrEmptyBinary
 	}
-	path, err := r.resolver()(bin)
+	path, err := r.resolvePath(bin)
 	if err != nil {
 		return nil, err
 	}
