@@ -1008,6 +1008,47 @@ func (s *State) FormatRefusal(verbName string) string
     State, naming the verb so the operator's recovery suggestion includes
 
 
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/guardfile
+
+package guardfile // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/guardfile"
+
+Package guardfile parses a KDL Guardfile, the human authoring layer (L2) of the
+specverb engine, into a typed model. KDL is parsed, never evaluated.
+
+TYPES
+
+type Auth struct {
+	Scheme string
+	Header string
+	Prefix string // trailing space is significant, e.g. "token "
+	SSM    string
+}
+    Auth describes how the engine authenticates to the target API. Only the
+    header-token scheme (Forgejo's "Authorization: token <key>") is modeled.
+
+type Grant struct {
+	Modal      string
+	Verb       string
+	Resource   string
+	Qualifiers []string
+}
+    Grant is one policy sentence: modal verb resource [qualifiers...]. "can
+    delete labels created-by-me" -> {can, delete, labels, [created-by-me]}.
+
+type Guardfile struct {
+	Group   []string // command path, e.g. ["ward", "ops", "forgejo"]
+	Spec    string
+	BaseURL string
+	Auth    Auth
+	Grants  []Grant
+}
+    Guardfile is the parsed form of one wrap block.
+
+func Parse(src []byte) (*Guardfile, error)
+    Parse turns Guardfile source into a Guardfile. It fails closed: an unknown
+    node, a missing required field, or a malformed sentence is an error.
+
+
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/hook
 
 package hook // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/hook"

@@ -1,8 +1,9 @@
 module forgejo.coilysiren.me/coilyco-flight-deck/cli-guard
 
-go 1.25.0
+go 1.25.5
 
 require (
+	github.com/calico32/kdl-go v0.14.1
 	github.com/jmespath/go-jmespath v0.4.0
 	github.com/olekukonko/tablewriter v1.1.4
 	github.com/urfave/cli/v3 v3.9.0
