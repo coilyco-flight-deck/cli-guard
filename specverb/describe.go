@@ -139,12 +139,12 @@ func (s *Surface) Markdown() string {
 	return renderProse(s)
 }
 
-// renderProse renders the Surface as the readable reference: header, auth
-// sentence, then a full-command-path stanza per verb. See docs/specverb-describe.md.
+// renderProse renders the Surface as valid Markdown: header, auth sentence, a
+// stanza per verb, each fact a blank-line-separated block. See docs/specverb-describe.md.
 func renderProse(s *Surface) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n", strings.Join(s.Group, " "))
-	fmt.Fprintf(&b, "Spec-driven CLI. Every verb issues an HTTP request against the API base %s.\n", s.BaseURL)
+	fmt.Fprintf(&b, "Spec-driven CLI. Every verb issues an HTTP request against the API base %s.\n\n", s.BaseURL)
 	fmt.Fprintf(&b, "%s\n", authSentence(s.Auth))
 
 	prefix := strings.Join(s.Group, " ")
@@ -153,21 +153,20 @@ func renderProse(s *Surface) string {
 		if v.Describe != "" { // the Guardfile note adds intent the path can't; bare heading otherwise
 			heading += " - " + v.Describe
 		}
-		fmt.Fprintf(&b, "\n%s\n", heading)
-		fmt.Fprintf(&b, "  %s %s\n", v.Method, v.Path)
-		fmt.Fprintf(&b, "  Authorized by grant: %s\n", v.Grant)
+		fmt.Fprintf(&b, "\n%s\n\n", heading)
+		fmt.Fprintf(&b, "`%s %s`\n\n", v.Method, v.Path)
+		dest := "Not destructive."
 		if v.Destructive {
-			b.WriteString("  Destructive - mutates irreversibly.\n")
-		} else {
-			b.WriteString("  Not destructive.\n")
+			dest = "Destructive - mutates irreversibly."
 		}
+		fmt.Fprintf(&b, "Authorized by grant: %s. %s\n", v.Grant, dest)
 		writeParamSections(&b, v.Params)
 	}
 	return b.String()
 }
 
-// writeParamSections prints a verb's params as two separate lists, positional
-// arguments and options; a verb with neither says so, and empty sections are omitted.
+// writeParamSections prints a verb's params as two blank-line-fronted Markdown
+// lists, positional and options; a verb with neither says so, empties omitted.
 func writeParamSections(b *strings.Builder, params []ParamInfo) {
 	var positional, options []ParamInfo
 	for _, p := range params {
@@ -178,19 +177,19 @@ func writeParamSections(b *strings.Builder, params []ParamInfo) {
 		}
 	}
 	if len(positional) == 0 && len(options) == 0 {
-		b.WriteString("  Takes no arguments.\n")
+		b.WriteString("\nTakes no arguments.\n")
 		return
 	}
 	if len(positional) > 0 {
-		fmt.Fprintf(b, "  Positional arguments (%d):\n", len(positional))
+		fmt.Fprintf(b, "\nPositional arguments (%d):\n\n", len(positional))
 		for _, line := range positionalLines(positional) {
-			fmt.Fprintf(b, "    - %s\n", line)
+			fmt.Fprintf(b, "- %s\n", line)
 		}
 	}
 	if len(options) > 0 {
-		fmt.Fprintf(b, "  Options (%d):\n", len(options))
+		fmt.Fprintf(b, "\nOptions (%d):\n\n", len(options))
 		for _, line := range optionLines(options) {
-			fmt.Fprintf(b, "    - %s\n", line)
+			fmt.Fprintf(b, "- %s\n", line)
 		}
 	}
 }
@@ -204,52 +203,32 @@ func authSentence(a AuthInfo) string {
 	return fmt.Sprintf("Authenticates with the %q header (scheme %s), reading the token from SSM at %s. The token value is never shown.", a.Header, a.Scheme, a.SSM)
 }
 
-// positionalLines renders path params as aligned `<name>  type` rows. They are
-// always required by construction, so requiredness is left implicit.
+// positionalLines renders each path param as a Markdown bullet body: code-spanned
+// <name> then its type in parens. Always required by construction, left implicit.
 func positionalLines(params []ParamInfo) []string {
-	labels, width := alignedLabels(params)
 	lines := make([]string, len(params))
 	for i, p := range params {
-		lines[i] = fmt.Sprintf("%-*s  %s", width, labels[i], p.Type)
+		lines[i] = fmt.Sprintf("`<%s>` (%s)", p.Name, p.Type)
 	}
 	return lines
 }
 
-// optionLines renders body flags as aligned `--name  type · required · desc`
-// rows, carrying the requiredness and any upstream description path params lack.
+// optionLines renders each body flag as a Markdown bullet body: code-spanned --name,
+// type and requiredness in parens, then any upstream description after a colon.
 func optionLines(params []ParamInfo) []string {
-	labels, width := alignedLabels(params)
 	lines := make([]string, len(params))
 	for i, p := range params {
 		req := "optional"
 		if p.Required {
 			req = "required"
 		}
-		line := fmt.Sprintf("%-*s  %s · %s", width, labels[i], p.Type, req)
+		line := fmt.Sprintf("`--%s` (%s, %s)", p.Name, p.Type, req)
 		if p.Desc != "" {
-			line += " · " + p.Desc
+			line += ": " + p.Desc
 		}
 		lines[i] = line
 	}
 	return lines
-}
-
-// alignedLabels formats each param's display token - <name> for a positional,
-// --name for an option - and returns the column width that right-pads them all.
-func alignedLabels(params []ParamInfo) ([]string, int) {
-	labels := make([]string, len(params))
-	width := 0
-	for i, p := range params {
-		display := "--" + p.Name
-		if p.Kind == "path" {
-			display = "<" + p.Name + ">"
-		}
-		labels[i] = display
-		if len(display) > width {
-			width = len(display)
-		}
-	}
-	return labels, width
 }
 
 // leafDescription is the rich per-verb help body, always populated even where the
