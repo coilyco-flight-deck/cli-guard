@@ -31,7 +31,7 @@ Per-primitive detail in [features-detail.md](features-detail.md).
 - **config** - Layered-config primitives and a generic `OverlayFile[T]`; the consumer sets its app-dir once and cli-guard derives every per-user path from it.
 - **profiles** - Per-host lockdown profile registry.
 - **decision** - Per-call profile-aware evaluator.
-- **guardfile** / **specverb** - Spec-driven verbs: a KDL Guardfile + Swagger 2.0 spec build a guarded tree, one generic action/verb, deny-by-default, generated visibility. See [specverb.md](specverb.md), [specverb-describe.md](specverb-describe.md).
+- **guardfile** / **specverb** / **cmd/specverb-gen** - Spec-driven verbs from a KDL Guardfile + Swagger spec; the no-code `specverb-gen` driver materializes it out-of-band. See [specverb.md](specverb.md), [specverb-driver.md](specverb-driver.md).
 
 ## Repo development
 

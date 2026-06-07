@@ -337,9 +337,8 @@ never wedges Claude Code.
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cmd/specverb-gen
 
-Command specverb-gen renders a consumer `main.go` from a KDL Guardfile
-via specgen, so a spec-driven consumer declares only its policy. See
-docs/specverb.md.
+Command specverb-gen is the no-code uv-style driver for a spec-driven consumer
+CLI: gen / lock / skew / run. See docs/specverb.md.
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config
 
@@ -1901,6 +1900,85 @@ type Entry struct {
     Programmatic consumers (an external orchestrator, a plan-time
 
 
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specdrv
+
+package specdrv // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specdrv"
+
+Cache layout and staleness for the out-of-band materialized consumer binary,
+keyed by the Guardfile's location. See docs/specverb.md.
+
+The uv-style dependency lockfile (specverb.lock) and the `go` plumbing
+that resolves and replays it for a reproducible out-of-band build. See
+docs/specverb.md.
+
+Process replacement (syscall.Exec) and cache locking (flock) on Unix.
+
+Package specdrv is the no-code driver behind cmd/specverb-gen: the uv-style verb
+surface (gen / lock / skew / run) over a Guardfile. See docs/specverb.md.
+
+CONSTANTS
+
+const LockName = "specverb.lock"
+    LockName is the committed dependency-lock filename, the uv.lock analog.
+    It sits beside the Guardfile as source-of-truth; the generated Go does not.
+
+
+VARIABLES
+
+var ErrNoLock = errors.New("missing committed lock; run 'specverb-gen lock' first")
+    ErrNoLock is returned by run and skew when a required committed lock is
+    absent, so the caller can point the user at `specverb-gen lock`.
+
+var ErrSkew = errors.New("spec skew detected")
+    ErrSkew is returned by skew when the committed spec lock drifts from
+    upstream.
+
+
+FUNCTIONS
+
+func Gen(opts Options) error
+    Gen renders the consumer main.go. With no --out it writes into the cache and
+    prints the path; --out is the debug escape hatch for inspecting the source.
+
+func Lock(opts Options) error
+    Lock refreshes both committed locks beside the Guardfile: the spec lock (the
+    fetched Swagger) and specverb.lock (the frozen build module). The `uv lock`
+    analog.
+
+func Run(opts Options) error
+    Run materializes the consumer binary out-of-band (building only when
+    stale) and execs it. It refuses to run without committed locks rather than
+    auto-locking.
+
+func Skew(opts Options) error
+    Skew reports operation-level drift between the committed spec lock and live
+    upstream, never writing. ErrSkew signals drift; a fetch failure is a plain
+    error.
+
+
+TYPES
+
+type DepLock struct {
+	Version  int      `json:"version"`  // schema version
+	Go       string   `json:"go"`       // go directive of the build module
+	CLIGuard string   `json:"cliGuard"` // resolved cli-guard module query (version, commit, or replace path)
+	GoMod    string   `json:"goMod"`    // verbatim go.mod of the build module
+	GoSum    []string `json:"goSum"`    // sorted go.sum lines
+}
+    DepLock is specverb.lock: the frozen build module. GoMod and GoSum
+    are captured verbatim from a resolved build dir, reproducing the graph
+    byte-for-byte.
+
+type Options struct {
+	GuardfilePath   string   // path to the consumer's KDL Guardfile
+	Out             string   // gen: explicit output path (debug escape hatch); cache when empty
+	Args            []string // run: arguments passed through to the materialized binary
+	CLIGuardRef     string   // lock: cli-guard module query to pin (version/commit); empty = auto
+	CLIGuardReplace string   // lock: local cli-guard checkout to replace with (dev locks only)
+}
+    Options are the inputs shared by every driver verb.
+
+
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specgen
 
 package specgen // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specgen"
@@ -1914,6 +1992,23 @@ func Render(gf *guardfile.Guardfile, guardfileName string) ([]byte, error)
     Render emits a gofmt'd `package main` wiring specverb.Mount for gf.
     guardfileName is the Guardfile's filename in the consumer dir (for the
     embed).
+
+
+TYPES
+
+type Params struct {
+	Binary        string // binary name, e.g. ward-kdl (Guardfile group[0])
+	GuardfileName string // embedded Guardfile filename, e.g. forgejo.guardfile.kdl
+	SpecLockName  string // committed, embedded spec lock filename, e.g. forgejo.swagger.lock.json
+	SpecURL       string // upstream Swagger URL; the `specverb-gen lock` source and bootstrap fallback
+	SpecEnvVar    string // env var overriding the embedded lock, e.g. WARD_KDL_SPEC
+}
+    Params is the per-consumer data the template binds to, derived from the
+    Guardfile and also read by the specverb-gen driver. See docs/specverb.md.
+
+func Plan(gf *guardfile.Guardfile, guardfileName string) (Params, error)
+    Plan derives the per-consumer Params from gf without rendering, the shared
+    derivation behind both Render and the driver. guardfileName feeds the embed.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specverb

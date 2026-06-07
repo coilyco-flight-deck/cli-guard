@@ -69,3 +69,30 @@ func TestDeriveSpecURL(t *testing.T) {
 		}
 	}
 }
+
+func TestPlanDerivesParams(t *testing.T) {
+	gf, err := guardfile.Parse([]byte(fixture))
+	if err != nil {
+		t.Fatalf("parse fixture: %v", err)
+	}
+	p, err := Plan(gf, "forgejo.guardfile.kdl")
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	want := Params{
+		Binary:        "ward-kdl",
+		GuardfileName: "forgejo.guardfile.kdl",
+		SpecLockName:  "forgejo.swagger.lock.json",
+		SpecURL:       "https://forgejo.coilysiren.me/swagger.v1.json",
+		SpecEnvVar:    "WARD_KDL_SPEC",
+	}
+	if p != want {
+		t.Errorf("Plan = %+v, want %+v", p, want)
+	}
+}
+
+func TestPlanRejectsEmptyGroup(t *testing.T) {
+	if _, err := Plan(&guardfile.Guardfile{}, "x.kdl"); err == nil {
+		t.Fatal("expected error for a Guardfile with no group")
+	}
+}
