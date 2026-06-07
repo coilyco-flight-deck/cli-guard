@@ -1037,6 +1037,10 @@ type Grant struct {
 	Verb       string
 	Resource   string
 	Qualifiers []string
+
+	// Describe is the optional grant-body `describe "..."` note that enriches
+	// the thin upstream spec; it flows into help and the describe verb.
+	Describe string
 }
     Grant is one policy sentence: modal verb resource [qualifiers...]. "can
     delete labels created-by-me" -> {can, delete, labels, [created-by-me]}.
@@ -1933,6 +1937,14 @@ func Mount(root *cli.Command, cfg Config) error
 
 TYPES
 
+type AuthInfo struct {
+	Scheme string `json:"scheme"`
+	Header string `json:"header"`
+	SSM    string `json:"ssm"` // token path, not the token
+}
+    AuthInfo is the auth scope a describe consumer sees: scheme, header,
+    and the SSM token path. The secret value itself never appears here.
+
 type Config struct {
 	// Guardfile is the parsed L2 policy: the command path, auth, and grants.
 	Guardfile *guardfile.Guardfile
@@ -1955,9 +1967,49 @@ type Config struct {
 }
     Config is everything the engine needs to build a command tree.
 
+type ParamInfo struct {
+	Name     string `json:"name"`
+	Kind     string `json:"kind"`           // "path" | "body" (query mounting is future work)
+	Type     string `json:"type"`           // swagger scalar type
+	Required bool   `json:"required"`       // path params and required-schema fields
+	Desc     string `json:"desc,omitempty"` // upstream spec description, often blank
+}
+    ParamInfo is one input to a verb, tagged by kind so help can always show
+    the structure the engine knows even where the upstream spec carries no
+    description.
+
+type Surface struct {
+	Group   []string   `json:"group"`    // command path, e.g. ["ward","ops","forgejo"]
+	BaseURL string     `json:"base_url"` // resolved request base, scheme defaulted
+	Auth    AuthInfo   `json:"auth"`     // how the engine authenticates
+	Verbs   []VerbInfo `json:"verbs"`    // every mounted leaf, in mount order
+}
+    Surface is the in-engine model of a mounted command surface: the structural
+    truth shared by help, the describe verb, and (later) completions and the
+    skill.
+
+func Describe(cfg Config) (*Surface, error)
+    Describe builds the surface model for cfg without mounting a command tree,
+    so a caller (skill, completions, docs) can read it directly. Fails closed
+    like Build.
+
 type TokenResolver func(ctx context.Context, ssmPath string) (string, error)
     TokenResolver fetches the auth secret named by an SSM path. Injected so the
     AWS SDK stays out of cli-guard; nil is only valid for dry-run-only use.
+
+type VerbInfo struct {
+	Name        string      `json:"name"`               // dotted audit name, e.g. ward.ops.forgejo.repo.create
+	Group       string      `json:"group"`              // CLI noun, e.g. repo
+	Leaf        string      `json:"leaf"`               // CLI verb, e.g. create
+	Method      string      `json:"method"`             // HTTP method
+	Path        string      `json:"path"`               // path template
+	Destructive bool        `json:"destructive"`        // mutates irreversibly
+	Grant       string      `json:"grant"`              // authorizing grant sentence
+	Describe    string      `json:"describe,omitempty"` // Guardfile describe "..." note
+	Params      []ParamInfo `json:"params,omitempty"`   // path + body params, in invocation order
+}
+    VerbInfo is one mounted leaf: its CLI placement, the HTTP op it drives, its
+    destructive flag, the grant that authorized it, and the optional human note.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/stscache

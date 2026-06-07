@@ -24,6 +24,10 @@ type Grant struct {
 	Verb       string
 	Resource   string
 	Qualifiers []string
+
+	// Describe is the optional grant-body `describe "..."` note that enriches
+	// the thin upstream spec; it flows into help and the describe verb.
+	Describe string
 }
 
 // Guardfile is the parsed form of one wrap block.
@@ -145,6 +149,18 @@ func parseGrant(n *kdl.Node) (Grant, error) {
 	g := Grant{Modal: n.Name(), Verb: args[0].String(), Resource: args[1].String()}
 	for _, q := range args[2:] {
 		g.Qualifiers = append(g.Qualifiers, q.String())
+	}
+	for _, c := range n.Children().Nodes {
+		switch c.Name() {
+		case "describe":
+			v, err := singleArg(c)
+			if err != nil {
+				return Grant{}, fmt.Errorf("guardfile: grant %q: %w", n.Name(), err)
+			}
+			g.Describe = v
+		default:
+			return Grant{}, fmt.Errorf("guardfile: grant body: unknown node %q (only `describe` is allowed; fail-closed)", c.Name())
+		}
 	}
 	return g, nil
 }

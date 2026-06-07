@@ -11,5 +11,7 @@ wrap ward ops forgejo {
 
     can read repos
     can create repos
-    can delete repos
+    can delete repos {
+        describe "irreversible: deletes the repo and all its data"
+    }
 }

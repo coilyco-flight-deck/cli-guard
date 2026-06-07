@@ -54,10 +54,11 @@ func (rt *runtime) buildLeaf(desc opDescriptor) *cli.Command {
 		usage += " (destructive)"
 	}
 	return &cli.Command{
-		Name:      desc.Leaf,
-		Usage:     usage,
-		ArgsUsage: argsUsage(desc.PathParams),
-		Flags:     flags,
+		Name:        desc.Leaf,
+		Usage:       usage,
+		Description: leafDescription(desc),
+		ArgsUsage:   argsUsage(desc.PathParams),
+		Flags:       flags,
 		Action: rt.wrap(verb.Spec{
 			Name:     desc.VerbName,
 			ArgsFunc: argsFuncFor(desc),

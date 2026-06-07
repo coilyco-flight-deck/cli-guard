@@ -56,6 +56,8 @@ type opDescriptor struct {
 	PathParams  []string   // ordered positional args drawn from the path
 	BodyFlags   []bodyFlag // request-body scalar fields promoted to flags
 	Destructive bool       // leaf mutates irreversibly (delete)
+	Grant       string     // the authorizing grant sentence, e.g. "can delete repos"
+	Describe    string     // optional Guardfile describe "..." note, "" if none
 }
 
 // bodyFlag is one request-body scalar field promoted to a typed CLI flag.
@@ -100,13 +102,16 @@ func Build(cfg Config) (*cli.Command, error) {
 		rt.wrap = func(s verb.Spec) cli.ActionFunc { return s.Action }
 	}
 
-	groupCmds, err := rt.mountGrants(spec, gf)
+	descs, err := resolveDescriptors(spec, gf)
 	if err != nil {
 		return nil, err
 	}
-	if len(groupCmds) == 0 {
+	if len(descs) == 0 {
 		return nil, fmt.Errorf("specverb: Guardfile mounted no verbs (no `can` grants resolved)")
 	}
+	groupCmds := rt.buildGroups(descs)
+	surface := buildSurface(gf, rt.baseURL, descs)
+	groupCmds = append(groupCmds, rt.buildDescribeLeaf(gf, surface))
 	root := &cli.Command{
 		Name:     gf.Group[len(gf.Group)-1],
 		Usage:    fmt.Sprintf("spec-driven %s verbs", strings.Join(gf.Group, " ")),
@@ -178,11 +183,10 @@ func defaultHTTPClient() *http.Client {
 	}
 }
 
-// mountGrants resolves every `can` grant into a guarded leaf, bucketed into
-// resource-group commands in first-seen order. Unresolvable = fail-closed error.
-func (rt *runtime) mountGrants(spec *swaggerSpec, gf *guardfile.Guardfile) ([]*cli.Command, error) {
-	groups := map[string]*cli.Command{}
-	var order []string
+// resolveDescriptors resolves every `can` grant into a concrete descriptor, in
+// first-seen order. Unresolvable = fail-closed error, never a dropped verb.
+func resolveDescriptors(spec *swaggerSpec, gf *guardfile.Guardfile) ([]opDescriptor, error) {
+	var descs []opDescriptor
 	for _, g := range gf.Grants {
 		// cannot/never are explicit denials; overlap-removal is an M2 concern.
 		if g.Modal != "can" {
@@ -192,6 +196,17 @@ func (rt *runtime) mountGrants(spec *swaggerSpec, gf *guardfile.Guardfile) ([]*c
 		if err != nil {
 			return nil, err
 		}
+		descs = append(descs, desc)
+	}
+	return descs, nil
+}
+
+// buildGroups buckets the descriptors into resource-group commands in first-seen
+// order, mounting each as a guarded leaf under its noun.
+func (rt *runtime) buildGroups(descs []opDescriptor) []*cli.Command {
+	groups := map[string]*cli.Command{}
+	var order []string
+	for _, desc := range descs {
 		grp, ok := groups[desc.Group]
 		if !ok {
 			grp = &cli.Command{Name: desc.Group, Usage: fmt.Sprintf("%s operations", desc.Group)}
@@ -204,7 +219,7 @@ func (rt *runtime) mountGrants(spec *swaggerSpec, gf *guardfile.Guardfile) ([]*c
 	for _, name := range order {
 		out = append(out, groups[name])
 	}
-	return out, nil
+	return out
 }
 
 // resolveDescriptor turns one grant into a concrete descriptor, failing closed
@@ -231,8 +246,17 @@ func resolveDescriptor(spec *swaggerSpec, group []string, g guardfile.Grant) (op
 		PathParams:  pathParamsInOrder(path),
 		BodyFlags:   bodyFlagsFrom(bodySchema),
 		Destructive: destructiveLeaves[entry.Leaf],
+		Grant:       formatGrant(g),
+		Describe:    g.Describe,
 	}
 	return desc, nil
+}
+
+// formatGrant renders the authorizing grant sentence for help and describe,
+// e.g. {can, delete, repos, [created-by-me]} -> "can delete repos created-by-me".
+func formatGrant(g guardfile.Grant) string {
+	parts := append([]string{g.Modal, g.Verb, g.Resource}, g.Qualifiers...)
+	return strings.Join(parts, " ")
 }
 
 // bodyFlagsFrom promotes a body schema's scalar properties to typed flags

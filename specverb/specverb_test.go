@@ -76,10 +76,15 @@ func TestBuildMountsProvingSlice(t *testing.T) {
 	if root.Name != "forgejo" {
 		t.Errorf("root name = %q, want forgejo", root.Name)
 	}
-	if len(root.Commands) != 1 || root.Commands[0].Name != "repo" {
-		t.Fatalf("want a single `repo` group, got %v", names(root.Commands))
+	repo := childNamed(root, "repo")
+	if repo == nil {
+		t.Fatalf("want a `repo` group, got %v", names(root.Commands))
 	}
-	leaves := names(root.Commands[0].Commands)
+	// describe is mounted as a sibling verb on the group.
+	if childNamed(root, "describe") == nil {
+		t.Fatalf("want a `describe` verb on the group, got %v", names(root.Commands))
+	}
+	leaves := names(repo.Commands)
 	want := map[string]bool{"get": true, "create": true, "delete": true}
 	if len(leaves) != 3 {
 		t.Fatalf("want 3 leaves, got %v", leaves)
@@ -302,6 +307,84 @@ func TestDefaultScheme(t *testing.T) {
 	for in, want := range cases {
 		if got := defaultScheme(in); got != want {
 			t.Errorf("defaultScheme(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestDescribeModel proves the surface model mirrors the mounted verbs: one
+// VerbInfo per grant, with auth scope as the token path (never the secret).
+func TestDescribeModel(t *testing.T) {
+	gf, spec := loadFixtures(t)
+	surface, err := Describe(Config{Guardfile: gf, Spec: spec})
+	if err != nil {
+		t.Fatalf("Describe: %v", err)
+	}
+	if got, want := surface.Auth.SSM, "/forgejo/api-token"; got != want {
+		t.Errorf("auth ssm = %q, want %q", got, want)
+	}
+	if surface.Auth.Header != "Authorization" {
+		t.Errorf("auth header = %q, want Authorization", surface.Auth.Header)
+	}
+	byLeaf := map[string]VerbInfo{}
+	for _, v := range surface.Verbs {
+		byLeaf[v.Leaf] = v
+	}
+	if len(byLeaf) != 3 {
+		t.Fatalf("want 3 verbs in the model, got %d: %+v", len(byLeaf), surface.Verbs)
+	}
+	create := byLeaf["create"]
+	if create.Method != "POST" || create.Path != "/user/repos" {
+		t.Errorf("create = %s %s, want POST /user/repos", create.Method, create.Path)
+	}
+	if create.Grant != "can create repos" {
+		t.Errorf("create grant = %q, want %q", create.Grant, "can create repos")
+	}
+	if create.Name != "ward.ops.forgejo.repo.create" {
+		t.Errorf("create dotted name = %q", create.Name)
+	}
+	del := byLeaf["delete"]
+	if !del.Destructive {
+		t.Errorf("delete should be flagged destructive")
+	}
+	if del.Describe == "" {
+		t.Errorf("delete should carry the guardfile describe note")
+	}
+	// path params are modeled as required, kind=path, in invocation order.
+	if len(del.Params) != 2 || del.Params[0].Name != "owner" || del.Params[0].Kind != "path" {
+		t.Errorf("delete params = %+v, want owner/repo path params", del.Params)
+	}
+}
+
+// TestDescribeVerbRenders proves `describe` is a real, runnable verb on the
+// group whose output names the surface and honors --output.
+func TestDescribeVerbRenders(t *testing.T) {
+	gf, spec := loadFixtures(t)
+	out, err := runTree(t, Config{Guardfile: gf, Spec: spec}, "forgejo", "describe", "--output", "json")
+	if err != nil {
+		t.Fatalf("run describe: %v", err)
+	}
+	for _, want := range []string{"/user/repos", "can create repos", "/forgejo/api-token", "destructive", "deletes the repo"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("describe output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestLeafDescriptionIsRich proves a mounted leaf carries structural help -
+// method/path, the grant, kind-tagged params, dry-run hint - even with no spec desc.
+func TestLeafDescriptionIsRich(t *testing.T) {
+	gf, spec := loadFixtures(t)
+	root, err := Build(Config{Guardfile: gf, Spec: spec})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	del := childNamed(childNamed(root, "repo"), "delete")
+	if del == nil {
+		t.Fatal("no repo delete leaf")
+	}
+	for _, want := range []string{"DELETE", "/repos/{owner}/{repo}", "Authorized by: can delete repos", "<owner> (path", "--dry-run", "deletes the repo"} {
+		if !strings.Contains(del.Description, want) {
+			t.Errorf("leaf description missing %q:\n%s", want, del.Description)
 		}
 	}
 }
