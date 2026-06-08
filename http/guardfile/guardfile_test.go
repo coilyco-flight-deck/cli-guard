@@ -86,6 +86,24 @@ func TestGrantDescribeAnnotation(t *testing.T) {
 	}
 }
 
+// TestGrantProperties asserts KDL key=value properties land in Grant.Props,
+// distinct from positional bareword qualifiers.
+func TestGrantProperties(t *testing.T) {
+	src := []byte(`wrap ward ops forgejo {
+	    spec s
+	    auth header-token { header H; ssm S }
+	    can delete repos org="coilyco-flight-deck"
+	}`)
+	gf, err := Parse(src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := Grant{Modal: "can", Verb: "delete", Resource: "repos", Props: map[string]string{"org": "coilyco-flight-deck"}}
+	if len(gf.Grants) != 1 || !reflect.DeepEqual(gf.Grants[0], want) {
+		t.Errorf("grant with org property = %+v, want %+v", gf.Grants, want)
+	}
+}
+
 func TestParseFailsClosed(t *testing.T) {
 	cases := map[string]string{
 		"unknown node": `wrap ward ops forgejo {

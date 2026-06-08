@@ -17,13 +17,17 @@ type Auth struct {
 	SSM    string
 }
 
-// Grant is one policy sentence: modal verb resource [qualifiers...].
-// "can delete labels created-by-me" -> {can, delete, labels, [created-by-me]}.
+// Grant is one policy sentence: modal verb resource [qualifiers...] [key=value...].
+// "can delete repos org=acme" -> {can, delete, repos, Props{org: acme}}.
 type Grant struct {
 	Modal      string
 	Verb       string
 	Resource   string
 	Qualifiers []string
+
+	// Props are KDL key=value node properties: structured scoping constraints
+	// like `org=acme`. Positional bareword qualifiers stay in Qualifiers.
+	Props map[string]string
 
 	// Describe is the optional grant-body `describe "..."` note that enriches
 	// the thin upstream spec; it flows into help and the describe verb.
@@ -149,6 +153,12 @@ func parseGrant(n *kdl.Node) (Grant, error) {
 	g := Grant{Modal: n.Name(), Verb: args[0].String(), Resource: args[1].String()}
 	for _, q := range args[2:] {
 		g.Qualifiers = append(g.Qualifiers, q.String())
+	}
+	for k, v := range n.Properties() {
+		if g.Props == nil {
+			g.Props = map[string]string{}
+		}
+		g.Props[k] = v.String()
 	}
 	for _, c := range n.Children().Nodes {
 		switch c.Name() {
