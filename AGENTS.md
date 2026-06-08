@@ -41,11 +41,11 @@ v0.x. Minor API breaks ship in `main` with a note in the commit body; no semver 
 
 ## Release
 
-Automated and Forgejo-canonical. Push to `main` fires [`.forgejo/workflows/release.yml`](.forgejo/workflows/release.yml): conventional commits drive the semver bump (`feat` minor, `fix` patch, `!:`/`BREAKING CHANGE` major, patch default), the workflow cuts the tag + Forgejo release on the auto-issued job token. Tag-only by design: cli-guard is the base of the cli-guard / ward / coily triple, so it never reaches up into consumers. Downstream bumps are the consumers' job, pulled along the dependency arrow (ward and coily self-bump off cli-guard's tags); rule enforced via [agentic-os-kai#626](https://forgejo.coilysiren.me/coilyco-bridge/agentic-os-kai/issues/626). No Homebrew formula (library + `cmd/cli-guard-hook`, consumed via `go.mod`). Full flow in [docs/release-pipeline.md](docs/release-pipeline.md). The Go module path is `forgejo.coilysiren.me/coilyco-flight-deck/cli-guard` (sourced direct from canonical Forgejo); consumers set `GOPRIVATE=forgejo.coilysiren.me` and pin in `go.mod`.
+Automated and Forgejo-canonical. Push to `main` fires [`.forgejo/workflows/release.yml`](.forgejo/workflows/release.yml): every push cuts a minor bump (major is hand-driven only, never inferred from commit messages), the workflow cuts the tag + Forgejo release on the auto-issued job token. Tag-only by design: cli-guard is the base of the cli-guard / ward / coily triple, so it never reaches up into consumers. Downstream bumps are the consumers' job, pulled along the dependency arrow (ward and coily self-bump off cli-guard's tags); rule enforced via [agentic-os-kai#626](https://forgejo.coilysiren.me/coilyco-bridge/agentic-os-kai/issues/626). No Homebrew formula (library + `cmd/cli-guard-hook`, consumed via `go.mod`). Full flow in [docs/release-pipeline.md](docs/release-pipeline.md). The Go module path is `forgejo.coilysiren.me/coilyco-flight-deck/cli-guard` (sourced direct from canonical Forgejo); consumers set `GOPRIVATE=forgejo.coilysiren.me` and pin in `go.mod`.
 
 ## Agent rules
 
-One issue per discrete additive change, per [the workspace rule](https://github.com/coilysiren/agentic-os-kai/blob/main/AGENTS.md). Every commit closes a same-repo issue with `closes #N` or a full Forgejo URL.
+One issue per discrete additive change, per [the workspace rule](https://github.com/coilysiren/agentic-os-kai/blob/main/AGENTS.md). `closes #N` or a Forgejo URL is encouraged, not enforced.
 
 ## See also
 
