@@ -5,6 +5,7 @@ repo_url: https://github.com/coilysiren/cli-guard
 edit_uri: edit/main/docs/
 nav:
   - Home: index.md
+  - Architecture: architecture.md
   - Features: FEATURES.md
   - Examples: examples.md
   - CLI reference: https://coilysiren.github.io/cli-guard/cli/

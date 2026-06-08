@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/audit"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/examples/treebuilders"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/audit"
 )
 
 func main() {

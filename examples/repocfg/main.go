@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"os"
 
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/repocfg"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/examples/treebuilders"
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/repocfg"
 )
 
 func main() {

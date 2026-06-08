@@ -1,0 +1,478 @@
+package ghcache_test
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/ghcache"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/config"
+)
+
+func reset(t *testing.T) {
+	t.Helper()
+	// App dir ".coily" makes the cache-dir override env COILY_CACHE_DIR and
+	// roots the home fallback at ~/.coily/cache.
+	config.SetAppDir(".coily")
+	t.Setenv("COILY_CACHE_DIR", t.TempDir())
+	t.Setenv("GH_HOST", "")
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+}
+
+func TestGetJSON_IssueCachesAt120s(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`{"number":1}`), nil
+	}
+	for i := 0; i < 5; i++ {
+		v, err := ghcache.GetJSON("/repos/o/r/issues/1", fetch)
+		if err != nil || string(v) != `{"number":1}` {
+			t.Fatalf("GetJSON: v=%q err=%v", v, err)
+		}
+	}
+	if calls != 1 {
+		t.Errorf("fetch called %d times across 5 GETs, want 1 (Tier-3 should cache)", calls)
+	}
+}
+
+func TestGetJSON_PRPathCaches(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`{}`), nil
+	}
+	_, _ = ghcache.GetJSON("/repos/o/r/pulls/42", fetch)
+	_, _ = ghcache.GetJSON("/repos/o/r/pulls/42", fetch)
+	if calls != 1 {
+		t.Errorf("pulls path: fetch called %d times, want 1", calls)
+	}
+}
+
+func TestGetJSON_LeadingSlashNormalized(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`{}`), nil
+	}
+	_, _ = ghcache.GetJSON("repos/o/r/issues/1", fetch)
+	_, _ = ghcache.GetJSON("/repos/o/r/issues/1", fetch)
+	if calls != 1 {
+		t.Errorf("with/without leading slash should alias, calls=%d", calls)
+	}
+}
+
+func TestGetJSON_UnclassifiedPathBypassesCache(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`{}`), nil
+	}
+	// /notifications is a real gh-api path but not in any tier - the
+	// package declines to cache rather than guess a TTL on a path
+	_, _ = ghcache.GetJSON("/notifications", fetch)
+	_, _ = ghcache.GetJSON("/notifications", fetch)
+	if calls != 2 {
+		t.Errorf("unclassified path should bypass cache, got calls=%d", calls)
+	}
+}
+
+func TestGetJSON_RateLimitNotCached(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`{}`), nil
+	}
+	// /rate_limit is deliberately unclassified - callers hit it to get
+	// ground truth, so caching it would defeat the purpose.
+	_, _ = ghcache.GetJSON("/rate_limit", fetch)
+	_, _ = ghcache.GetJSON("/rate_limit", fetch)
+	if calls != 2 {
+		t.Errorf("/rate_limit should bypass cache, got calls=%d", calls)
+	}
+}
+
+func TestClassify_Tiers(t *testing.T) {
+	// One representative path per regex per tier. The exported TTL
+	// constants are the source of truth.
+	cases := []struct {
+		path string
+		ttl  time.Duration
+	}{
+		// Tier 1 - 1 minute.
+		{"/repos/o/r/issues", ghcache.TTLVolatile},
+		{"/repos/o/r/issues/1", ghcache.TTLVolatile},
+		{"/repos/o/r/issues/1/comments", ghcache.TTLVolatile},
+		{"/repos/o/r/issues/1/events", ghcache.TTLVolatile},
+		{"/repos/o/r/pulls", ghcache.TTLVolatile},
+		{"/repos/o/r/pulls/2", ghcache.TTLVolatile},
+		{"/repos/o/r/pulls/2/reviews", ghcache.TTLVolatile},
+		{"/repos/o/r/pulls/2/comments", ghcache.TTLVolatile},
+		{"/repos/o/r/pulls/2/files", ghcache.TTLVolatile},
+		{"/repos/o/r/commits/abc123/status", ghcache.TTLVolatile},
+		{"/repos/o/r/commits/abc123/check-runs", ghcache.TTLVolatile},
+		{"/repos/o/r/actions/runs", ghcache.TTLVolatile},
+		{"/repos/o/r/actions/runs/77", ghcache.TTLVolatile},
+		{"/repos/o/r/actions/runs/77/jobs", ghcache.TTLVolatile},
+
+		// Tier 2 - 10 minutes.
+		{"/repos/o/r/commits", ghcache.TTLBranchHead},
+		{"/repos/o/r/commits/abc123", ghcache.TTLBranchHead},
+		{"/repos/o/r/compare/main...feature", ghcache.TTLBranchHead},
+		{"/repos/o/r/branches", ghcache.TTLBranchHead},
+		{"/repos/o/r/branches/main", ghcache.TTLBranchHead},
+		{"/repos/o/r/git/refs", ghcache.TTLBranchHead},
+		{"/repos/o/r/git/refs/heads/main", ghcache.TTLBranchHead},
+		{"/repos/o/r/git/trees/abc123", ghcache.TTLBranchHead},
+		{"/repos/o/r/contents/README.md", ghcache.TTLBranchHead},
+		{"/search/issues", ghcache.TTLBranchHead},
+		{"/search/code", ghcache.TTLBranchHead},
+		{"/search/repositories", ghcache.TTLBranchHead},
+
+		// Tier 3 - 1 hour.
+		{"/repos/o/r", ghcache.TTLRepoMeta},
+		{"/repos/o/r/labels", ghcache.TTLRepoMeta},
+		{"/repos/o/r/labels/bug", ghcache.TTLRepoMeta},
+		{"/repos/o/r/milestones", ghcache.TTLRepoMeta},
+		{"/repos/o/r/topics", ghcache.TTLRepoMeta},
+		{"/repos/o/r/languages", ghcache.TTLRepoMeta},
+		{"/repos/o/r/contributors", ghcache.TTLRepoMeta},
+		{"/repos/o/r/collaborators", ghcache.TTLRepoMeta},
+		{"/repos/o/r/tags", ghcache.TTLRepoMeta},
+		{"/repos/o/r/releases", ghcache.TTLRepoMeta},
+		{"/repos/o/r/releases/42", ghcache.TTLRepoMeta},
+		{"/repos/o/r/releases/latest", ghcache.TTLRepoMeta},
+		{"/repos/o/r/releases/tags/v1.2.3", ghcache.TTLRepoMeta},
+
+		// Tier 4 - 25 hours.
+		{"/user", ghcache.TTLIdentity},
+		{"/users/coilysiren", ghcache.TTLIdentity},
+		{"/orgs/coilysiren", ghcache.TTLIdentity},
+		{"/orgs/coilysiren/members", ghcache.TTLIdentity},
+		{"/orgs/coilysiren/teams", ghcache.TTLIdentity},
+		{"/orgs/coilysiren/teams/eng", ghcache.TTLIdentity},
+		{"/orgs/coilysiren/teams/eng/members", ghcache.TTLIdentity},
+		{"/search/users", ghcache.TTLIdentity},
+	}
+	for _, tc := range cases {
+		t.Run(tc.path, func(t *testing.T) {
+			reset(t)
+			calls := 0
+			fetch := func() ([]byte, error) {
+				calls++
+				return []byte(`{}`), nil
+			}
+			// Two consecutive GETs of a classified path must collapse
+			// to one fetch.
+			_, _ = ghcache.GetJSON(tc.path, fetch)
+			_, _ = ghcache.GetJSON(tc.path, fetch)
+			if calls != 1 {
+				t.Errorf("%s: expected cache hit (tier=%s), got calls=%d", tc.path, tc.ttl, calls)
+			}
+		})
+	}
+}
+
+func TestInvalidate_IssueBodyDropsList(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`[]`), nil
+	}
+	_, _ = ghcache.GetJSON("/repos/o/r/issues", fetch)
+	// PATCHing an individual issue changes its updated_at, which
+	// reorders the list. Drop the list key.
+	ghcache.Invalidate("PATCH", "/repos/o/r/issues/1")
+	_, _ = ghcache.GetJSON("/repos/o/r/issues", fetch)
+	if calls != 2 {
+		t.Errorf("issue PATCH should drop list: calls=%d, want 2", calls)
+	}
+}
+
+func TestInvalidate_PRReviewDropsParent(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`{}`), nil
+	}
+	_, _ = ghcache.GetJSON("/repos/o/r/pulls/2", fetch)
+	// POSTing a review changes the PR's review-state aggregate.
+	ghcache.Invalidate("POST", "/repos/o/r/pulls/2/reviews")
+	_, _ = ghcache.GetJSON("/repos/o/r/pulls/2", fetch)
+	if calls != 2 {
+		t.Errorf("PR review write should drop parent PR: calls=%d, want 2", calls)
+	}
+}
+
+func TestInvalidate_LabelEditDropsLabelsList(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`[]`), nil
+	}
+	_, _ = ghcache.GetJSON("/repos/o/r/labels", fetch)
+	ghcache.Invalidate("PATCH", "/repos/o/r/labels/bug")
+	_, _ = ghcache.GetJSON("/repos/o/r/labels", fetch)
+	if calls != 2 {
+		t.Errorf("label edit should drop labels list: calls=%d, want 2", calls)
+	}
+}
+
+func TestInvalidate_ReleaseEditDropsListAndLatest(t *testing.T) {
+	reset(t)
+	listCalls := 0
+	latestCalls := 0
+	_, _ = ghcache.GetJSON("/repos/o/r/releases", func() ([]byte, error) {
+		listCalls++
+		return []byte(`[]`), nil
+	})
+	_, _ = ghcache.GetJSON("/repos/o/r/releases/latest", func() ([]byte, error) {
+		latestCalls++
+		return []byte(`{}`), nil
+	})
+	ghcache.Invalidate("PATCH", "/repos/o/r/releases/42")
+	_, _ = ghcache.GetJSON("/repos/o/r/releases", func() ([]byte, error) {
+		listCalls++
+		return []byte(`[]`), nil
+	})
+	_, _ = ghcache.GetJSON("/repos/o/r/releases/latest", func() ([]byte, error) {
+		latestCalls++
+		return []byte(`{}`), nil
+	})
+	if listCalls != 2 || latestCalls != 2 {
+		t.Errorf("release edit should drop list + latest: list=%d latest=%d", listCalls, latestCalls)
+	}
+}
+
+func TestGetJSON_DifferentTokensDontAlias(t *testing.T) {
+	reset(t)
+
+	t.Setenv("GH_TOKEN", "alpha")
+	if _, err := ghcache.GetJSON("/repos/o/r/issues/1", func() ([]byte, error) {
+		return []byte(`{"who":"alpha"}`), nil
+	}); err != nil {
+		t.Fatalf("alpha: %v", err)
+	}
+
+	t.Setenv("GH_TOKEN", "beta")
+	betaCalls := 0
+	got, err := ghcache.GetJSON("/repos/o/r/issues/1", func() ([]byte, error) {
+		betaCalls++
+		return []byte(`{"who":"beta"}`), nil
+	})
+	if err != nil {
+		t.Fatalf("beta: %v", err)
+	}
+	if string(got) != `{"who":"beta"}` || betaCalls != 1 {
+		t.Errorf("token-swap leak: got=%q calls=%d", got, betaCalls)
+	}
+}
+
+func TestGetJSON_QueryParamOrderAliases(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`[]`), nil
+	}
+	_, _ = ghcache.GetJSON("/repos/o/r/issues?state=open&labels=bug", fetch)
+	_, _ = ghcache.GetJSON("/repos/o/r/issues?labels=bug&state=open", fetch)
+	if calls != 1 {
+		t.Errorf("query-order alias: calls=%d, want 1", calls)
+	}
+}
+
+func TestGetJSON_DifferentQueriesDontAlias(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`[]`), nil
+	}
+	_, _ = ghcache.GetJSON("/repos/o/r/issues?state=open", fetch)
+	_, _ = ghcache.GetJSON("/repos/o/r/issues?state=closed", fetch)
+	if calls != 2 {
+		t.Errorf("distinct queries should not alias: calls=%d", calls)
+	}
+}
+
+func TestInvalidate_DropsExactPath(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`{}`), nil
+	}
+	_, _ = ghcache.GetJSON("/repos/o/r/issues/1", fetch)
+	ghcache.Invalidate("PATCH", "/repos/o/r/issues/1")
+	_, _ = ghcache.GetJSON("/repos/o/r/issues/1", fetch)
+	if calls != 2 {
+		t.Errorf("Invalidate should force refetch: calls=%d, want 2", calls)
+	}
+}
+
+func TestInvalidate_CommentInvalidatesParent(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`{}`), nil
+	}
+	_, _ = ghcache.GetJSON("/repos/o/r/issues/1", fetch)
+	// A POST to the comments endpoint should drop the parent issue's
+	// cached body (the comment count changed).
+	ghcache.Invalidate("POST", "/repos/o/r/issues/1/comments")
+	_, _ = ghcache.GetJSON("/repos/o/r/issues/1", fetch)
+	if calls != 2 {
+		t.Errorf("comment write should drop parent: calls=%d, want 2", calls)
+	}
+}
+
+func TestInvalidate_GETIsNoop(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`{}`), nil
+	}
+	_, _ = ghcache.GetJSON("/repos/o/r/issues/1", fetch)
+	ghcache.Invalidate("GET", "/repos/o/r/issues/1")
+	_, _ = ghcache.GetJSON("/repos/o/r/issues/1", fetch)
+	if calls != 1 {
+		t.Errorf("GET Invalidate should be a no-op: calls=%d, want 1", calls)
+	}
+}
+
+func TestGetJSON_FetchErrorNotCached(t *testing.T) {
+	reset(t)
+	wantErr := errors.New("rate limit")
+	bad := func() ([]byte, error) { return nil, wantErr }
+	_, err := ghcache.GetJSON("/repos/o/r/issues/1", bad)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("err = %v, want wantErr", err)
+	}
+	// Next call must still call the fetcher - error is not cached.
+	calls := 0
+	_, err = ghcache.GetJSON("/repos/o/r/issues/1", func() ([]byte, error) {
+		calls++
+		return []byte(`{}`), nil
+	})
+	if err != nil || calls != 1 {
+		t.Errorf("after error: calls=%d err=%v, want 1 / nil", calls, err)
+	}
+}
+
+func TestGetJSON_BurstCollapsesToOneFetch(t *testing.T) {
+	// Tier-3 acceptance criterion from cli-guard#56: 100 repeat dispatch
+	// calls against the same issue should produce 1 fetch + 99 hits.
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`{"number":99}`), nil
+	}
+	for i := 0; i < 100; i++ {
+		v, err := ghcache.GetJSON("/repos/o/r/issues/99", fetch)
+		if err != nil || string(v) != `{"number":99}` {
+			t.Fatalf("burst[%d]: v=%q err=%v", i, v, err)
+		}
+	}
+	if calls != 1 {
+		t.Errorf("burst: fetch called %d times, want 1", calls)
+	}
+}
+
+func TestGetJSON_HomeFallback(t *testing.T) {
+	config.SetAppDir(".coily")
+	home := t.TempDir()
+	t.Setenv("COILY_CACHE_DIR", "")
+	t.Setenv("HOME", home)
+	t.Setenv("GH_TOKEN", "")
+	_, _ = ghcache.GetJSON("/repos/o/r/issues/1", func() ([]byte, error) {
+		return []byte(`{}`), nil
+	})
+	if _, err := os.Stat(filepath.Join(home, ".coily", "cache", "gh-api-cache")); err != nil {
+		t.Errorf("home-fallback cache dir not created: %v", err)
+	}
+}
+
+func TestGetJSON_RepoMetaCached(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`{}`), nil
+	}
+	_, _ = ghcache.GetJSON("/repos/o/r", fetch)
+	_, _ = ghcache.GetJSON("/repos/o/r", fetch)
+	if calls != 1 {
+		t.Errorf("Tier-2 repo meta should cache: calls=%d", calls)
+	}
+}
+
+func TestGetJSON_LabelsCached(t *testing.T) {
+	reset(t)
+	calls := 0
+	fetch := func() ([]byte, error) {
+		calls++
+		return []byte(`[]`), nil
+	}
+	_, _ = ghcache.GetJSON("/repos/o/r/labels", fetch)
+	_, _ = ghcache.GetJSON("/repos/o/r/labels", fetch)
+	if calls != 1 {
+		t.Errorf("labels should cache: calls=%d", calls)
+	}
+}
+
+func TestMaybeServeMaxAge_ZeroAlwaysMisses(t *testing.T) {
+	reset(t)
+	if !ghcache.Store("/repos/o/r/issues/1", []byte(`{"n":1}`)) {
+		t.Fatalf("Store: declined")
+	}
+	if data, ok := ghcache.MaybeServeMaxAge("/repos/o/r/issues/1", 0); ok {
+		t.Errorf("max=0 must miss; got data=%q ok=true", data)
+	}
+}
+
+func TestMaybeServeMaxAge_NegativeBehavesLikeMaybeServe(t *testing.T) {
+	reset(t)
+	if !ghcache.Store("/repos/o/r/issues/1", []byte(`{"n":1}`)) {
+		t.Fatalf("Store: declined")
+	}
+	data, ok := ghcache.MaybeServeMaxAge("/repos/o/r/issues/1", -1)
+	if !ok || string(data) != `{"n":1}` {
+		t.Errorf("max<0 should serve full TTL; got data=%q ok=%v", data, ok)
+	}
+}
+
+func TestMaybeServeMaxAge_PositiveCapEnforced(t *testing.T) {
+	reset(t)
+	if !ghcache.Store("/repos/o/r/issues/1", []byte(`{"n":1}`)) {
+		t.Fatalf("Store: declined")
+	}
+	time.Sleep(5 * time.Millisecond)
+	if _, ok := ghcache.MaybeServeMaxAge("/repos/o/r/issues/1", time.Millisecond); ok {
+		t.Errorf("max=1ms after 5ms sleep should miss")
+	}
+	if _, ok := ghcache.MaybeServeMaxAge("/repos/o/r/issues/1", time.Hour); !ok {
+		t.Errorf("max=1h should hit")
+	}
+}
+
+func TestMaybeServeMaxAge_UnclassifiedPathMisses(t *testing.T) {
+	reset(t)
+	if _, ok := ghcache.MaybeServeMaxAge("/notifications", time.Hour); ok {
+		t.Errorf("unclassified path: ok must be false")
+	}
+}

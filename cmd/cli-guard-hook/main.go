@@ -21,9 +21,9 @@ import (
 	"os"
 	"os/exec"
 
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/hook"
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/hookcfg"
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/repocfg"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/hook"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/hookcfg"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/repocfg"
 )
 
 const (

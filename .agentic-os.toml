@@ -21,14 +21,14 @@ enabled = false
 # ARE the documentation, so carve them out rather than gut them. See #72.
 [code-comments]
 excludes = [
-  "allowlist/allowlist.go",
-  "catalog/catalog.go",
+  "cli/allowlist/allowlist.go",
+  "cli/catalog/catalog.go",
   "cmd/cli-guard-hook/main.go",
-  "hook/hook.go",
-  "hookcfg/hookcfg.go",
-  "repocfg/security.go",
-  "profiles/**",
-  "lockdown/defaults.yaml",
+  "cli/hook/hook.go",
+  "cli/hookcfg/hookcfg.go",
+  "cli/repocfg/security.go",
+  "cli/profiles/**",
+  "cli/lockdown/defaults.yaml",
   ".golangci.yaml",
   ".forgejo/**",
   ".github/**",

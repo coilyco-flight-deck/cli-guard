@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specdrv"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specdrv"
 	"github.com/urfave/cli/v3"
 )
 

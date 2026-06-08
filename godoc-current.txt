@@ -1,6 +1,6 @@
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/allowlist
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/allowlist
 
-package allowlist // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/allowlist"
+package allowlist // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/allowlist"
 
 Package allowlist validates a repocfg-shaped command allowlist against the
 repo's Makefile so the verb surface and the make-target surface cannot drift.
@@ -34,9 +34,1741 @@ func Lint(yamlPath, makefilePath string) ([]Problem, error)
     rule violations come back as Problems, never as errors.
 
 
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/audit
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/catalog
 
-package audit // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/audit"
+package catalog // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/catalog"
+
+Package catalog validates a repo's catalog config: it asserts the config YAML
+carries a top-level `catalog:` block with the required descriptor keys. It ports
+agentic-os's catalog-block-present pre-commit hook into the shared substrate
+so cli-guard consumers can enforce the same contract from Go (a doctor verb,
+a PreToolUse-adjacent shim, CI) instead of shelling out to the Python hook.
+
+Consumers (coily, ward, a pre-commit wrapper) supply the candidate config paths
+and wrap Check in their own surface; this package owns the rule engine, not the
+path-resolution policy or the CLI. cli-guard hardcodes no consumer's filesystem
+layout, so the caller passes the ordered candidates it wants probed (e.g.
+.ward/ward.yaml then .coily/coily.yaml).
+
+Schema reference: coilysiren/agentic-os-kai#420.
+
+VARIABLES
+
+var ListKeys = []string{
+	"dependsOn",
+}
+    ListKeys are the required keys whose value must be a YAML sequence. An empty
+    list ([]) satisfies the rule; a scalar or mapping does not.
+
+var RequiredKeys = []string{
+	"kind",
+	"type",
+	"system",
+	"owner",
+	"lifecycle",
+	"description",
+	"dependsOn",
+}
+    RequiredKeys are the keys a `catalog:` block must declare. Trivial repos
+    still declare every key (use an empty value for list keys) rather than
+    omitting it: missing is a violation, empty is fine.
+
+
+TYPES
+
+type Problem struct {
+	File string
+	Line int
+	Msg  string
+}
+    Problem is one contract violation, anchored to the config file and the line
+    of the offending node. Consumers format `File:Line: Msg` however suits them.
+    Mirrors allowlist.Problem so the two validators report alike.
+
+func Check(candidates ...string) ([]Problem, error)
+    Check resolves the first existing path in candidates and validates its
+    `catalog:` block. Candidates are probed in order; the first that exists
+    on disk is the one checked, matching the upstream "ward.yaml first, then
+    coily.yaml" fallback while leaving the path list to the caller.
+
+    Rules:
+      - The config must carry a top-level `catalog:` mapping.
+      - Every key in RequiredKeys must be present inside it.
+      - Every key in ListKeys must hold a YAML sequence (use [] for empty).
+
+    An empty []Problem with nil error means clean. A non-nil error means the
+    inputs could not be resolved or parsed (no candidate exists, malformed YAML,
+    non-mapping top level); rule violations come back as Problems, never as
+    errors. Passing no candidates returns an error.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/decision
+
+package decision // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/decision"
+
+Package decision is the per-call profile-aware evaluator: takes a session
+profile name, resolves it through the profiles registry, and
+
+FUNCTIONS
+
+func CoordinatePtr(profileName string) (*profile.Coordinate, error)
+    CoordinatePtr returns a non-nil *profile.Coordinate from the resolver
+    result, suitable for lockdown.Driver.Coordinate. Callers
+
+func Evaluate(profileName string) (*audit.ProfileDecision, error)
+    Evaluate resolves the named session profile via the profiles package and
+    returns an attached audit.ProfileDecision. Allowed is always true
+
+func RedactPolicy() audit.RedactPolicy
+    RedactPolicy returns the default redactor: a secret-flag pattern list and an
+    identifier regex list suitable for any consumer wrapping aws,
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/dispatch
+
+package dispatch // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/dispatch"
+
+Package dispatch hosts the reusable dispatch subsystem: fire `claude` against a
+real open GitHub issue, in the matching local checkout,
+
+TYPES
+
+type Config struct {
+	// Runner executes subprocesses (gh, git, open). Required.
+	Runner *shell.Runner
+
+	// Wrap applies the consumer's verb pipeline (argv validation, audit
+	// logging) to a verb.Spec the package builds.
+	Wrap func(verb.Spec) cli.ActionFunc
+
+	// AllowedOwner is the primary org dispatch accepts issue refs from, and the
+	// owner named in help and status text. This is the security claim, not a knob.
+	AllowedOwner string
+
+	// AllowedOwners is an optional set of additional owners dispatch accepts
+	// alongside AllowedOwner. Empty means single-owner (AllowedOwner only).
+	AllowedOwners []string
+
+	// ForgejoBaseURL enables Forgejo issue refs when set (scheme://host).
+	// Requires FetchForgejoIssue.
+	ForgejoBaseURL string
+
+	// FetchForgejoIssue resolves a Forgejo issue. 404-shaped errors
+	// (message contains "404") fall back to GitHub for shortform refs.
+	FetchForgejoIssue func(ctx context.Context, owner, repo string, number int) (*Issue, error)
+
+	// IssueFetcher overrides the default gh resolver for GitHub and shortform
+	// refs. Unset keeps gh (GitHub is the right default for a reusable library).
+	IssueFetcher func(ctx context.Context, owner, repo string, number int) (*Issue, error)
+
+	// RepoPath resolves a repo name to its expected local checkout. The
+	// consumer owns the workspace layout. Required.
+	RepoPath func(repo string) (string, error)
+
+	// WorktreeRoot is the parent directory under which each interactive
+	// dispatch gets its own git worktree. Required.
+	WorktreeRoot func() (string, error)
+
+	// LogRoot is the parent directory for headless dispatch log files.
+	// Required.
+	LogRoot func() (string, error)
+
+	// BinaryName is the host CLI's name, used only to format help text so
+	// it reads correctly per consumer ("<bin> dispatch ..." vs
+	BinaryName string
+
+	// ClaudeConfigPath resolves the Claude Code config file holding
+	// per-folder trust state. Optional; defaults to ~/.claude.json.
+	ClaudeConfigPath func() (string, error)
+
+	// Notify, when set, is called once per completed dispatch with a
+	// summary Event. The consumer wires ntfy, a done banner, or any other
+	Notify func(Event)
+
+	// Seams below are pluggable so tests avoid spawning real processes or
+	// shelling out to git. Production leaves them nil and New installs the
+	SpawnDetached    func(repoPath, logPath, bin string, argv, env []string) (int, error)
+	OpenLaunch       func(ctx context.Context, runner *shell.Runner, url string) error
+	WorktreeAdd      func(ctx context.Context, runner *shell.Runner, repoPath, branch, worktreePath string) error
+	WorktreeReapable func(ctx context.Context, runner *shell.Runner, repoPath, branch string) bool
+	WorktreeRemove   func(ctx context.Context, runner *shell.Runner, repoPath, worktreePath, branch string) error
+
+	// SpawnHealthWindow bounds the immediate-crash watch. Zero
+	// applies defaultSpawnHealthWindow; negative disables the check.
+	SpawnHealthWindow time.Duration
+
+	// ProcessAlive reports whether pid is live. Seam for the health check;
+	// defaults to processRunning (the signal-0 probe).
+	ProcessAlive func(pid int) bool
+}
+    Config carries the host-specific seams the dispatch package refuses to
+    hard-code. Required fields are noted; everything else has a documented
+
+type Conflict struct {
+	PID    int    `json:"pid"`
+	Ref    string `json:"ref"`
+	Claim  string `json:"claim"`
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+    Conflict is one (sidequest, claim) pair overlapping the query.
+
+type Dispatcher struct {
+	// Has unexported fields.
+}
+    Dispatcher is a configured dispatch subsystem. Build one with New and hang
+    Command off the host CLI's command tree.
+
+func New(cfg Config) (*Dispatcher, error)
+    New validates cfg, fills defaults, and returns a Dispatcher. It errors
+    rather than panicking so the host CLI can fail loud at startup.
+
+func (d *Dispatcher) Command() *cli.Command
+    Command returns the dispatch umbrella verb. It refuses bare invocation and
+    requires a surface subverb (headless | interactive | consult | cascade).
+
+type Event struct {
+	Mode  string // "headless" or "interactive"
+	Ref   string // owner/repo#N
+	Title string
+	URL   string
+	Cwd   string
+	PID   int // headless only; 0 otherwise
+}
+    Event is the summary handed to Config.Notify when a dispatch completes.
+
+type Issue struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	Body   string `json:"body"`
+	State  string `json:"state"`
+	URL    string `json:"html_url"`
+}
+    Issue is the platform-neutral fetch result. GitHub and Forgejo share the
+    same JSON field names so one struct covers both.
+
+type Platform string
+    Platform tags which forge an issue ref resolves against.
+
+const (
+	PlatformGitHub  Platform = "github"
+	PlatformForgejo Platform = "forgejo"
+)
+type Registry struct {
+	// Has unexported fields.
+}
+    Registry is the public read-only view over the sidequest surface. Downstream
+    hosts use this rather than shelling out to each other.
+
+func NewRegistry(logRoot string) *Registry
+    NewRegistry binds a Registry to a host-supplied LogRoot.
+
+func (r *Registry) Active() ([]Sidequest, error)
+    Active returns every active sidequest (alive PID), oldest first.
+
+func (r *Registry) Conflicts(absPath string) ([]Conflict, error)
+    Conflicts returns every (sidequest, claim) pair overlapping absPath.
+
+type Sidequest struct {
+	PID           int       `json:"pid"`
+	Ref           string    `json:"ref"`
+	URL           string    `json:"url,omitempty"`
+	StartedAt     time.Time `json:"started_at"`
+	ParentSession string    `json:"parent_session,omitempty"`
+	PathsClaimed  []string  `json:"paths_claimed,omitempty"`
+	LogPath       string    `json:"log_path"`
+}
+    Sidequest is one active headless dispatch as exposed to consumers.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/doctor
+
+package doctor // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/doctor"
+
+Package doctor checks a host's posture against a consumer's declared
+repocfg.Security policy: the enforcement floor. See docs/features-detail.md.
+
+TYPES
+
+type Finding struct {
+	Check    string
+	Severity Severity
+	Message  string
+}
+    Finding is one posture observation: Check names the dimension, Severity the
+    outcome, Message the detail.
+
+type Probes struct {
+	// Sudo runs `sudo -n true` and reports success plus stderr. success
+	// means the agent has passwordless sudo.
+	Sudo func() (succeeded bool, stderr string)
+	// Stat resolves a path to file info, like os.Stat.
+	Stat func(path string) (os.FileInfo, error)
+	// CanExec reports whether the agent user can exec the file, and whether
+	// that was determinable (known=false on unsupported platforms).
+	CanExec func(info os.FileInfo) (canExec bool, known bool)
+	// LookupEnv resolves an environment variable, like os.LookupEnv.
+	LookupEnv func(key string) (value string, present bool)
+}
+    Probes are the host seams Check reads. DefaultProbes wires the real sudo /
+    filesystem / environment; tests inject fakes.
+
+func DefaultProbes() Probes
+    DefaultProbes wires Check to the real host: sudo -n true, os.Stat,
+    os.LookupEnv, and a platform-specific exec-for-current-user check.
+
+type Report struct {
+	Findings []Finding
+}
+    Report is the result of Check. Findings are appended in check order (sudo,
+    binaries, credential env).
+
+func Check(sec repocfg.Security, p Probes) Report
+    Check runs every posture check the policy asks for and returns a Report.
+    It reads only what the policy declares.
+
+func (r Report) OK() bool
+    OK reports whether the report has no Fail finding. Warnings do not fail OK.
+
+func (r Report) Worst() Severity
+    Worst returns the highest severity present, or Pass for an empty report.
+
+type Severity int
+    Severity ranks a finding: Pass informational, Warn unverifiable or softer
+    risk, Fail the floor is broken.
+
+const (
+	Pass Severity = iota
+	Warn
+	Fail
+)
+func (s Severity) String() string
+    String renders the severity as a short uppercase label.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/gittree
+
+package gittree // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/gittree"
+
+Package gittree inspects a repo's working tree for the clean+synced state that
+gates `.coily/coily.yaml` repo verbs. The gate refuses repo-verb
+
+CONSTANTS
+
+const MaxStatusBytes = 2048
+    MaxStatusBytes caps Status so a sprawling untracked tree does not bloat the
+    audit row or refusal message.
+
+
+VARIABLES
+
+var ErrNotGitRepo = errors.New("gittree: path is not inside a git repo")
+    ErrNotGitRepo is returned when the supplied path is not inside a git repo.
+    Repo verbs only fire when a repocfg file was discovered, which itself
+    implies
+
+
+TYPES
+
+type State struct {
+	Clean    bool
+	Reason   string
+	Recovery string
+	Status   string
+	// DirtyPaths is every working-tree path that git porcelain v1 reported
+	// as dirty (modified, added, deleted, untracked, renamed - both halves
+	DirtyPaths []string
+	Branch     string
+	Upstream   string
+	Ahead      int
+	Behind     int
+}
+    State is the outcome of CheckClean. Clean is true when every gate property
+    holds. When false, Reason names the first failure in human-readable form
+
+func CheckClean(repoRoot string) (*State, error)
+    CheckClean evaluates the gate at repoRoot. Returns a *State whose Clean
+    field tells the caller whether the repo verb may run. A non-nil error is
+
+func (s *State) FormatRefusal(verbName string) string
+    FormatRefusal renders the human-readable refusal message for a non-clean
+    State, naming the verb so the operator's recovery suggestion includes
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/hook
+
+package hook // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/hook"
+
+Package hook implements the Claude Code PreToolUse hook engine in the shared
+substrate. Each cli-guard consumer wires it in.
+
+FUNCTIONS
+
+func Basename(token string) string
+    Basename returns the final path element of token, e.g. "gcloud"
+    for "/opt/homebrew/bin/gcloud" and "gcloud" for "gcloud". Used for
+    basename-aware matching so an absolute-path spelling cannot slip past a deny
+    keyed on the bare name.
+
+func CheckBinaryPath(token string, allowed []string, lookup LookPath, source string) string
+    CheckBinaryPath resolves token via lookup and returns a non-empty
+    hijack-warning string when the resolved path is outside allowed.
+
+func LeadingToken(seg string) string
+    LeadingToken returns the first whitespace-delimited token of seg. "gh issue
+    view" -> "gh", "" -> "".
+
+func SplitSegments(cmd string) []string
+    SplitSegments breaks a bash command into the leading-token segments the
+    engine classifies. Splits on $( ) || && | ; & boundaries.
+
+func StripEnvPrefix(seg string) string
+    StripEnvPrefix peels leading `env VAR=val ...` and `sudo` tokens so `env
+    FOO=bar gh issue view` classifies the same as bare
+
+
+TYPES
+
+type Decision struct {
+	Block   bool
+	Message string
+}
+    Decision is what PreToolUse returns. Block=true means the caller should emit
+    Message to stderr and exit with the host's hook-block
+
+func PreToolUse(payload Payload, source string, rules []IntegrityRule, routes []Route, lookup LookPath, protected ...Protected) Decision
+    PreToolUse evaluates a payload against integrity rules, routes, and the
+    engine-level arbitrary-code-execution deny. Returns
+
+type IntegrityRule struct {
+	Binary       string
+	AllowedPaths []string
+}
+    IntegrityRule names a binary and the canonical absolute paths it is allowed
+    to resolve to. A bare invocation of Binary that
+
+type LookPath func(name string) (string, error)
+    LookPath mirrors exec.LookPath. Injected for tests.
+
+type Payload struct {
+	ToolName  string                 `json:"tool_name"`
+	ToolInput map[string]interface{} `json:"tool_input"`
+	CWD       string                 `json:"cwd"`
+}
+    Payload is the subset of Claude Code's PreToolUse hook payload the engine
+    consumes. Other fields are ignored.
+
+func ReadPayload(r io.Reader) Payload
+    ReadPayload decodes a PreToolUse payload from r. Empty stream or unparseable
+    JSON returns an empty Payload (not an error); the engine
+
+type Protected struct {
+	// Name is the binary basename to protect, e.g. "gcloud".
+	Name string
+	// Hint is the recovery sentence appended after the deny. When empty,
+	// the engine synthesizes one from Wrappers (or a bare deny if both are
+	// empty).
+	Hint string
+	// Wrappers names the audited wrappers a human routes through instead.
+	// Used to synthesize a hint when Hint is empty.
+	Wrappers []string
+}
+    Protected names a host binary that direct invocation by a semi-trusted agent
+    is denied for. Unlike Route (which matches the bare leading token only),
+    Protected matches by basename: the bare token `gcloud`, an absolute
+    path `/opt/homebrew/bin/gcloud`, and any /-containing spelling whose
+    final element is Name all match. This closes the absolute-path bypass a
+    token-keyed deny leaves open (see the 2026-05-08 deny-uv finding).
+
+type Route struct {
+	// Token is the bare leading-token to match, e.g. "gh", "brew".
+	Token string
+
+	// Hint is the human-readable recovery message. The engine
+	// prefixes "<source> hook: blocked bare `<token>`. Recovery: "
+	Hint string
+
+	// Extra, when non-nil, is consulted for token-specific suffixes
+	// after a match. Receives the matched segment so the consumer
+	Extra func(segment string) string
+}
+    Route maps a bare leading-token in argv to a recovery hint string the
+    consumer wants surfaced when the harness denies that token.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/hookcfg
+
+package hookcfg // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/hookcfg"
+
+Package hookcfg bridges repocfg.Security into the hook engine's Protected shape,
+so consumers (cmd/cli-guard-hook, ward, future shell consumers via go.mod) share
+one mapping rather than each carrying their own copy.
+
+repocfg and hook stay independent of each other; this small bridge owns the
+direction repocfg.Security -> []hook.Protected.
+
+FUNCTIONS
+
+func ProtectedFor(sec repocfg.Security) []hook.Protected
+    ProtectedFor maps a parsed repocfg.Security block into the hook engine's
+    Protected list. Merges two sources:
+
+      - Every protected_binaries entry becomes a Protected. The engine matches
+        by basename so bare / absolute / relative spellings all trigger the same
+        deny.
+      - Every hooks.deny_bare_binaries entry that is NOT already covered by a
+        protected_binaries entry becomes a hint-only Protected (no wrappers),
+        so a downstream config can deny additional bare invocations without
+        declaring the full protected schema.
+
+    Hint precedence: hooks.route_hints[name] when set, else the engine
+    synthesizes from Wrappers, else a bare deny.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/lockdown
+
+package lockdown // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/lockdown"
+
+Package lockdown writes a per-repo Claude Code settings file that enforces an
+allowlist-inversion for the wrapper binary supplied by a
+
+FUNCTIONS
+
+func EnsureUserHook(homeDir string, drv *Driver) (hookPath string, settingsChanged bool, err error)
+    EnsureUserHook writes the user-level PreToolUse Bash hook script under
+    homeDir/<SettingsRelPath>/<driver.UserHookFilename> and
+
+func HookPath(settingsPath string, drv *Driver) string
+    HookPath returns the absolute path of the generated PreToolUse hook script.
+    It sits next to settings.json under the driver's settings
+
+func MergeDenyInto(targetPath string, d *Defaults) (bool, error)
+    MergeDenyInto reasserts canonical denies + prunes shadowed allows.
+    cli-guard#26.
+
+func TargetPath(dir string, local bool) string
+    TargetPath returns the settings file path under dir. If local is true,
+    uses settings.local.json. Otherwise settings.json.
+
+func Write(plan *Plan) error
+    Write applies the plan to disk. Caller should have shown the plan first and
+    confirmed.
+
+func WriteHook(settingsPath string, d *Defaults, drv *Driver) (string, bool, error)
+    WriteHook renders and writes the PreToolUse hook script with 0755 perms.
+    Validates the generated script with `sh -n` before writing -
+
+
+TYPES
+
+type Defaults struct {
+	Allow []string `yaml:"allow" json:"-"`
+	Deny  []string `yaml:"deny" json:"-"`
+}
+    Defaults is the parsed allow / deny list pair that BuildPlan writes into the
+    target settings file. Loaded from defaults.yaml via
+
+func LoadDefaults() (*Defaults, error)
+    LoadDefaults parses the embedded canonical allow/deny lists.
+
+type Driver struct {
+	BinaryName         string
+	BinaryAllowedPaths []string
+	WrapperRecovery    map[string]string
+	HookFilename       string
+	UserHookFilename   string
+	UserHookMarkerKey  string
+	SettingsRelPath    string
+
+	BuildSettings        func(existing []byte, d *Defaults, drv *Driver) ([]byte, error)
+	RenderHookScript     func(d *Defaults, drv *Driver) (string, error)
+	RenderUserHookScript func(drv *Driver) string
+
+	// Coordinate is the resolved per-session lockdown coordinate, when a
+	// consumer is profile-aware. Optional: BuildSettings consumers may
+	Coordinate *profile.Coordinate
+}
+    Driver describes the binary and runtime that lockdown should write
+    settings/hooks for. Callers either construct a Driver directly or use
+
+func ClaudeCode(binary string, allowedPaths []string, recovery map[string]string) *Driver
+    ClaudeCode returns a Driver pre-wired for Claude Code's settings.json shape
+    and PreToolUse Bash hook contract. Callers supply the binary
+
+func (d *Driver) HookSettingsPath() string
+    HookSettingsPath is the relative path baked into settings.json's hook entry.
+    The host CLI resolves it relative to the project root.
+
+func (d *Driver) Validate() error
+    Validate returns an error if the driver is missing fields the lockdown
+    package needs to operate. Callers should run this before
+
+type Permissions struct {
+	Allow []string `json:"allow,omitempty"`
+	Deny  []string `json:"deny,omitempty"`
+}
+    Permissions is the on-disk shape of the Claude Code settings permissions
+    block (allow / deny rule strings).
+
+type Plan struct {
+	TargetPath string          // the .claude/settings*.json path
+	Existed    bool            // did TargetPath exist before?
+	Before     json.RawMessage // original file contents, if any
+	After      json.RawMessage // file contents that would be (or were) written
+}
+    Plan describes what lockdown would (or did) write. Rendered as JSON for the
+    caller to display or persist.
+
+func BuildPlan(targetPath string, d *Defaults, drv *Driver) (*Plan, error)
+    BuildPlan computes what the target settings file should look like after
+    applying the defaults. Does not touch disk. Routes through the
+
+type Settings struct {
+	Permissions Permissions `json:"permissions"`
+}
+    Settings is the subset of Claude Code settings we manipulate directly.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/passthrough
+
+package passthrough // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/passthrough"
+
+Package passthrough is the thin pass-through used to wrap any sub-CLI (aws, gh,
+kubectl, docker, tailscale, plus every package manager) as a
+
+FUNCTIONS
+
+func Command(bin string, r *shell.Runner, w *audit.Writer, opts ...Option) *cli.Command
+    Command returns the *cli.Command for the wrapped `<bin>`. Every argument
+    after the binary name is forwarded verbatim through the pass-through
+
+
+TYPES
+
+type Option func(*config)
+    Option configures a pass-through Command. Use the With* helpers below rather
+    than setting fields directly.
+
+func WithArgvRewriter(fn func(argv []string) []string) Option
+    WithArgvRewriter installs a hook that may rewrite the argv passed to the
+    underlying binary before exec. The original argv is still recorded in the
+
+func WithEgress(allowlist []string, mode egress.Mode) Option
+    WithEgress wires the per-invocation HTTP CONNECT proxy. The child runs with
+    HTTPS_PROXY/HTTP_PROXY pointed at 127.0.0.1:NNNNN for the lifetime
+
+func WithEnvFunc(fn func() (map[string]string, error)) Option
+    WithEnvFunc injects extra env vars into the wrapped binary at exec time;
+    returned keys win over the parent env, resolved once per run just before
+    exec.
+
+func WithReadCache(classifier ReadCacheClassifier) Option
+    WithReadCache wires the pass-through into ghcache so reads matching the
+    supplied classifier are served from cache without exec, and
+
+func WithSecretResolver(r mcporter.SecretResolver) Option
+    WithSecretResolver installs a mcporter-shaped pre-exec preflight: scan the
+    mcporter config file for `${VAR}` references, resolve each via r,
+
+func WithSkipPolicy() Option
+    WithSkipPolicy disables the shell-metacharacter check for this binary.
+    Use only for tools whose argv goes through execve straight to the
+
+func WithVerbName(name string) Option
+    WithVerbName overrides the dotted verb name used for audit logging.
+    The user-visible cli command name (and the binary actually executed)
+
+type ReadCacheClassifier func(argv []string) (path string, maxAge time.Duration, ok bool)
+    ReadCacheClassifier inspects the post-WithArgvRewriter argv and returns the
+    gh-api-style path the call would read, a per-call max-age
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/profile
+
+package profile // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/profile"
+
+Package profile declares the categorical operating-model axes that cli-guard
+exposes for consumers to build per-session
+
+FUNCTIONS
+
+func IsStricter(ax Axis, a, b Tier) (bool, error)
+    IsStricter reports whether tier a is strictly stricter than tier b on axis
+    ax. Returns an error if either tier is not defined on ax
+
+
+TYPES
+
+type Axis string
+    Axis names a categorical dimension cli-guard exposes for profile
+    declarations. Stable string values so consumers can persist them
+
+const (
+	// AxisDataSecurity governs secret access (direct vs proxy-only vs
+	// full), identifier surfacing, vault visibility, and leak-check
+	AxisDataSecurity Axis = "data_security"
+
+	// AxisBlastRadius governs which destructive verbs are gated:
+	// cluster mutations, force-pushes, mass-deletes, etc.
+	AxisBlastRadius Axis = "blast_radius"
+
+	// AxisNetworkEgress governs outbound network reach. air-gapped
+	// and loopback-only are stubbed in the initial implementation
+	AxisNetworkEgress Axis = "network_egress"
+
+	// AxisFilesystemReach governs which paths a session can read and
+	// write outside the current repo.
+	AxisFilesystemReach Axis = "filesystem_reach"
+)
+func AllAxes() []Axis
+    AllAxes returns the four axes in the canonical declaration order. Useful for
+    iteration in config validators and digest renderers.
+
+type Coordinate struct {
+	DataSecurity    Tier
+	BlastRadius     Tier
+	NetworkEgress   Tier
+	FilesystemReach Tier
+}
+    Coordinate is a tier-per-axis assignment. Profiles declared by consumers
+    (e.g. "mobile", "mac-tower", ...) resolve to a
+
+func Strictest() Coordinate
+    Strictest returns the coordinate where every axis is at its strictest tier.
+    This is the headless-default and
+
+func (c Coordinate) Get(a Axis) Tier
+    Get returns the tier on the named axis. Returns the empty string if the axis
+    name does not match a known field; callers can treat
+
+type Tier string
+    Tier is a string label naming a strictness level on a given axis. Stable
+    values so consumer config files and audit rows do not
+
+const (
+	DataSecurityLow    Tier = "low"
+	DataSecurityMedium Tier = "medium"
+	DataSecurityHigh   Tier = "high"
+	DataSecurityMax    Tier = "max"
+)
+    DataSecurity tiers, strictest last.
+
+const (
+	BlastRadiusHigh   Tier = "high"
+	BlastRadiusMedium Tier = "medium"
+	BlastRadiusLow    Tier = "low"
+)
+    BlastRadius tiers, strictest last.
+
+const (
+	NetworkEgressOpen         Tier = "open"
+	NetworkEgressAllowlisted  Tier = "allowlisted"
+	NetworkEgressLoopbackOnly Tier = "loopback-only"
+	NetworkEgressAirGapped    Tier = "air-gapped"
+)
+    NetworkEgress tiers, strictest last.
+
+const (
+	FilesystemReachUnrestricted Tier = "unrestricted"
+	FilesystemReachRepoPlusHome Tier = "repo-plus-home"
+	FilesystemReachRepoOnly     Tier = "repo-only"
+)
+    FilesystemReach tiers, strictest last.
+
+func StrictestTier(a Axis) Tier
+    StrictestTier returns the tier at the strict end of axis a's ordering.
+    Used by Strictest() to build the max-paranoia coordinate
+
+func TiersFor(a Axis) []Tier
+    TiersFor returns the tiers defined on axis a, ordered most permissive to
+    strictest. Returns nil for an unknown axis so
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/profiles
+
+package profiles // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/profiles"
+
+Package profiles loads the per-host lockdown profile registry from
+~/.coily/coily.yaml and resolves named profiles to cli-guard/profile
+
+VARIABLES
+
+var DefaultYAML []byte
+
+FUNCTIONS
+
+func LoadOverride() (map[string]profile.Coordinate, error)
+    LoadOverride reads and validates ~/.coily/coily.yaml. Returns (nil,
+    os.ErrNotExist) when the file is absent so callers can fall
+
+func OverridePath() (string, error)
+    OverridePath returns ~/.coily/coily.yaml. Caller stat()s it; the loader
+    treats os.ErrNotExist as the deny-everything fallback signal.
+
+func ParseAndValidate(body []byte, sourceDesc string) (map[string]profile.Coordinate, error)
+    ParseAndValidate decodes a YAML body and validates every profile. Exposed
+    for tests and for the consumer's `lockdown init-config` to check the
+
+
+TYPES
+
+type File struct {
+	Profiles map[string]rawCoordinate `yaml:"profiles"`
+}
+    File is the on-disk shape of ~/.coily/coily.yaml. One field today; future
+    schema additions land alongside without breaking the loader.
+
+type Resolution struct {
+	Coord  profile.Coordinate
+	Source Source
+	Note   string
+}
+    Resolution is the output of Resolve: the resolved Coordinate, the source
+    that produced it, and a human-readable note suitable for the
+
+func Resolve(profileName string) (Resolution, error)
+    Resolve returns the Coordinate for the given profile name. An empty name
+    resolves to Strictest with Source=Unset so the show command can
+
+type Source string
+    Source records why a Coordinate resolved the way it did. The session show
+    command surfaces this so the operator can see at a glance
+
+const (
+	// SourceOverride means the named profile was found in the on-disk
+	// override file and its tiers are in effect.
+	SourceOverride Source = "override"
+
+	// SourceMissingFile means ~/.coily/coily.yaml was absent. Every
+	// axis falls back to Strictest().
+	SourceMissingFile Source = "missing_file"
+
+	// SourceUnknownProfile means the override file exists and parsed,
+	// but the requested profile name was not declared in it. Every
+	SourceUnknownProfile Source = "unknown_profile"
+
+	// SourceUnset means no profile name was requested (the session
+	// sentinel was absent). Every axis falls back to Strictest().
+	SourceUnset Source = "unset"
+)
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/repocfg
+
+package repocfg // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/repocfg"
+
+Package repocfg loads a per-repo command allowlist from a coily.yaml file
+discovered by walking up from the current working directory. Each command
+
+CONSTANTS
+
+const EnvOverride = "COILY_REPO_CONFIG"
+    EnvOverride, when set, is treated as the absolute path to the repo config
+    and skips directory walking. Primarily for tests and advanced users.
+
+const Filename = "coily.yaml"
+    Filename is the name repocfg looks for during discovery.
+
+const LegacyFilename = "coily.yaml"
+    LegacyFilename is the pre-overlay name (./coily.yaml) that we reject with a
+    pointer at the new location. Kept around so the error message can be
+
+const LocalDirName = ".coily"
+    LocalDirName is the per-repo overlay directory the loader prefers. The
+    canonical home for the repo allowlist is ./.coily/coily.yaml.
+
+const ModeDenyDirect = "deny-direct"
+    ModeDenyDirect is the only protected-binary mode supported in v1: the binary
+    may not be invoked directly by a semi-trusted agent; it is routed through
+    an allowed wrapper instead. Other modes (e.g. a future audited read-only
+    allowlist) are reserved and rejected until implemented.
+
+
+VARIABLES
+
+var ErrLegacyLocation = errors.New("repocfg: coily.yaml at repo root is no longer supported, move it to .coily/coily.yaml")
+    ErrLegacyLocation is wrapped by Discover when a coily.yaml is found at the
+    repo root rather than under ./.coily/. The new convention is to put it
+
+var ErrNoConfig = errors.New("repocfg: no coily.yaml found")
+    ErrNoConfig is returned by LoadDefault when no coily.yaml is found in the
+    cwd ancestry. Callers treat this as "no repo commands to register."
+
+
+FUNCTIONS
+
+func Discover(start string) (string, error)
+    Discover walks up from start looking for the repo config. Prefers
+    ./.coily/coily.yaml at each level. If no overlay file is found but a
+
+
+TYPES
+
+type Command struct {
+	// Name is the key from the yaml map, e.g. "test".
+	Name string
+	// Description is the optional human-readable blurb shown in help/--list.
+	Description string
+	// Argv is the command split into tokens. argv[0] is the binary name as
+	// resolved via $PATH at exec time. Every token has been run through
+	Argv []string
+	// Egress, when true, opts the command into the per-invocation CONNECT
+	// proxy that consumers wire around exec. The audit row picks up
+	Egress bool
+	// AllowMetacharacters opts this command out of the shell-metacharacter
+	// validator for both the YAML-declared argv tokens (skipped at load)
+	AllowMetacharacters bool
+}
+    Command is one parsed and validated entry from the commands: map.
+
+type Config struct {
+	// Path is the absolute path to the coily.yaml that produced this Config.
+	Path string
+	// Commands are sorted by Name. Safe to iterate directly for help output.
+	Commands []Command
+	// Security is the optional security: section. Zero value when the config
+	// declares no security: block.
+	Security Security
+}
+    Config is the result of a successful Load.
+
+func DiscoverAll(start string) ([]*Config, error)
+    DiscoverAll returns every coily.yaml reachable from start in a single
+    deterministic pool: every level of the ancestor walk from start up to
+
+func DiscoverChildren(parentDir string) ([]*Config, error)
+    DiscoverChildren scans direct children of parentDir for a
+    ./.coily/coily.yaml overlay, loads each one, and returns the resulting
+
+func Load(path string) (*Config, error)
+    Load parses the yaml at path. Every command is validated against
+    policy.ValidateArg. A single bad token fails the whole load.
+
+func LoadDefault() (*Config, error)
+    LoadDefault resolves the config path from $COILY_REPO_CONFIG or by walking
+    up from the current working directory, then parses it. Returns nil,
+
+type HookPolicy struct {
+	// DenyBareBinaries are basenames the hook denies on bare invocation.
+	DenyBareBinaries []string
+	// RouteHints maps a binary basename to the recovery sentence surfaced
+	// when its invocation is denied.
+	RouteHints map[string]string
+}
+    HookPolicy is the optional PreToolUse deny/route block. When omitted,
+    a consumer can derive the same effect from ProtectedBinaries; this block
+    exists for consumers that want to state it explicitly or add hints for
+    binaries that are not full protected entries.
+
+type ProtectedBinary struct {
+	// Name is the binary's basename, e.g. "gcloud". Required.
+	Name string
+	// Mode is how the binary is protected. Empty defaults to deny-direct;
+	// only deny-direct is accepted in v1.
+	Mode string
+	// AllowedWrappers names the wrapper commands a human routes through
+	// instead (e.g. "kap", "ward"). Surfaced in remediation text.
+	AllowedWrappers []string
+	// ExpectedRealPaths are the canonical install locations of the real
+	// binary, used by doctor to reason about PATH-shim posture.
+	ExpectedRealPaths []string
+	// CredentialEnv names environment variables that, when present in an
+	// agent session, hand the agent the binary's credentials. doctor warns
+	// when these are set.
+	CredentialEnv []string
+}
+    ProtectedBinary declares one host tool that direct agent invocation is
+    denied for. The real binary stays runnable by humans through the named
+    wrappers; the policy is about keeping the agent off the bare binary.
+
+func (p ProtectedBinary) EffectiveMode() string
+    EffectiveMode returns the protected-binary mode with the empty-default
+    applied. Callers should switch on this rather than the raw field.
+
+type Security struct {
+	// ProtectedBinaries are host tools a semi-trusted agent must not invoke
+	// directly. Empty means no binary is protected by config.
+	ProtectedBinaries []ProtectedBinary
+	// Sudo carries sudo-posture policy.
+	Sudo SudoPolicy
+	// Hooks carries PreToolUse deny/route policy derived from the protected
+	// set, kept as an explicit block so a consumer can tune hook behavior
+	// without changing the protected-binary contract.
+	Hooks HookPolicy
+}
+    Security is the optional security: section of a repo config. It is
+    declarative policy a consumer's doctor/hook surfaces read; repocfg parses
+    and validates it but enforces nothing on its own. A config with no security:
+    block yields a zero Security, which every field treats as "no policy
+    declared". Field names are snake_case to match the commands: scheme
+    (allow_metacharacters, audit.egress).
+
+type SudoPolicy struct {
+	// ForbidPasswordless asserts the host must not let the agent user run
+	// broad passwordless sudo. doctor fails when `sudo -n` succeeds and
+	// this is set.
+	ForbidPasswordless bool
+}
+    SudoPolicy carries sudo-posture expectations doctor checks against.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/sandbox
+
+package sandbox // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/sandbox"
+
+Package sandbox jails a consumer's gate-spawned child in a Linux user+mount
+namespace so the child and its descendants re-enter the gate; no-op off Linux.
+
+CONSTANTS
+
+const (
+	// EnvJailed is "1" inside the jail; re-entrant gate calls then skip
+	// re-cloning and resolve the real binary instead of the shim.
+	EnvJailed = "CLIGUARD_JAILED"
+)
+    Env keys shared between the launcher (parent) and the jail helper (child).
+
+
+FUNCTIONS
+
+func IsJailInvocation(_ []string) bool
+    IsJailInvocation is always false off Linux.
+
+func Jailed() bool
+    Jailed reports whether the current process is already running inside a jail.
+
+func RealBin(bin string) string
+    RealBin returns the stashed real path for bin inside a jail (else ""),
+    so the gate execs the real tool rather than looping back into the shim.
+
+func RealBinEnv(tool string) string
+    RealBinEnv returns the env-var name carrying tool's stashed real path,
+    upper-casing the name and mapping non-alphanumerics to '_'.
+
+func RunJail(_ []string) error
+    RunJail is unsupported off Linux.
+
+func Wrap(_ *exec.Cmd, _ string, _ []string, _ *Spec)
+    Wrap is a no-op off Linux: OS-level jailing is unsupported, so the caller
+    execs the real binary directly (pre-sandbox behavior).
+
+
+TYPES
+
+type Spec struct {
+	// SelfExe is the consumer binary path, re-execed as the jail helper and
+	// bind-mounted over each wrapped tool as the shim (os.Executable()).
+	SelfExe string
+	// Tools is the set of wrapped-tool basenames to shim inside the jail,
+	// e.g. []string{"brew"}; each is bind-mounted over with SelfExe.
+	Tools []string
+}
+    Spec configures the jail applied to a sandboxed child. A nil *Spec on a
+    shell.Runner means "run directly" — the pre-sandbox behavior.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/shell
+
+package shell // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/shell"
+
+Package shell is the argv-only exec wrapper. Every argument is passed as a
+distinct argv element. No shell string is ever composed. If a downstream
+
+VARIABLES
+
+var ErrEmptyBinary = errors.New("shell: bin is empty")
+    ErrEmptyBinary is returned when Exec or Capture is called with "".
+
+
+FUNCTIONS
+
+func PathResolver(bin string) (string, error)
+    PathResolver is the default resolver. Looks the binary up on $PATH.
+
+
+TYPES
+
+type Resolver func(bin string) (string, error)
+    Resolver turns a binary name into an executable path. Pluggable so tests can
+    avoid touching the real $PATH.
+
+type Runner struct {
+	Stdout io.Writer
+	Stderr io.Writer
+	Stdin  io.Reader
+	// Resolve locates a binary. Defaults to PathResolver when nil.
+	Resolve Resolver
+	// Env, when non-nil, is appended to os.Environ() and passed to the
+	// child as cmd.Env. Used by the egress-proxy plumbing to inject
+	Env []string
+	// Sandbox, when non-nil, jails the child (Linux) so it and its descendants
+	// re-enter the gate before invoking a wrapped tool. nil = run directly.
+	Sandbox *sandbox.Spec
+}
+    Runner executes subprocesses on behalf of consumer verbs. Build one in main
+    with the default Resolver and plumb it through to verbs that need it.
+
+func (r *Runner) Capture(ctx context.Context, bin string, argv ...string) ([]byte, error)
+    Capture runs bin with argv and returns stdout as bytes. Stderr is forwarded
+    to the Runner's Stderr (defaulting to discard if nil). Useful for verbs
+
+func (r *Runner) Exec(ctx context.Context, bin string, argv ...string) error
+    Exec runs bin with argv, streaming stdin/stdout/stderr through the Runner's
+    fields. Returns the underlying exec error on failure.
+
+func (r *Runner) ExecIn(ctx context.Context, dir, bin string, argv ...string) error
+    ExecIn is like Exec but runs the child with cmd.Dir set to dir. Used by the
+    consumer's exec verb when the matched coily.yaml lives in a direct child of
+    cwd:
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/shim
+
+package shim // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/shim"
+
+Package shim renders PATH shims for a consumer's protected binaries: a deny shim
+per binary that shadows the bare name. See docs/features-detail.md.
+
+TYPES
+
+type Spec struct {
+	// Name is the binary basename the shim shadows and the install filename.
+	Name string
+	// Body is the rendered POSIX-sh script. It has passed sh -n.
+	Body string
+}
+    Spec is one rendered PATH shim. The consumer installs Body under Name on a
+    PATH dir ahead of the real binary.
+
+func For(protected []hook.Protected) ([]Spec, error)
+    For expands a protected set into one deny shim per entry, sorted by Name.
+    Every body is sh -n validated; a bad render fails the whole call.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/sudo
+
+package sudo // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/sudo"
+
+Package sudo is policy-free plumbing for driving an interactive sudo over any
+transport that pipes a process's stdin without carrying a password.
+
+VARIABLES
+
+var ErrNoTTY = errors.New("sudo: no controlling tty; cannot prompt for password")
+    ErrNoTTY is returned by ReadPassword when /dev/tty cannot be opened.
+    CI and headless invocations should fail fast on this rather than hang
+
+
+FUNCTIONS
+
+func PasswordRequired(stderr string) bool
+    PasswordRequired returns true when stderr from a `sudo -n` attempt indicates
+    the failure was "password needed" rather than a genuine
+
+func ReadPassword(prompt string) ([]byte, error)
+    ReadPassword prompts on /dev/tty (NOT stdin, which the caller will reuse to
+    pipe the password into the remote sudo) and returns the
+
+func Zero(b []byte)
+    Zero overwrites b in place. Use with `defer` after a successful ReadPassword
+    to keep the password-bearing buffer alive only as long
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb
+
+package verb // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
+
+Package verb is the middleware that wraps every consumer command action in the
+standard pipeline of:
+
+FUNCTIONS
+
+func Wrap(spec Spec, writer *audit.Writer) cli.ActionFunc
+    Wrap returns a cli.ActionFunc that runs the full verb pipeline.
+
+
+TYPES
+
+type Spec struct {
+	// Name is the dotted verb path used for audit logging, e.g.
+	// "aws.route53.change-resource-record-sets" or "lockdown".
+	Name string
+
+	// ArgsFunc extracts the user-supplied string arguments from the
+	// *cli.Command for validation. Returns named flags and positional args.
+	ArgsFunc func(*cli.Command) (args map[string]string, positional []string)
+
+	// Action is the verb's real work. Called only after argv validation passes.
+	Action cli.ActionFunc
+
+	// SkipPolicy disables the shell-metacharacter check for this verb. Set
+	// true only for pass-throughs whose argv goes straight through execve to
+	SkipPolicy bool
+
+	// OnComplete, if set, runs inside writer.Wrap after Action returns and
+	// before the audit record is appended. Receives a pointer to the record
+	OnComplete func(*audit.Record)
+
+	// OnEvaluate, when set, runs after argv validation and before Action.
+	// Returning a non-nil *ProfileDecision attaches it to the audit row.
+	OnEvaluate func(ctx context.Context, cmd *cli.Command) (*audit.ProfileDecision, error)
+
+	// IDOverride, when non-empty, is used as audit.Record.ID for this
+	// invocation in place of the default auto-generated UUID v7. Set by
+	IDOverride string
+
+	// ResolveInvokeCWD, when set, returns the operator's invoke-time cwd
+	// (distinct from os.Getwd() which captures the post-cd subprocess
+	ResolveInvokeCWD func() string
+}
+    Spec describes a verb before it is wrapped into a cli.ActionFunc.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cmd/cli-guard-hook
+
+Command cli-guard-hook is a single-purpose Claude Code PreToolUse binary for
+shell-only consumers. It reads a hook payload from stdin, evaluates it against a
+repocfg-shaped yaml file's `security:` block, emits any block message to stderr,
+and exits 0 on pass / 2 on block.
+
+Usage:
+
+    cli-guard-hook --config /path/to/policy.yaml [--source kap]
+
+The config path comes from --config or $CLI_GUARD_HOOK_CONFIG. There is no
+walk-up: the consumer's install script names the exact file. Empty resolution,
+missing file, or unreadable yaml all exit 0 silently so a half-installed host
+never wedges Claude Code.
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cmd/specverb-gen
+
+Command specverb-gen is the no-code uv-style driver for a spec-driven consumer
+CLI: gen / lock / skew / run. See docs/specverb.md.
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/egress
+
+package egress // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/egress"
+
+Package egress is the per-invocation HTTP CONNECT proxy that the consumer starts
+for the duration of a wrapped subprocess. The child inherits HTTPS_PROXY /
+
+VARIABLES
+
+var Allowlists = map[string][]string{}
+    Allowlists is the per-binary set of upstreams each wrapped binary is allowed
+    to reach in enforce mode. Empty by default - consumers populate
+
+var ErrAlreadyStarted = errors.New("egress: proxy already started")
+    ErrAlreadyStarted is returned if Start is called twice on the same Proxy.
+
+
+TYPES
+
+type Mode int
+    Mode selects allowlist enforcement vs observe-only logging.
+
+const (
+	// ModeEnforce denies any host not on the allowlist.
+	ModeEnforce Mode = iota
+	// ModeObserve forwards every CONNECT and logs it. Allowlist is ignored.
+	ModeObserve
+)
+type Proxy struct {
+
+	// Now is overridable for tests.
+	Now func() time.Time
+	// Has unexported fields.
+}
+    Proxy is a single-use CONNECT proxy. New, Start, run the wrapped subprocess,
+    Stop. Not safe for reuse across invocations; build a fresh
+
+func New(allowlist []string, mode Mode) *Proxy
+    New returns a Proxy with the given allowlist and mode. The allowlist is
+    ignored when mode is ModeObserve. Hostname match is exact; suffix matching
+
+func (p *Proxy) Start(_ context.Context) (string, error)
+    Start binds to 127.0.0.1:0 and starts serving. Returns the http://host:port
+    URL the child should use as HTTPS_PROXY/HTTP_PROXY.
+
+func (p *Proxy) Stop() []audit.EgressRow
+    Stop shuts the listener and returns the collected rows, one per host.
+    Safe to call once. After Stop the Proxy is not reusable.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/ghcache
+
+package ghcache // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/ghcache"
+
+Package ghcache caches GitHub REST `GET` responses keyed by method, path, body,
+and token fingerprint, with method-aware write-through
+
+CONSTANTS
+
+const (
+	// TTLVolatile covers fast-moving issue/PR/CI surfaces. Sized to absorb a
+	// `watch -n 2` loop across ~10 repos (~10 calls/min, well under the
+	TTLVolatile = 1 * time.Minute
+
+	// TTLBranchHead covers head-of-branch reads, ref/tree/content lookups,
+	// and search. Slower turnover than issues; long enough to collapse
+	TTLBranchHead = 10 * time.Minute
+
+	// TTLRepoMeta covers repo-level metadata: the repo body, labels,
+	// milestones, releases, tags, topics, languages, contributors,
+	TTLRepoMeta = 1 * time.Hour
+
+	// TTLIdentity covers the identity surface: user, org, teams. Picked
+	// at 25 (not 24) hours so a daily cron always sees a miss across
+	TTLIdentity = 25 * time.Hour
+)
+    Default TTLs by tier. Exported so callers and tests can reference the same
+    constants the path-classifier uses internally.
+
+
+FUNCTIONS
+
+func GetJSON(path string, fetch func() ([]byte, error)) ([]byte, error)
+    GetJSON fetches the response body for a `GET <path>` GitHub REST call,
+    served from cache if a fresh entry exists. On miss it invokes fetch
+
+func Invalidate(method, path string)
+    Invalidate drops cache entries that a `method <path>` write would affect.
+    Idempotent and safe to call on paths that have no cached
+
+func MaybeServe(path string) ([]byte, bool)
+    MaybeServe is the lookup-only half of the cache. Returns (cached bytes,
+    true) on a fresh hit, (nil, false) on miss or unclassified
+
+func MaybeServeMaxAge(path string, maxAge time.Duration) ([]byte, bool)
+    MaybeServeMaxAge is the per-call-freshness variant of MaybeServe. Returns
+    (cached bytes, true) only when a cached entry exists AND its
+
+func Store(path string, data []byte) bool
+    Store puts data under path using the TTL derived from the path's tier.
+    Returns false if the path is unclassified (caller should be
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/ghidcache
+
+package ghidcache // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/ghidcache"
+
+Package ghidcache caches GitHub identity reads - `gh auth status` and `gh api
+user` - that re-resolve on every invocation but are stable
+
+CONSTANTS
+
+const TTL = 1 * time.Hour
+    TTL is the freshness window for cached identity responses. 1h matches
+    stscache and sits at the high end of "stable for hours" - a token
+
+
+FUNCTIONS
+
+func APIUser(fetch func() ([]byte, error)) ([]byte, error)
+    APIUser returns the JSON body of `gh api user`, served from cache if a fresh
+    entry exists for the active GH_HOST + token. On miss it invokes
+
+func AuthStatus(fetch func() ([]byte, error)) ([]byte, error)
+    AuthStatus returns the captured output of `gh auth status` (stderr, since gh
+    writes the human-readable host/scope readout there).
+
+func Invalidate() error
+    Invalidate drops every cached identity entry under both subdirs. Callers
+    that just rotated a token or switched GH_HOST can use this to
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/ghratelimit
+
+package ghratelimit // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/ghratelimit"
+
+Package ghratelimit retries gh-CLI calls that fail with a GitHub rate-limit
+error. v1 of cli-guard#66: pattern-match the failure mode
+
+CONSTANTS
+
+const MaxRetries = 3
+    MaxRetries is the cap on retry attempts after the initial call. Three
+    retries plus the initial call = up to four total attempts.
+
+
+VARIABLES
+
+var ErrGaveUp = errors.New("ghratelimit: retries exhausted")
+    ErrGaveUp is returned (wrapped) when retries are exhausted. Exposed so
+    callers can errors.Is against it without string-matching.
+
+var Sleeper = time.Sleep
+    Sleeper is the function used between retries. Swappable in tests so the
+    retry loop runs at wall-clock zero. Real callers leave this alone.
+
+
+FUNCTIONS
+
+func LastFailure() (time.Time, error)
+    LastFailure returns the most recent rate-limit error observed in this
+    process and the time it occurred. (time-zero, nil) when no failure has
+
+func Reset()
+    Reset clears the failure state. Test-only; real callers leave the state
+    alone so LastFailure carries across calls within a process.
+
+func Retry(fetch func() ([]byte, error)) ([]byte, error)
+    Retry runs fetch up to MaxRetries+1 times, backing off between attempts on
+    recognized rate-limit failures. fetch's first return is
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile
+
+package guardfile // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
+
+Package guardfile parses a KDL Guardfile, the human authoring layer (L2) of the
+specverb engine, into a typed model. KDL is parsed, never evaluated.
+
+TYPES
+
+type Auth struct {
+	Scheme string
+	Header string
+	Prefix string // trailing space is significant, e.g. "token "
+	SSM    string
+}
+    Auth describes how the engine authenticates to the target API. Only the
+    header-token scheme (Forgejo's "Authorization: token <key>") is modeled.
+
+type Grant struct {
+	Modal      string
+	Verb       string
+	Resource   string
+	Qualifiers []string
+
+	// Describe is the optional grant-body `describe "..."` note that enriches
+	// the thin upstream spec; it flows into help and the describe verb.
+	Describe string
+}
+    Grant is one policy sentence: modal verb resource [qualifiers...]. "can
+    delete labels created-by-me" -> {can, delete, labels, [created-by-me]}.
+
+type Guardfile struct {
+	Group   []string // command path, e.g. ["ward", "ops", "forgejo"]
+	Spec    string
+	BaseURL string
+	Auth    Auth
+	Grants  []Grant
+}
+    Guardfile is the parsed form of one wrap block.
+
+func Parse(src []byte) (*Guardfile, error)
+    Parse turns Guardfile source into a Guardfile. It fails closed: an unknown
+    node, a missing required field, or a malformed sentence is an error.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt
+
+package respfmt // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt"
+
+Package respfmt renders a JSON response body through an optional JMESPath
+projection and one of five output formats: yaml (default),
+
+CONSTANTS
+
+const (
+	OutputYAML       = "yaml"
+	OutputYAMLStream = "yaml-stream"
+	OutputJSON       = "json"
+	OutputText       = "text"
+	OutputTable      = "table"
+)
+    Output names mirror the aws CLI vocabulary verbatim.
+
+
+FUNCTIONS
+
+func Render(raw []byte, query, output string) ([]byte, error)
+    Render applies the optional JMESPath projection to raw and formats the
+    result per output. Empty raw returns empty bytes, no error. Empty query
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specdrv
+
+package specdrv // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specdrv"
+
+Cache layout and staleness for the out-of-band materialized consumer binary,
+keyed by the Guardfile's location. See docs/specverb.md.
+
+The uv-style dependency lockfile (specverb.lock) and the `go` plumbing
+that resolves and replays it for a reproducible out-of-band build. See
+docs/specverb.md.
+
+Process replacement (syscall.Exec) and cache locking (flock) on Unix.
+
+Package specdrv is the no-code driver behind cmd/specverb-gen: the uv-style verb
+surface (gen / lock / skew / run) over a Guardfile. See docs/specverb.md.
+
+CONSTANTS
+
+const LockName = "specverb.lock"
+    LockName is the committed dependency-lock filename, the uv.lock analog.
+    It sits beside the Guardfile as source-of-truth; the generated Go does not.
+
+
+VARIABLES
+
+var ErrNoLock = errors.New("missing committed lock; run 'specverb-gen lock' first")
+    ErrNoLock is returned by run and skew when a required committed lock is
+    absent, so the caller can point the user at `specverb-gen lock`.
+
+var ErrSkew = errors.New("spec skew detected")
+    ErrSkew is returned by skew when the committed spec lock drifts from
+    upstream.
+
+
+FUNCTIONS
+
+func Gen(opts Options) error
+    Gen renders the consumer main.go. With no --out it writes into the cache and
+    prints the path; --out is the debug escape hatch for inspecting the source.
+
+func Lock(opts Options) error
+    Lock refreshes both committed locks beside the Guardfile: the spec lock (the
+    fetched Swagger) and specverb.lock (the frozen build module). The `uv lock`
+    analog.
+
+func Run(opts Options) error
+    Run materializes the consumer binary out-of-band (building only when
+    stale) and execs it. It refuses to run without committed locks rather than
+    auto-locking.
+
+func Skew(opts Options) error
+    Skew reports operation-level drift between the committed spec lock and live
+    upstream, never writing. ErrSkew signals drift; a fetch failure is a plain
+    error.
+
+
+TYPES
+
+type DepLock struct {
+	Version  int      `json:"version"`  // schema version
+	Go       string   `json:"go"`       // go directive of the build module
+	CLIGuard string   `json:"cliGuard"` // resolved cli-guard module query (version, commit, or replace path)
+	GoMod    string   `json:"goMod"`    // verbatim go.mod of the build module
+	GoSum    []string `json:"goSum"`    // sorted go.sum lines
+}
+    DepLock is specverb.lock: the frozen build module. GoMod and GoSum
+    are captured verbatim from a resolved build dir, reproducing the graph
+    byte-for-byte.
+
+type Options struct {
+	GuardfilePath   string   // path to the consumer's KDL Guardfile
+	Out             string   // gen: explicit output path (debug escape hatch); cache when empty
+	Args            []string // run: arguments passed through to the materialized binary
+	CLIGuardRef     string   // lock: cli-guard module query to pin (version/commit); empty = auto
+	CLIGuardReplace string   // lock: local cli-guard checkout to replace with (dev locks only)
+}
+    Options are the inputs shared by every driver verb.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen
+
+package specgen // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen"
+
+Package specgen renders a complete consumer `main.go` from a KDL Guardfile,
+so a consumer never hand-writes the specverb wiring. See docs/specverb.md.
+
+FUNCTIONS
+
+func Render(gf *guardfile.Guardfile, guardfileName string) ([]byte, error)
+    Render emits a gofmt'd `package main` wiring specverb.Mount for gf.
+    guardfileName is the Guardfile's filename in the consumer dir (for the
+    embed).
+
+
+TYPES
+
+type Params struct {
+	Binary        string // binary name, e.g. ward-kdl (Guardfile group[0])
+	GuardfileName string // embedded Guardfile filename, e.g. forgejo.guardfile.kdl
+	SpecLockName  string // committed, embedded spec lock filename, e.g. forgejo.swagger.lock.json
+	SpecURL       string // upstream Swagger URL; the `specverb-gen lock` source and bootstrap fallback
+	SpecEnvVar    string // env var overriding the embedded lock, e.g. WARD_KDL_SPEC
+}
+    Params is the per-consumer data the template binds to, derived from the
+    Guardfile and also read by the specverb-gen driver. See docs/specverb.md.
+
+func Plan(gf *guardfile.Guardfile, guardfileName string) (Params, error)
+    Plan derives the per-consumer Params from gf without rendering, the shared
+    derivation behind both Render and the driver. guardfileName feeds the embed.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specverb
+
+package specverb // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specverb"
+
+Package specverb is the runtime engine of the spec-driven verb design: it builds
+a guarded cli tree from a Guardfile + spec. See docs/specverb.md.
+
+FUNCTIONS
+
+func Build(cfg Config) (*cli.Command, error)
+    Build assembles the guarded command tree and returns the Guardfile group's
+    leaf command (e.g. `forgejo`). Fails closed: an unresolvable grant is an
+    error.
+
+func Mount(root *cli.Command, cfg Config) error
+    Mount builds the guarded group and grafts it onto root, generating the
+    intermediate path groups the Guardfile names. See docs/specverb.md.
+
+
+TYPES
+
+type AuthInfo struct {
+	Scheme string `json:"scheme"`
+	Header string `json:"header"`
+	SSM    string `json:"ssm"` // token path, not the token
+}
+    AuthInfo is the auth scope a describe consumer sees: scheme, header,
+    and the SSM token path. The secret value itself never appears here.
+
+type Config struct {
+	// Guardfile is the parsed L2 policy: the command path, auth, and grants.
+	Guardfile *guardfile.Guardfile
+
+	// Spec is the raw Swagger 2.0 document bytes (embedded by the consumer).
+	Spec []byte
+
+	// Wrap adapts a verb.Spec into a guarded cli.ActionFunc (the audit + argv
+	// pipeline). nil mounts the bare action, for doc rendering only.
+	Wrap func(verb.Spec) cli.ActionFunc
+
+	// Token resolves the auth secret. nil is tolerated for a dry-run-only tree.
+	Token TokenResolver
+
+	// HTTPClient fires the live request. nil uses http.DefaultClient.
+	HTTPClient *http.Client
+
+	// BaseURL overrides the Guardfile base-url. "" uses the Guardfile value.
+	BaseURL string
+}
+    Config is everything the engine needs to build a command tree.
+
+type ParamInfo struct {
+	Name     string `json:"name"`
+	Kind     string `json:"kind"`           // "path" | "body" (query mounting is future work)
+	Type     string `json:"type"`           // swagger scalar type
+	Required bool   `json:"required"`       // path params and required-schema fields
+	Desc     string `json:"desc,omitempty"` // upstream spec description, often blank
+}
+    ParamInfo is one input to a verb, tagged by kind so help can always show
+    the structure the engine knows even where the upstream spec carries no
+    description.
+
+type Surface struct {
+	Group   []string   `json:"group"`    // command path, e.g. ["ward","ops","forgejo"]
+	BaseURL string     `json:"base_url"` // resolved request base, scheme defaulted
+	Auth    AuthInfo   `json:"auth"`     // how the engine authenticates
+	Verbs   []VerbInfo `json:"verbs"`    // every mounted leaf, in mount order
+}
+    Surface is the in-engine model of a mounted command surface: the structural
+    truth shared by help, the describe verb, and (later) completions and the
+    skill.
+
+func Describe(cfg Config) (*Surface, error)
+    Describe builds the surface model for cfg without mounting a command tree,
+    so a caller (skill, completions, docs) can read it directly. Fails closed
+    like Build.
+
+func (s *Surface) Markdown() string
+    Markdown renders the surface as the readable reference doc: the same
+    artifact the describe verb prints and the driver writes beside the Guardfile
+    at build time.
+
+type TokenResolver func(ctx context.Context, ssmPath string) (string, error)
+    TokenResolver fetches the auth secret named by an SSM path. Injected so the
+    AWS SDK stays out of cli-guard; nil is only valid for dry-run-only use.
+
+type VerbInfo struct {
+	Name        string      `json:"name"`               // dotted audit name, e.g. ward.ops.forgejo.repo.create
+	Group       string      `json:"group"`              // CLI noun, e.g. repo
+	Leaf        string      `json:"leaf"`               // CLI verb, e.g. create
+	Method      string      `json:"method"`             // HTTP method
+	Path        string      `json:"path"`               // path template
+	Destructive bool        `json:"destructive"`        // mutates irreversibly
+	Grant       string      `json:"grant"`              // authorizing grant sentence
+	Describe    string      `json:"describe,omitempty"` // Guardfile describe "..." note
+	Params      []ParamInfo `json:"params,omitempty"`   // path + body params, in invocation order
+}
+    VerbInfo is one mounted leaf: its CLI placement, the HTTP op it drives, its
+    destructive flag, the grant that authorized it, and the optional human note.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/stscache
+
+package stscache // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/stscache"
+
+Package stscache caches `aws sts get-caller-identity` JSON for callers that
+re-resolve the active AWS identity on every invocation. STS
+
+CONSTANTS
+
+const TTL = 1 * time.Hour
+    TTL is the freshness window for cached identity responses. Chosen at the
+    high end of "stable for hours" - role assumption sessions typically
+
+
+FUNCTIONS
+
+func CallerIdentity(fetch func() ([]byte, error)) ([]byte, error)
+    CallerIdentity returns the JSON body of `aws sts get-caller-identity
+    --output json`, served from cache if a fresh entry exists for the
+
+func Invalidate() error
+    Invalidate drops the cached entry for the active profile. Callers that know
+    they just rotated credentials or assumed a different role can use
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/mcp/mcporter
+
+package mcporter // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/mcp/mcporter"
+
+Package mcporter wraps the mcporter tool with a pre-exec preflight that resolves
+`${VAR}` references in `~/.mcporter/mcporter.json` against a
+
+FUNCTIONS
+
+func ConfigPath() (string, error)
+    ConfigPath returns the resolved mcporter config path. Honors the
+    `MCPORTER_CONFIG` env override; otherwise falls back to the well-known
+
+func ResolveAll(r SecretResolver, names []string) (map[string]string, error)
+    ResolveAll fans out one Resolve call per name and collects results into a
+    name->value map. Returns the first error encountered, naming
+
+func ScanConfig(path string) ([]string, error)
+    ScanConfig reads the JSON file at path and returns every `${NAME}` reference
+    found in string values, deduplicated and sorted. A missing
+
+
+TYPES
+
+type ResolverFunc func(name string) (string, error)
+    ResolverFunc adapts a plain function to the SecretResolver interface.
+    Useful for tests and for one-off in-process resolvers that don't need
+
+func (f ResolverFunc) Resolve(name string) (string, error)
+    Resolve calls the underlying function.
+
+type SecretResolver interface {
+	Resolve(name string) (string, error)
+}
+    SecretResolver resolves one env-var name (e.g. "COILYSIREN_TAILNET_DOMAIN")
+    to its plaintext value. Implementations decide how to map the name to a
+
+func WithTTLCache(inner SecretResolver, ttl time.Duration, persistPath string) SecretResolver
+    WithTTLCache wraps inner with an on-disk TTL cache persisted to a single
+    JSON file at persistPath. Cache shape:
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/audit
+
+package audit // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/audit"
 
 Package audit writes one JSONL record per CLI invocation to an append-only log
 outside the working tree. Per SECURITY.md, the
@@ -251,98 +1983,9 @@ func (w *Writer) WrapHook(ctx context.Context, base Record, fn func() error, onC
     fn returns and before the record is appended; it gets a pointer
 
 
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/catalog
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/config
 
-package catalog // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/catalog"
-
-Package catalog validates a repo's catalog config: it asserts the config YAML
-carries a top-level `catalog:` block with the required descriptor keys. It ports
-agentic-os's catalog-block-present pre-commit hook into the shared substrate
-so cli-guard consumers can enforce the same contract from Go (a doctor verb,
-a PreToolUse-adjacent shim, CI) instead of shelling out to the Python hook.
-
-Consumers (coily, ward, a pre-commit wrapper) supply the candidate config paths
-and wrap Check in their own surface; this package owns the rule engine, not the
-path-resolution policy or the CLI. cli-guard hardcodes no consumer's filesystem
-layout, so the caller passes the ordered candidates it wants probed (e.g.
-.ward/ward.yaml then .coily/coily.yaml).
-
-Schema reference: coilysiren/agentic-os-kai#420.
-
-VARIABLES
-
-var ListKeys = []string{
-	"dependsOn",
-}
-    ListKeys are the required keys whose value must be a YAML sequence. An empty
-    list ([]) satisfies the rule; a scalar or mapping does not.
-
-var RequiredKeys = []string{
-	"kind",
-	"type",
-	"system",
-	"owner",
-	"lifecycle",
-	"description",
-	"dependsOn",
-}
-    RequiredKeys are the keys a `catalog:` block must declare. Trivial repos
-    still declare every key (use an empty value for list keys) rather than
-    omitting it: missing is a violation, empty is fine.
-
-
-TYPES
-
-type Problem struct {
-	File string
-	Line int
-	Msg  string
-}
-    Problem is one contract violation, anchored to the config file and the line
-    of the offending node. Consumers format `File:Line: Msg` however suits them.
-    Mirrors allowlist.Problem so the two validators report alike.
-
-func Check(candidates ...string) ([]Problem, error)
-    Check resolves the first existing path in candidates and validates its
-    `catalog:` block. Candidates are probed in order; the first that exists
-    on disk is the one checked, matching the upstream "ward.yaml first, then
-    coily.yaml" fallback while leaving the path list to the caller.
-
-    Rules:
-      - The config must carry a top-level `catalog:` mapping.
-      - Every key in RequiredKeys must be present inside it.
-      - Every key in ListKeys must hold a YAML sequence (use [] for empty).
-
-    An empty []Problem with nil error means clean. A non-nil error means the
-    inputs could not be resolved or parsed (no candidate exists, malformed YAML,
-    non-mapping top level); rule violations come back as Problems, never as
-    errors. Passing no candidates returns an error.
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cmd/cli-guard-hook
-
-Command cli-guard-hook is a single-purpose Claude Code PreToolUse binary for
-shell-only consumers. It reads a hook payload from stdin, evaluates it against a
-repocfg-shaped yaml file's `security:` block, emits any block message to stderr,
-and exits 0 on pass / 2 on block.
-
-Usage:
-
-    cli-guard-hook --config /path/to/policy.yaml [--source kap]
-
-The config path comes from --config or $CLI_GUARD_HOOK_CONFIG. There is no
-walk-up: the consumer's install script names the exact file. Empty resolution,
-missing file, or unreadable yaml all exit 0 silently so a half-installed host
-never wedges Claude Code.
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cmd/specverb-gen
-
-Command specverb-gen is the no-code uv-style driver for a spec-driven consumer
-CLI: gen / lock / skew / run. See docs/specverb.md.
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config
-
-package config // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/config"
+package config // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/config"
 
 App-dir namespacing. The consumer-supplied directory name (coily ".coily",
 ward ".ward") roots every per-user path; cli-guard hardcodes no consumer.
@@ -457,303 +2100,9 @@ type Audit struct {
     it. LogPath defaults to ~/.coily/audit/<slug>.jsonl when left
 
 
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/decision
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode
 
-package decision // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/decision"
-
-Package decision is the per-call profile-aware evaluator: takes a session
-profile name, resolves it through the profiles registry, and
-
-FUNCTIONS
-
-func CoordinatePtr(profileName string) (*profile.Coordinate, error)
-    CoordinatePtr returns a non-nil *profile.Coordinate from the resolver
-    result, suitable for lockdown.Driver.Coordinate. Callers
-
-func Evaluate(profileName string) (*audit.ProfileDecision, error)
-    Evaluate resolves the named session profile via the profiles package and
-    returns an attached audit.ProfileDecision. Allowed is always true
-
-func RedactPolicy() audit.RedactPolicy
-    RedactPolicy returns the default redactor: a secret-flag pattern list and an
-    identifier regex list suitable for any consumer wrapping aws,
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/dispatch
-
-package dispatch // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/dispatch"
-
-Package dispatch hosts the reusable dispatch subsystem: fire `claude` against a
-real open GitHub issue, in the matching local checkout,
-
-TYPES
-
-type Config struct {
-	// Runner executes subprocesses (gh, git, open). Required.
-	Runner *shell.Runner
-
-	// Wrap applies the consumer's verb pipeline (argv validation, audit
-	// logging) to a verb.Spec the package builds.
-	Wrap func(verb.Spec) cli.ActionFunc
-
-	// AllowedOwner is the primary org dispatch accepts issue refs from, and the
-	// owner named in help and status text. This is the security claim, not a knob.
-	AllowedOwner string
-
-	// AllowedOwners is an optional set of additional owners dispatch accepts
-	// alongside AllowedOwner. Empty means single-owner (AllowedOwner only).
-	AllowedOwners []string
-
-	// ForgejoBaseURL enables Forgejo issue refs when set (scheme://host).
-	// Requires FetchForgejoIssue.
-	ForgejoBaseURL string
-
-	// FetchForgejoIssue resolves a Forgejo issue. 404-shaped errors
-	// (message contains "404") fall back to GitHub for shortform refs.
-	FetchForgejoIssue func(ctx context.Context, owner, repo string, number int) (*Issue, error)
-
-	// IssueFetcher overrides the default gh resolver for GitHub and shortform
-	// refs. Unset keeps gh (GitHub is the right default for a reusable library).
-	IssueFetcher func(ctx context.Context, owner, repo string, number int) (*Issue, error)
-
-	// RepoPath resolves a repo name to its expected local checkout. The
-	// consumer owns the workspace layout. Required.
-	RepoPath func(repo string) (string, error)
-
-	// WorktreeRoot is the parent directory under which each interactive
-	// dispatch gets its own git worktree. Required.
-	WorktreeRoot func() (string, error)
-
-	// LogRoot is the parent directory for headless dispatch log files.
-	// Required.
-	LogRoot func() (string, error)
-
-	// BinaryName is the host CLI's name, used only to format help text so
-	// it reads correctly per consumer ("<bin> dispatch ..." vs
-	BinaryName string
-
-	// ClaudeConfigPath resolves the Claude Code config file holding
-	// per-folder trust state. Optional; defaults to ~/.claude.json.
-	ClaudeConfigPath func() (string, error)
-
-	// Notify, when set, is called once per completed dispatch with a
-	// summary Event. The consumer wires ntfy, a done banner, or any other
-	Notify func(Event)
-
-	// Seams below are pluggable so tests avoid spawning real processes or
-	// shelling out to git. Production leaves them nil and New installs the
-	SpawnDetached    func(repoPath, logPath, bin string, argv, env []string) (int, error)
-	OpenLaunch       func(ctx context.Context, runner *shell.Runner, url string) error
-	WorktreeAdd      func(ctx context.Context, runner *shell.Runner, repoPath, branch, worktreePath string) error
-	WorktreeReapable func(ctx context.Context, runner *shell.Runner, repoPath, branch string) bool
-	WorktreeRemove   func(ctx context.Context, runner *shell.Runner, repoPath, worktreePath, branch string) error
-
-	// SpawnHealthWindow bounds the immediate-crash watch. Zero
-	// applies defaultSpawnHealthWindow; negative disables the check.
-	SpawnHealthWindow time.Duration
-
-	// ProcessAlive reports whether pid is live. Seam for the health check;
-	// defaults to processRunning (the signal-0 probe).
-	ProcessAlive func(pid int) bool
-}
-    Config carries the host-specific seams the dispatch package refuses to
-    hard-code. Required fields are noted; everything else has a documented
-
-type Conflict struct {
-	PID    int    `json:"pid"`
-	Ref    string `json:"ref"`
-	Claim  string `json:"claim"`
-	Path   string `json:"path"`
-	Reason string `json:"reason"`
-}
-    Conflict is one (sidequest, claim) pair overlapping the query.
-
-type Dispatcher struct {
-	// Has unexported fields.
-}
-    Dispatcher is a configured dispatch subsystem. Build one with New and hang
-    Command off the host CLI's command tree.
-
-func New(cfg Config) (*Dispatcher, error)
-    New validates cfg, fills defaults, and returns a Dispatcher. It errors
-    rather than panicking so the host CLI can fail loud at startup.
-
-func (d *Dispatcher) Command() *cli.Command
-    Command returns the dispatch umbrella verb. It refuses bare invocation and
-    requires a surface subverb (headless | interactive | consult | cascade).
-
-type Event struct {
-	Mode  string // "headless" or "interactive"
-	Ref   string // owner/repo#N
-	Title string
-	URL   string
-	Cwd   string
-	PID   int // headless only; 0 otherwise
-}
-    Event is the summary handed to Config.Notify when a dispatch completes.
-
-type Issue struct {
-	Number int    `json:"number"`
-	Title  string `json:"title"`
-	Body   string `json:"body"`
-	State  string `json:"state"`
-	URL    string `json:"html_url"`
-}
-    Issue is the platform-neutral fetch result. GitHub and Forgejo share the
-    same JSON field names so one struct covers both.
-
-type Platform string
-    Platform tags which forge an issue ref resolves against.
-
-const (
-	PlatformGitHub  Platform = "github"
-	PlatformForgejo Platform = "forgejo"
-)
-type Registry struct {
-	// Has unexported fields.
-}
-    Registry is the public read-only view over the sidequest surface. Downstream
-    hosts use this rather than shelling out to each other.
-
-func NewRegistry(logRoot string) *Registry
-    NewRegistry binds a Registry to a host-supplied LogRoot.
-
-func (r *Registry) Active() ([]Sidequest, error)
-    Active returns every active sidequest (alive PID), oldest first.
-
-func (r *Registry) Conflicts(absPath string) ([]Conflict, error)
-    Conflicts returns every (sidequest, claim) pair overlapping absPath.
-
-type Sidequest struct {
-	PID           int       `json:"pid"`
-	Ref           string    `json:"ref"`
-	URL           string    `json:"url,omitempty"`
-	StartedAt     time.Time `json:"started_at"`
-	ParentSession string    `json:"parent_session,omitempty"`
-	PathsClaimed  []string  `json:"paths_claimed,omitempty"`
-	LogPath       string    `json:"log_path"`
-}
-    Sidequest is one active headless dispatch as exposed to consumers.
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/doctor
-
-package doctor // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/doctor"
-
-Package doctor checks a host's posture against a consumer's declared
-repocfg.Security policy: the enforcement floor. See docs/features-detail.md.
-
-TYPES
-
-type Finding struct {
-	Check    string
-	Severity Severity
-	Message  string
-}
-    Finding is one posture observation: Check names the dimension, Severity the
-    outcome, Message the detail.
-
-type Probes struct {
-	// Sudo runs `sudo -n true` and reports success plus stderr. success
-	// means the agent has passwordless sudo.
-	Sudo func() (succeeded bool, stderr string)
-	// Stat resolves a path to file info, like os.Stat.
-	Stat func(path string) (os.FileInfo, error)
-	// CanExec reports whether the agent user can exec the file, and whether
-	// that was determinable (known=false on unsupported platforms).
-	CanExec func(info os.FileInfo) (canExec bool, known bool)
-	// LookupEnv resolves an environment variable, like os.LookupEnv.
-	LookupEnv func(key string) (value string, present bool)
-}
-    Probes are the host seams Check reads. DefaultProbes wires the real sudo /
-    filesystem / environment; tests inject fakes.
-
-func DefaultProbes() Probes
-    DefaultProbes wires Check to the real host: sudo -n true, os.Stat,
-    os.LookupEnv, and a platform-specific exec-for-current-user check.
-
-type Report struct {
-	Findings []Finding
-}
-    Report is the result of Check. Findings are appended in check order (sudo,
-    binaries, credential env).
-
-func Check(sec repocfg.Security, p Probes) Report
-    Check runs every posture check the policy asks for and returns a Report.
-    It reads only what the policy declares.
-
-func (r Report) OK() bool
-    OK reports whether the report has no Fail finding. Warnings do not fail OK.
-
-func (r Report) Worst() Severity
-    Worst returns the highest severity present, or Pass for an empty report.
-
-type Severity int
-    Severity ranks a finding: Pass informational, Warn unverifiable or softer
-    risk, Fail the floor is broken.
-
-const (
-	Pass Severity = iota
-	Warn
-	Fail
-)
-func (s Severity) String() string
-    String renders the severity as a short uppercase label.
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/egress
-
-package egress // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/egress"
-
-Package egress is the per-invocation HTTP CONNECT proxy that the consumer starts
-for the duration of a wrapped subprocess. The child inherits HTTPS_PROXY /
-
-VARIABLES
-
-var Allowlists = map[string][]string{}
-    Allowlists is the per-binary set of upstreams each wrapped binary is allowed
-    to reach in enforce mode. Empty by default - consumers populate
-
-var ErrAlreadyStarted = errors.New("egress: proxy already started")
-    ErrAlreadyStarted is returned if Start is called twice on the same Proxy.
-
-
-TYPES
-
-type Mode int
-    Mode selects allowlist enforcement vs observe-only logging.
-
-const (
-	// ModeEnforce denies any host not on the allowlist.
-	ModeEnforce Mode = iota
-	// ModeObserve forwards every CONNECT and logs it. Allowlist is ignored.
-	ModeObserve
-)
-type Proxy struct {
-
-	// Now is overridable for tests.
-	Now func() time.Time
-	// Has unexported fields.
-}
-    Proxy is a single-use CONNECT proxy. New, Start, run the wrapped subprocess,
-    Stop. Not safe for reuse across invocations; build a fresh
-
-func New(allowlist []string, mode Mode) *Proxy
-    New returns a Proxy with the given allowlist and mode. The allowlist is
-    ignored when mode is ModeObserve. Hostname match is exact; suffix matching
-
-func (p *Proxy) Start(_ context.Context) (string, error)
-    Start binds to 127.0.0.1:0 and starts serving. Returns the http://host:port
-    URL the child should use as HTTPS_PROXY/HTTP_PROXY.
-
-func (p *Proxy) Stop() []audit.EgressRow
-    Stop shuts the listener and returns the collected rows, one per host.
-    Safe to call once. After Stop the Proxy is not reusable.
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/exitcode
-
-package exitcode // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/exitcode"
+package exitcode // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode"
 
 Package exitcode is the public contract for what the process exit code means.
 External consumers (an orchestrator, a CI step, a watchdog)
@@ -842,555 +2191,9 @@ type Reasoner interface {
     a why-line: a one-sentence statement of the threat or
 
 
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghcache
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/policy
 
-package ghcache // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghcache"
-
-Package ghcache caches GitHub REST `GET` responses keyed by method, path, body,
-and token fingerprint, with method-aware write-through
-
-CONSTANTS
-
-const (
-	// TTLVolatile covers fast-moving issue/PR/CI surfaces. Sized to absorb a
-	// `watch -n 2` loop across ~10 repos (~10 calls/min, well under the
-	TTLVolatile = 1 * time.Minute
-
-	// TTLBranchHead covers head-of-branch reads, ref/tree/content lookups,
-	// and search. Slower turnover than issues; long enough to collapse
-	TTLBranchHead = 10 * time.Minute
-
-	// TTLRepoMeta covers repo-level metadata: the repo body, labels,
-	// milestones, releases, tags, topics, languages, contributors,
-	TTLRepoMeta = 1 * time.Hour
-
-	// TTLIdentity covers the identity surface: user, org, teams. Picked
-	// at 25 (not 24) hours so a daily cron always sees a miss across
-	TTLIdentity = 25 * time.Hour
-)
-    Default TTLs by tier. Exported so callers and tests can reference the same
-    constants the path-classifier uses internally.
-
-
-FUNCTIONS
-
-func GetJSON(path string, fetch func() ([]byte, error)) ([]byte, error)
-    GetJSON fetches the response body for a `GET <path>` GitHub REST call,
-    served from cache if a fresh entry exists. On miss it invokes fetch
-
-func Invalidate(method, path string)
-    Invalidate drops cache entries that a `method <path>` write would affect.
-    Idempotent and safe to call on paths that have no cached
-
-func MaybeServe(path string) ([]byte, bool)
-    MaybeServe is the lookup-only half of the cache. Returns (cached bytes,
-    true) on a fresh hit, (nil, false) on miss or unclassified
-
-func MaybeServeMaxAge(path string, maxAge time.Duration) ([]byte, bool)
-    MaybeServeMaxAge is the per-call-freshness variant of MaybeServe. Returns
-    (cached bytes, true) only when a cached entry exists AND its
-
-func Store(path string, data []byte) bool
-    Store puts data under path using the TTL derived from the path's tier.
-    Returns false if the path is unclassified (caller should be
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghidcache
-
-package ghidcache // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghidcache"
-
-Package ghidcache caches GitHub identity reads - `gh auth status` and `gh api
-user` - that re-resolve on every invocation but are stable
-
-CONSTANTS
-
-const TTL = 1 * time.Hour
-    TTL is the freshness window for cached identity responses. 1h matches
-    stscache and sits at the high end of "stable for hours" - a token
-
-
-FUNCTIONS
-
-func APIUser(fetch func() ([]byte, error)) ([]byte, error)
-    APIUser returns the JSON body of `gh api user`, served from cache if a fresh
-    entry exists for the active GH_HOST + token. On miss it invokes
-
-func AuthStatus(fetch func() ([]byte, error)) ([]byte, error)
-    AuthStatus returns the captured output of `gh auth status` (stderr, since gh
-    writes the human-readable host/scope readout there).
-
-func Invalidate() error
-    Invalidate drops every cached identity entry under both subdirs. Callers
-    that just rotated a token or switched GH_HOST can use this to
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghratelimit
-
-package ghratelimit // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ghratelimit"
-
-Package ghratelimit retries gh-CLI calls that fail with a GitHub rate-limit
-error. v1 of cli-guard#66: pattern-match the failure mode
-
-CONSTANTS
-
-const MaxRetries = 3
-    MaxRetries is the cap on retry attempts after the initial call. Three
-    retries plus the initial call = up to four total attempts.
-
-
-VARIABLES
-
-var ErrGaveUp = errors.New("ghratelimit: retries exhausted")
-    ErrGaveUp is returned (wrapped) when retries are exhausted. Exposed so
-    callers can errors.Is against it without string-matching.
-
-var Sleeper = time.Sleep
-    Sleeper is the function used between retries. Swappable in tests so the
-    retry loop runs at wall-clock zero. Real callers leave this alone.
-
-
-FUNCTIONS
-
-func LastFailure() (time.Time, error)
-    LastFailure returns the most recent rate-limit error observed in this
-    process and the time it occurred. (time-zero, nil) when no failure has
-
-func Reset()
-    Reset clears the failure state. Test-only; real callers leave the state
-    alone so LastFailure carries across calls within a process.
-
-func Retry(fetch func() ([]byte, error)) ([]byte, error)
-    Retry runs fetch up to MaxRetries+1 times, backing off between attempts on
-    recognized rate-limit failures. fetch's first return is
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/gittree
-
-package gittree // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/gittree"
-
-Package gittree inspects a repo's working tree for the clean+synced state that
-gates `.coily/coily.yaml` repo verbs. The gate refuses repo-verb
-
-CONSTANTS
-
-const MaxStatusBytes = 2048
-    MaxStatusBytes caps Status so a sprawling untracked tree does not bloat the
-    audit row or refusal message.
-
-
-VARIABLES
-
-var ErrNotGitRepo = errors.New("gittree: path is not inside a git repo")
-    ErrNotGitRepo is returned when the supplied path is not inside a git repo.
-    Repo verbs only fire when a repocfg file was discovered, which itself
-    implies
-
-
-TYPES
-
-type State struct {
-	Clean    bool
-	Reason   string
-	Recovery string
-	Status   string
-	// DirtyPaths is every working-tree path that git porcelain v1 reported
-	// as dirty (modified, added, deleted, untracked, renamed - both halves
-	DirtyPaths []string
-	Branch     string
-	Upstream   string
-	Ahead      int
-	Behind     int
-}
-    State is the outcome of CheckClean. Clean is true when every gate property
-    holds. When false, Reason names the first failure in human-readable form
-
-func CheckClean(repoRoot string) (*State, error)
-    CheckClean evaluates the gate at repoRoot. Returns a *State whose Clean
-    field tells the caller whether the repo verb may run. A non-nil error is
-
-func (s *State) FormatRefusal(verbName string) string
-    FormatRefusal renders the human-readable refusal message for a non-clean
-    State, naming the verb so the operator's recovery suggestion includes
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/guardfile
-
-package guardfile // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/guardfile"
-
-Package guardfile parses a KDL Guardfile, the human authoring layer (L2) of the
-specverb engine, into a typed model. KDL is parsed, never evaluated.
-
-TYPES
-
-type Auth struct {
-	Scheme string
-	Header string
-	Prefix string // trailing space is significant, e.g. "token "
-	SSM    string
-}
-    Auth describes how the engine authenticates to the target API. Only the
-    header-token scheme (Forgejo's "Authorization: token <key>") is modeled.
-
-type Grant struct {
-	Modal      string
-	Verb       string
-	Resource   string
-	Qualifiers []string
-
-	// Describe is the optional grant-body `describe "..."` note that enriches
-	// the thin upstream spec; it flows into help and the describe verb.
-	Describe string
-}
-    Grant is one policy sentence: modal verb resource [qualifiers...]. "can
-    delete labels created-by-me" -> {can, delete, labels, [created-by-me]}.
-
-type Guardfile struct {
-	Group   []string // command path, e.g. ["ward", "ops", "forgejo"]
-	Spec    string
-	BaseURL string
-	Auth    Auth
-	Grants  []Grant
-}
-    Guardfile is the parsed form of one wrap block.
-
-func Parse(src []byte) (*Guardfile, error)
-    Parse turns Guardfile source into a Guardfile. It fails closed: an unknown
-    node, a missing required field, or a malformed sentence is an error.
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/hook
-
-package hook // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/hook"
-
-Package hook implements the Claude Code PreToolUse hook engine in the shared
-substrate. Each cli-guard consumer wires it in.
-
-FUNCTIONS
-
-func Basename(token string) string
-    Basename returns the final path element of token, e.g. "gcloud"
-    for "/opt/homebrew/bin/gcloud" and "gcloud" for "gcloud". Used for
-    basename-aware matching so an absolute-path spelling cannot slip past a deny
-    keyed on the bare name.
-
-func CheckBinaryPath(token string, allowed []string, lookup LookPath, source string) string
-    CheckBinaryPath resolves token via lookup and returns a non-empty
-    hijack-warning string when the resolved path is outside allowed.
-
-func LeadingToken(seg string) string
-    LeadingToken returns the first whitespace-delimited token of seg. "gh issue
-    view" -> "gh", "" -> "".
-
-func SplitSegments(cmd string) []string
-    SplitSegments breaks a bash command into the leading-token segments the
-    engine classifies. Splits on $( ) || && | ; & boundaries.
-
-func StripEnvPrefix(seg string) string
-    StripEnvPrefix peels leading `env VAR=val ...` and `sudo` tokens so `env
-    FOO=bar gh issue view` classifies the same as bare
-
-
-TYPES
-
-type Decision struct {
-	Block   bool
-	Message string
-}
-    Decision is what PreToolUse returns. Block=true means the caller should emit
-    Message to stderr and exit with the host's hook-block
-
-func PreToolUse(payload Payload, source string, rules []IntegrityRule, routes []Route, lookup LookPath, protected ...Protected) Decision
-    PreToolUse evaluates a payload against integrity rules, routes, and the
-    engine-level arbitrary-code-execution deny. Returns
-
-type IntegrityRule struct {
-	Binary       string
-	AllowedPaths []string
-}
-    IntegrityRule names a binary and the canonical absolute paths it is allowed
-    to resolve to. A bare invocation of Binary that
-
-type LookPath func(name string) (string, error)
-    LookPath mirrors exec.LookPath. Injected for tests.
-
-type Payload struct {
-	ToolName  string                 `json:"tool_name"`
-	ToolInput map[string]interface{} `json:"tool_input"`
-	CWD       string                 `json:"cwd"`
-}
-    Payload is the subset of Claude Code's PreToolUse hook payload the engine
-    consumes. Other fields are ignored.
-
-func ReadPayload(r io.Reader) Payload
-    ReadPayload decodes a PreToolUse payload from r. Empty stream or unparseable
-    JSON returns an empty Payload (not an error); the engine
-
-type Protected struct {
-	// Name is the binary basename to protect, e.g. "gcloud".
-	Name string
-	// Hint is the recovery sentence appended after the deny. When empty,
-	// the engine synthesizes one from Wrappers (or a bare deny if both are
-	// empty).
-	Hint string
-	// Wrappers names the audited wrappers a human routes through instead.
-	// Used to synthesize a hint when Hint is empty.
-	Wrappers []string
-}
-    Protected names a host binary that direct invocation by a semi-trusted agent
-    is denied for. Unlike Route (which matches the bare leading token only),
-    Protected matches by basename: the bare token `gcloud`, an absolute
-    path `/opt/homebrew/bin/gcloud`, and any /-containing spelling whose
-    final element is Name all match. This closes the absolute-path bypass a
-    token-keyed deny leaves open (see the 2026-05-08 deny-uv finding).
-
-type Route struct {
-	// Token is the bare leading-token to match, e.g. "gh", "brew".
-	Token string
-
-	// Hint is the human-readable recovery message. The engine
-	// prefixes "<source> hook: blocked bare `<token>`. Recovery: "
-	Hint string
-
-	// Extra, when non-nil, is consulted for token-specific suffixes
-	// after a match. Receives the matched segment so the consumer
-	Extra func(segment string) string
-}
-    Route maps a bare leading-token in argv to a recovery hint string the
-    consumer wants surfaced when the harness denies that token.
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/hookcfg
-
-package hookcfg // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/hookcfg"
-
-Package hookcfg bridges repocfg.Security into the hook engine's Protected shape,
-so consumers (cmd/cli-guard-hook, ward, future shell consumers via go.mod) share
-one mapping rather than each carrying their own copy.
-
-repocfg and hook stay independent of each other; this small bridge owns the
-direction repocfg.Security -> []hook.Protected.
-
-FUNCTIONS
-
-func ProtectedFor(sec repocfg.Security) []hook.Protected
-    ProtectedFor maps a parsed repocfg.Security block into the hook engine's
-    Protected list. Merges two sources:
-
-      - Every protected_binaries entry becomes a Protected. The engine matches
-        by basename so bare / absolute / relative spellings all trigger the same
-        deny.
-      - Every hooks.deny_bare_binaries entry that is NOT already covered by a
-        protected_binaries entry becomes a hint-only Protected (no wrappers),
-        so a downstream config can deny additional bare invocations without
-        declaring the full protected schema.
-
-    Hint precedence: hooks.route_hints[name] when set, else the engine
-    synthesizes from Wrappers, else a bare deny.
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/lockdown
-
-package lockdown // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/lockdown"
-
-Package lockdown writes a per-repo Claude Code settings file that enforces an
-allowlist-inversion for the wrapper binary supplied by a
-
-FUNCTIONS
-
-func EnsureUserHook(homeDir string, drv *Driver) (hookPath string, settingsChanged bool, err error)
-    EnsureUserHook writes the user-level PreToolUse Bash hook script under
-    homeDir/<SettingsRelPath>/<driver.UserHookFilename> and
-
-func HookPath(settingsPath string, drv *Driver) string
-    HookPath returns the absolute path of the generated PreToolUse hook script.
-    It sits next to settings.json under the driver's settings
-
-func MergeDenyInto(targetPath string, d *Defaults) (bool, error)
-    MergeDenyInto reasserts canonical denies + prunes shadowed allows.
-    cli-guard#26.
-
-func TargetPath(dir string, local bool) string
-    TargetPath returns the settings file path under dir. If local is true,
-    uses settings.local.json. Otherwise settings.json.
-
-func Write(plan *Plan) error
-    Write applies the plan to disk. Caller should have shown the plan first and
-    confirmed.
-
-func WriteHook(settingsPath string, d *Defaults, drv *Driver) (string, bool, error)
-    WriteHook renders and writes the PreToolUse hook script with 0755 perms.
-    Validates the generated script with `sh -n` before writing -
-
-
-TYPES
-
-type Defaults struct {
-	Allow []string `yaml:"allow" json:"-"`
-	Deny  []string `yaml:"deny" json:"-"`
-}
-    Defaults is the parsed allow / deny list pair that BuildPlan writes into the
-    target settings file. Loaded from defaults.yaml via
-
-func LoadDefaults() (*Defaults, error)
-    LoadDefaults parses the embedded canonical allow/deny lists.
-
-type Driver struct {
-	BinaryName         string
-	BinaryAllowedPaths []string
-	WrapperRecovery    map[string]string
-	HookFilename       string
-	UserHookFilename   string
-	UserHookMarkerKey  string
-	SettingsRelPath    string
-
-	BuildSettings        func(existing []byte, d *Defaults, drv *Driver) ([]byte, error)
-	RenderHookScript     func(d *Defaults, drv *Driver) (string, error)
-	RenderUserHookScript func(drv *Driver) string
-
-	// Coordinate is the resolved per-session lockdown coordinate, when a
-	// consumer is profile-aware. Optional: BuildSettings consumers may
-	Coordinate *profile.Coordinate
-}
-    Driver describes the binary and runtime that lockdown should write
-    settings/hooks for. Callers either construct a Driver directly or use
-
-func ClaudeCode(binary string, allowedPaths []string, recovery map[string]string) *Driver
-    ClaudeCode returns a Driver pre-wired for Claude Code's settings.json shape
-    and PreToolUse Bash hook contract. Callers supply the binary
-
-func (d *Driver) HookSettingsPath() string
-    HookSettingsPath is the relative path baked into settings.json's hook entry.
-    The host CLI resolves it relative to the project root.
-
-func (d *Driver) Validate() error
-    Validate returns an error if the driver is missing fields the lockdown
-    package needs to operate. Callers should run this before
-
-type Permissions struct {
-	Allow []string `json:"allow,omitempty"`
-	Deny  []string `json:"deny,omitempty"`
-}
-    Permissions is the on-disk shape of the Claude Code settings permissions
-    block (allow / deny rule strings).
-
-type Plan struct {
-	TargetPath string          // the .claude/settings*.json path
-	Existed    bool            // did TargetPath exist before?
-	Before     json.RawMessage // original file contents, if any
-	After      json.RawMessage // file contents that would be (or were) written
-}
-    Plan describes what lockdown would (or did) write. Rendered as JSON for the
-    caller to display or persist.
-
-func BuildPlan(targetPath string, d *Defaults, drv *Driver) (*Plan, error)
-    BuildPlan computes what the target settings file should look like after
-    applying the defaults. Does not touch disk. Routes through the
-
-type Settings struct {
-	Permissions Permissions `json:"permissions"`
-}
-    Settings is the subset of Claude Code settings we manipulate directly.
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/mcporter
-
-package mcporter // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/mcporter"
-
-Package mcporter wraps the mcporter tool with a pre-exec preflight that resolves
-`${VAR}` references in `~/.mcporter/mcporter.json` against a
-
-FUNCTIONS
-
-func ConfigPath() (string, error)
-    ConfigPath returns the resolved mcporter config path. Honors the
-    `MCPORTER_CONFIG` env override; otherwise falls back to the well-known
-
-func ResolveAll(r SecretResolver, names []string) (map[string]string, error)
-    ResolveAll fans out one Resolve call per name and collects results into a
-    name->value map. Returns the first error encountered, naming
-
-func ScanConfig(path string) ([]string, error)
-    ScanConfig reads the JSON file at path and returns every `${NAME}` reference
-    found in string values, deduplicated and sorted. A missing
-
-
-TYPES
-
-type ResolverFunc func(name string) (string, error)
-    ResolverFunc adapts a plain function to the SecretResolver interface.
-    Useful for tests and for one-off in-process resolvers that don't need
-
-func (f ResolverFunc) Resolve(name string) (string, error)
-    Resolve calls the underlying function.
-
-type SecretResolver interface {
-	Resolve(name string) (string, error)
-}
-    SecretResolver resolves one env-var name (e.g. "COILYSIREN_TAILNET_DOMAIN")
-    to its plaintext value. Implementations decide how to map the name to a
-
-func WithTTLCache(inner SecretResolver, ttl time.Duration, persistPath string) SecretResolver
-    WithTTLCache wraps inner with an on-disk TTL cache persisted to a single
-    JSON file at persistPath. Cache shape:
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/passthrough
-
-package passthrough // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/passthrough"
-
-Package passthrough is the thin pass-through used to wrap any sub-CLI (aws, gh,
-kubectl, docker, tailscale, plus every package manager) as a
-
-FUNCTIONS
-
-func Command(bin string, r *shell.Runner, w *audit.Writer, opts ...Option) *cli.Command
-    Command returns the *cli.Command for the wrapped `<bin>`. Every argument
-    after the binary name is forwarded verbatim through the pass-through
-
-
-TYPES
-
-type Option func(*config)
-    Option configures a pass-through Command. Use the With* helpers below rather
-    than setting fields directly.
-
-func WithArgvRewriter(fn func(argv []string) []string) Option
-    WithArgvRewriter installs a hook that may rewrite the argv passed to the
-    underlying binary before exec. The original argv is still recorded in the
-
-func WithEgress(allowlist []string, mode egress.Mode) Option
-    WithEgress wires the per-invocation HTTP CONNECT proxy. The child runs with
-    HTTPS_PROXY/HTTP_PROXY pointed at 127.0.0.1:NNNNN for the lifetime
-
-func WithEnvFunc(fn func() (map[string]string, error)) Option
-    WithEnvFunc injects extra env vars into the wrapped binary at exec time;
-    returned keys win over the parent env, resolved once per run just before
-    exec.
-
-func WithReadCache(classifier ReadCacheClassifier) Option
-    WithReadCache wires the pass-through into ghcache so reads matching the
-    supplied classifier are served from cache without exec, and
-
-func WithSecretResolver(r mcporter.SecretResolver) Option
-    WithSecretResolver installs a mcporter-shaped pre-exec preflight: scan the
-    mcporter config file for `${VAR}` references, resolve each via r,
-
-func WithSkipPolicy() Option
-    WithSkipPolicy disables the shell-metacharacter check for this binary.
-    Use only for tools whose argv goes through execve straight to the
-
-func WithVerbName(name string) Option
-    WithVerbName overrides the dotted verb name used for audit logging.
-    The user-visible cli command name (and the binary actually executed)
-
-type ReadCacheClassifier func(argv []string) (path string, maxAge time.Duration, ok bool)
-    ReadCacheClassifier inspects the post-WithArgvRewriter argv and returns the
-    gh-api-style path the call would read, a per-call max-age
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/policy
-
-package policy // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/policy"
+package policy // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/policy"
 
 Package policy validates that verb arguments do not contain shell
 metacharacters. Per SECURITY.md, the consumer's subprocess execution
@@ -1424,418 +2227,9 @@ func ValidateArgs(args map[string]string) error
     Convenience for Action funcs that have already gathered flag values.
 
 
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/profile
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/scope
 
-package profile // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/profile"
-
-Package profile declares the categorical operating-model axes that cli-guard
-exposes for consumers to build per-session
-
-FUNCTIONS
-
-func IsStricter(ax Axis, a, b Tier) (bool, error)
-    IsStricter reports whether tier a is strictly stricter than tier b on axis
-    ax. Returns an error if either tier is not defined on ax
-
-
-TYPES
-
-type Axis string
-    Axis names a categorical dimension cli-guard exposes for profile
-    declarations. Stable string values so consumers can persist them
-
-const (
-	// AxisDataSecurity governs secret access (direct vs proxy-only vs
-	// full), identifier surfacing, vault visibility, and leak-check
-	AxisDataSecurity Axis = "data_security"
-
-	// AxisBlastRadius governs which destructive verbs are gated:
-	// cluster mutations, force-pushes, mass-deletes, etc.
-	AxisBlastRadius Axis = "blast_radius"
-
-	// AxisNetworkEgress governs outbound network reach. air-gapped
-	// and loopback-only are stubbed in the initial implementation
-	AxisNetworkEgress Axis = "network_egress"
-
-	// AxisFilesystemReach governs which paths a session can read and
-	// write outside the current repo.
-	AxisFilesystemReach Axis = "filesystem_reach"
-)
-func AllAxes() []Axis
-    AllAxes returns the four axes in the canonical declaration order. Useful for
-    iteration in config validators and digest renderers.
-
-type Coordinate struct {
-	DataSecurity    Tier
-	BlastRadius     Tier
-	NetworkEgress   Tier
-	FilesystemReach Tier
-}
-    Coordinate is a tier-per-axis assignment. Profiles declared by consumers
-    (e.g. "mobile", "mac-tower", ...) resolve to a
-
-func Strictest() Coordinate
-    Strictest returns the coordinate where every axis is at its strictest tier.
-    This is the headless-default and
-
-func (c Coordinate) Get(a Axis) Tier
-    Get returns the tier on the named axis. Returns the empty string if the axis
-    name does not match a known field; callers can treat
-
-type Tier string
-    Tier is a string label naming a strictness level on a given axis. Stable
-    values so consumer config files and audit rows do not
-
-const (
-	DataSecurityLow    Tier = "low"
-	DataSecurityMedium Tier = "medium"
-	DataSecurityHigh   Tier = "high"
-	DataSecurityMax    Tier = "max"
-)
-    DataSecurity tiers, strictest last.
-
-const (
-	BlastRadiusHigh   Tier = "high"
-	BlastRadiusMedium Tier = "medium"
-	BlastRadiusLow    Tier = "low"
-)
-    BlastRadius tiers, strictest last.
-
-const (
-	NetworkEgressOpen         Tier = "open"
-	NetworkEgressAllowlisted  Tier = "allowlisted"
-	NetworkEgressLoopbackOnly Tier = "loopback-only"
-	NetworkEgressAirGapped    Tier = "air-gapped"
-)
-    NetworkEgress tiers, strictest last.
-
-const (
-	FilesystemReachUnrestricted Tier = "unrestricted"
-	FilesystemReachRepoPlusHome Tier = "repo-plus-home"
-	FilesystemReachRepoOnly     Tier = "repo-only"
-)
-    FilesystemReach tiers, strictest last.
-
-func StrictestTier(a Axis) Tier
-    StrictestTier returns the tier at the strict end of axis a's ordering.
-    Used by Strictest() to build the max-paranoia coordinate
-
-func TiersFor(a Axis) []Tier
-    TiersFor returns the tiers defined on axis a, ordered most permissive to
-    strictest. Returns nil for an unknown axis so
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/profiles
-
-package profiles // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/profiles"
-
-Package profiles loads the per-host lockdown profile registry from
-~/.coily/coily.yaml and resolves named profiles to cli-guard/profile
-
-VARIABLES
-
-var DefaultYAML []byte
-
-FUNCTIONS
-
-func LoadOverride() (map[string]profile.Coordinate, error)
-    LoadOverride reads and validates ~/.coily/coily.yaml. Returns (nil,
-    os.ErrNotExist) when the file is absent so callers can fall
-
-func OverridePath() (string, error)
-    OverridePath returns ~/.coily/coily.yaml. Caller stat()s it; the loader
-    treats os.ErrNotExist as the deny-everything fallback signal.
-
-func ParseAndValidate(body []byte, sourceDesc string) (map[string]profile.Coordinate, error)
-    ParseAndValidate decodes a YAML body and validates every profile. Exposed
-    for tests and for the consumer's `lockdown init-config` to check the
-
-
-TYPES
-
-type File struct {
-	Profiles map[string]rawCoordinate `yaml:"profiles"`
-}
-    File is the on-disk shape of ~/.coily/coily.yaml. One field today; future
-    schema additions land alongside without breaking the loader.
-
-type Resolution struct {
-	Coord  profile.Coordinate
-	Source Source
-	Note   string
-}
-    Resolution is the output of Resolve: the resolved Coordinate, the source
-    that produced it, and a human-readable note suitable for the
-
-func Resolve(profileName string) (Resolution, error)
-    Resolve returns the Coordinate for the given profile name. An empty name
-    resolves to Strictest with Source=Unset so the show command can
-
-type Source string
-    Source records why a Coordinate resolved the way it did. The session show
-    command surfaces this so the operator can see at a glance
-
-const (
-	// SourceOverride means the named profile was found in the on-disk
-	// override file and its tiers are in effect.
-	SourceOverride Source = "override"
-
-	// SourceMissingFile means ~/.coily/coily.yaml was absent. Every
-	// axis falls back to Strictest().
-	SourceMissingFile Source = "missing_file"
-
-	// SourceUnknownProfile means the override file exists and parsed,
-	// but the requested profile name was not declared in it. Every
-	SourceUnknownProfile Source = "unknown_profile"
-
-	// SourceUnset means no profile name was requested (the session
-	// sentinel was absent). Every axis falls back to Strictest().
-	SourceUnset Source = "unset"
-)
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/repocfg
-
-package repocfg // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/repocfg"
-
-Package repocfg loads a per-repo command allowlist from a coily.yaml file
-discovered by walking up from the current working directory. Each command
-
-CONSTANTS
-
-const EnvOverride = "COILY_REPO_CONFIG"
-    EnvOverride, when set, is treated as the absolute path to the repo config
-    and skips directory walking. Primarily for tests and advanced users.
-
-const Filename = "coily.yaml"
-    Filename is the name repocfg looks for during discovery.
-
-const LegacyFilename = "coily.yaml"
-    LegacyFilename is the pre-overlay name (./coily.yaml) that we reject with a
-    pointer at the new location. Kept around so the error message can be
-
-const LocalDirName = ".coily"
-    LocalDirName is the per-repo overlay directory the loader prefers. The
-    canonical home for the repo allowlist is ./.coily/coily.yaml.
-
-const ModeDenyDirect = "deny-direct"
-    ModeDenyDirect is the only protected-binary mode supported in v1: the binary
-    may not be invoked directly by a semi-trusted agent; it is routed through
-    an allowed wrapper instead. Other modes (e.g. a future audited read-only
-    allowlist) are reserved and rejected until implemented.
-
-
-VARIABLES
-
-var ErrLegacyLocation = errors.New("repocfg: coily.yaml at repo root is no longer supported, move it to .coily/coily.yaml")
-    ErrLegacyLocation is wrapped by Discover when a coily.yaml is found at the
-    repo root rather than under ./.coily/. The new convention is to put it
-
-var ErrNoConfig = errors.New("repocfg: no coily.yaml found")
-    ErrNoConfig is returned by LoadDefault when no coily.yaml is found in the
-    cwd ancestry. Callers treat this as "no repo commands to register."
-
-
-FUNCTIONS
-
-func Discover(start string) (string, error)
-    Discover walks up from start looking for the repo config. Prefers
-    ./.coily/coily.yaml at each level. If no overlay file is found but a
-
-
-TYPES
-
-type Command struct {
-	// Name is the key from the yaml map, e.g. "test".
-	Name string
-	// Description is the optional human-readable blurb shown in help/--list.
-	Description string
-	// Argv is the command split into tokens. argv[0] is the binary name as
-	// resolved via $PATH at exec time. Every token has been run through
-	Argv []string
-	// Egress, when true, opts the command into the per-invocation CONNECT
-	// proxy that consumers wire around exec. The audit row picks up
-	Egress bool
-	// AllowMetacharacters opts this command out of the shell-metacharacter
-	// validator for both the YAML-declared argv tokens (skipped at load)
-	AllowMetacharacters bool
-}
-    Command is one parsed and validated entry from the commands: map.
-
-type Config struct {
-	// Path is the absolute path to the coily.yaml that produced this Config.
-	Path string
-	// Commands are sorted by Name. Safe to iterate directly for help output.
-	Commands []Command
-	// Security is the optional security: section. Zero value when the config
-	// declares no security: block.
-	Security Security
-}
-    Config is the result of a successful Load.
-
-func DiscoverAll(start string) ([]*Config, error)
-    DiscoverAll returns every coily.yaml reachable from start in a single
-    deterministic pool: every level of the ancestor walk from start up to
-
-func DiscoverChildren(parentDir string) ([]*Config, error)
-    DiscoverChildren scans direct children of parentDir for a
-    ./.coily/coily.yaml overlay, loads each one, and returns the resulting
-
-func Load(path string) (*Config, error)
-    Load parses the yaml at path. Every command is validated against
-    policy.ValidateArg. A single bad token fails the whole load.
-
-func LoadDefault() (*Config, error)
-    LoadDefault resolves the config path from $COILY_REPO_CONFIG or by walking
-    up from the current working directory, then parses it. Returns nil,
-
-type HookPolicy struct {
-	// DenyBareBinaries are basenames the hook denies on bare invocation.
-	DenyBareBinaries []string
-	// RouteHints maps a binary basename to the recovery sentence surfaced
-	// when its invocation is denied.
-	RouteHints map[string]string
-}
-    HookPolicy is the optional PreToolUse deny/route block. When omitted,
-    a consumer can derive the same effect from ProtectedBinaries; this block
-    exists for consumers that want to state it explicitly or add hints for
-    binaries that are not full protected entries.
-
-type ProtectedBinary struct {
-	// Name is the binary's basename, e.g. "gcloud". Required.
-	Name string
-	// Mode is how the binary is protected. Empty defaults to deny-direct;
-	// only deny-direct is accepted in v1.
-	Mode string
-	// AllowedWrappers names the wrapper commands a human routes through
-	// instead (e.g. "kap", "ward"). Surfaced in remediation text.
-	AllowedWrappers []string
-	// ExpectedRealPaths are the canonical install locations of the real
-	// binary, used by doctor to reason about PATH-shim posture.
-	ExpectedRealPaths []string
-	// CredentialEnv names environment variables that, when present in an
-	// agent session, hand the agent the binary's credentials. doctor warns
-	// when these are set.
-	CredentialEnv []string
-}
-    ProtectedBinary declares one host tool that direct agent invocation is
-    denied for. The real binary stays runnable by humans through the named
-    wrappers; the policy is about keeping the agent off the bare binary.
-
-func (p ProtectedBinary) EffectiveMode() string
-    EffectiveMode returns the protected-binary mode with the empty-default
-    applied. Callers should switch on this rather than the raw field.
-
-type Security struct {
-	// ProtectedBinaries are host tools a semi-trusted agent must not invoke
-	// directly. Empty means no binary is protected by config.
-	ProtectedBinaries []ProtectedBinary
-	// Sudo carries sudo-posture policy.
-	Sudo SudoPolicy
-	// Hooks carries PreToolUse deny/route policy derived from the protected
-	// set, kept as an explicit block so a consumer can tune hook behavior
-	// without changing the protected-binary contract.
-	Hooks HookPolicy
-}
-    Security is the optional security: section of a repo config. It is
-    declarative policy a consumer's doctor/hook surfaces read; repocfg parses
-    and validates it but enforces nothing on its own. A config with no security:
-    block yields a zero Security, which every field treats as "no policy
-    declared". Field names are snake_case to match the commands: scheme
-    (allow_metacharacters, audit.egress).
-
-type SudoPolicy struct {
-	// ForbidPasswordless asserts the host must not let the agent user run
-	// broad passwordless sudo. doctor fails when `sudo -n` succeeds and
-	// this is set.
-	ForbidPasswordless bool
-}
-    SudoPolicy carries sudo-posture expectations doctor checks against.
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/respfmt
-
-package respfmt // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/respfmt"
-
-Package respfmt renders a JSON response body through an optional JMESPath
-projection and one of five output formats: yaml (default),
-
-CONSTANTS
-
-const (
-	OutputYAML       = "yaml"
-	OutputYAMLStream = "yaml-stream"
-	OutputJSON       = "json"
-	OutputText       = "text"
-	OutputTable      = "table"
-)
-    Output names mirror the aws CLI vocabulary verbatim.
-
-
-FUNCTIONS
-
-func Render(raw []byte, query, output string) ([]byte, error)
-    Render applies the optional JMESPath projection to raw and formats the
-    result per output. Empty raw returns empty bytes, no error. Empty query
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/sandbox
-
-package sandbox // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/sandbox"
-
-Package sandbox jails a consumer's gate-spawned child in a Linux user+mount
-namespace so the child and its descendants re-enter the gate; no-op off Linux.
-
-CONSTANTS
-
-const (
-	// EnvJailed is "1" inside the jail; re-entrant gate calls then skip
-	// re-cloning and resolve the real binary instead of the shim.
-	EnvJailed = "CLIGUARD_JAILED"
-)
-    Env keys shared between the launcher (parent) and the jail helper (child).
-
-
-FUNCTIONS
-
-func IsJailInvocation(_ []string) bool
-    IsJailInvocation is always false off Linux.
-
-func Jailed() bool
-    Jailed reports whether the current process is already running inside a jail.
-
-func RealBin(bin string) string
-    RealBin returns the stashed real path for bin inside a jail (else ""),
-    so the gate execs the real tool rather than looping back into the shim.
-
-func RealBinEnv(tool string) string
-    RealBinEnv returns the env-var name carrying tool's stashed real path,
-    upper-casing the name and mapping non-alphanumerics to '_'.
-
-func RunJail(_ []string) error
-    RunJail is unsupported off Linux.
-
-func Wrap(_ *exec.Cmd, _ string, _ []string, _ *Spec)
-    Wrap is a no-op off Linux: OS-level jailing is unsupported, so the caller
-    execs the real binary directly (pre-sandbox behavior).
-
-
-TYPES
-
-type Spec struct {
-	// SelfExe is the consumer binary path, re-execed as the jail helper and
-	// bind-mounted over each wrapped tool as the shim (os.Executable()).
-	SelfExe string
-	// Tools is the set of wrapped-tool basenames to shim inside the jail,
-	// e.g. []string{"brew"}; each is bind-mounted over with SelfExe.
-	Tools []string
-}
-    Spec configures the jail applied to a sandboxed child. A nil *Spec on a
-    shell.Runner means "run directly" — the pre-sandbox behavior.
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/scope
-
-package scope // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/scope"
+package scope // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/scope"
 
 Package scope resolves cwd to its git toplevel for an audit record's RepoRoot.
 Best-effort and forensic-only: outside a repo it yields "".
@@ -1851,87 +2245,9 @@ func RepoRoot(cwd string) string
     repo (or git is unavailable). Best-effort: "" is valid, never an error.
 
 
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shell
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/skillgen
 
-package shell // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shell"
-
-Package shell is the argv-only exec wrapper. Every argument is passed as a
-distinct argv element. No shell string is ever composed. If a downstream
-
-VARIABLES
-
-var ErrEmptyBinary = errors.New("shell: bin is empty")
-    ErrEmptyBinary is returned when Exec or Capture is called with "".
-
-
-FUNCTIONS
-
-func PathResolver(bin string) (string, error)
-    PathResolver is the default resolver. Looks the binary up on $PATH.
-
-
-TYPES
-
-type Resolver func(bin string) (string, error)
-    Resolver turns a binary name into an executable path. Pluggable so tests can
-    avoid touching the real $PATH.
-
-type Runner struct {
-	Stdout io.Writer
-	Stderr io.Writer
-	Stdin  io.Reader
-	// Resolve locates a binary. Defaults to PathResolver when nil.
-	Resolve Resolver
-	// Env, when non-nil, is appended to os.Environ() and passed to the
-	// child as cmd.Env. Used by the egress-proxy plumbing to inject
-	Env []string
-	// Sandbox, when non-nil, jails the child (Linux) so it and its descendants
-	// re-enter the gate before invoking a wrapped tool. nil = run directly.
-	Sandbox *sandbox.Spec
-}
-    Runner executes subprocesses on behalf of consumer verbs. Build one in main
-    with the default Resolver and plumb it through to verbs that need it.
-
-func (r *Runner) Capture(ctx context.Context, bin string, argv ...string) ([]byte, error)
-    Capture runs bin with argv and returns stdout as bytes. Stderr is forwarded
-    to the Runner's Stderr (defaulting to discard if nil). Useful for verbs
-
-func (r *Runner) Exec(ctx context.Context, bin string, argv ...string) error
-    Exec runs bin with argv, streaming stdin/stdout/stderr through the Runner's
-    fields. Returns the underlying exec error on failure.
-
-func (r *Runner) ExecIn(ctx context.Context, dir, bin string, argv ...string) error
-    ExecIn is like Exec but runs the child with cmd.Dir set to dir. Used by the
-    consumer's exec verb when the matched coily.yaml lives in a direct child of
-    cwd:
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shim
-
-package shim // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/shim"
-
-Package shim renders PATH shims for a consumer's protected binaries: a deny shim
-per binary that shadows the bare name. See docs/features-detail.md.
-
-TYPES
-
-type Spec struct {
-	// Name is the binary basename the shim shadows and the install filename.
-	Name string
-	// Body is the rendered POSIX-sh script. It has passed sh -n.
-	Body string
-}
-    Spec is one rendered PATH shim. The consumer installs Body under Name on a
-    PATH dir ahead of the real binary.
-
-func For(protected []hook.Protected) ([]Spec, error)
-    For expands a protected set into one deny shim per entry, sorted by Name.
-    Every body is sh -n validated; a bad render fails the whole call.
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/skillgen
-
-package skillgen // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/skillgen"
+package skillgen // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/skillgen"
 
 Package skillgen renders an urfave/cli v3 command tree into either a flat
 markdown lookup table or a structured yaml document. Pairs with
@@ -1958,275 +2274,9 @@ type Entry struct {
     Programmatic consumers (an external orchestrator, a plan-time
 
 
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specdrv
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/ttlcache
 
-package specdrv // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specdrv"
-
-Cache layout and staleness for the out-of-band materialized consumer binary,
-keyed by the Guardfile's location. See docs/specverb.md.
-
-The uv-style dependency lockfile (specverb.lock) and the `go` plumbing
-that resolves and replays it for a reproducible out-of-band build. See
-docs/specverb.md.
-
-Process replacement (syscall.Exec) and cache locking (flock) on Unix.
-
-Package specdrv is the no-code driver behind cmd/specverb-gen: the uv-style verb
-surface (gen / lock / skew / run) over a Guardfile. See docs/specverb.md.
-
-CONSTANTS
-
-const LockName = "specverb.lock"
-    LockName is the committed dependency-lock filename, the uv.lock analog.
-    It sits beside the Guardfile as source-of-truth; the generated Go does not.
-
-
-VARIABLES
-
-var ErrNoLock = errors.New("missing committed lock; run 'specverb-gen lock' first")
-    ErrNoLock is returned by run and skew when a required committed lock is
-    absent, so the caller can point the user at `specverb-gen lock`.
-
-var ErrSkew = errors.New("spec skew detected")
-    ErrSkew is returned by skew when the committed spec lock drifts from
-    upstream.
-
-
-FUNCTIONS
-
-func Gen(opts Options) error
-    Gen renders the consumer main.go. With no --out it writes into the cache and
-    prints the path; --out is the debug escape hatch for inspecting the source.
-
-func Lock(opts Options) error
-    Lock refreshes both committed locks beside the Guardfile: the spec lock (the
-    fetched Swagger) and specverb.lock (the frozen build module). The `uv lock`
-    analog.
-
-func Run(opts Options) error
-    Run materializes the consumer binary out-of-band (building only when
-    stale) and execs it. It refuses to run without committed locks rather than
-    auto-locking.
-
-func Skew(opts Options) error
-    Skew reports operation-level drift between the committed spec lock and live
-    upstream, never writing. ErrSkew signals drift; a fetch failure is a plain
-    error.
-
-
-TYPES
-
-type DepLock struct {
-	Version  int      `json:"version"`  // schema version
-	Go       string   `json:"go"`       // go directive of the build module
-	CLIGuard string   `json:"cliGuard"` // resolved cli-guard module query (version, commit, or replace path)
-	GoMod    string   `json:"goMod"`    // verbatim go.mod of the build module
-	GoSum    []string `json:"goSum"`    // sorted go.sum lines
-}
-    DepLock is specverb.lock: the frozen build module. GoMod and GoSum
-    are captured verbatim from a resolved build dir, reproducing the graph
-    byte-for-byte.
-
-type Options struct {
-	GuardfilePath   string   // path to the consumer's KDL Guardfile
-	Out             string   // gen: explicit output path (debug escape hatch); cache when empty
-	Args            []string // run: arguments passed through to the materialized binary
-	CLIGuardRef     string   // lock: cli-guard module query to pin (version/commit); empty = auto
-	CLIGuardReplace string   // lock: local cli-guard checkout to replace with (dev locks only)
-}
-    Options are the inputs shared by every driver verb.
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specgen
-
-package specgen // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specgen"
-
-Package specgen renders a complete consumer `main.go` from a KDL Guardfile,
-so a consumer never hand-writes the specverb wiring. See docs/specverb.md.
-
-FUNCTIONS
-
-func Render(gf *guardfile.Guardfile, guardfileName string) ([]byte, error)
-    Render emits a gofmt'd `package main` wiring specverb.Mount for gf.
-    guardfileName is the Guardfile's filename in the consumer dir (for the
-    embed).
-
-
-TYPES
-
-type Params struct {
-	Binary        string // binary name, e.g. ward-kdl (Guardfile group[0])
-	GuardfileName string // embedded Guardfile filename, e.g. forgejo.guardfile.kdl
-	SpecLockName  string // committed, embedded spec lock filename, e.g. forgejo.swagger.lock.json
-	SpecURL       string // upstream Swagger URL; the `specverb-gen lock` source and bootstrap fallback
-	SpecEnvVar    string // env var overriding the embedded lock, e.g. WARD_KDL_SPEC
-}
-    Params is the per-consumer data the template binds to, derived from the
-    Guardfile and also read by the specverb-gen driver. See docs/specverb.md.
-
-func Plan(gf *guardfile.Guardfile, guardfileName string) (Params, error)
-    Plan derives the per-consumer Params from gf without rendering, the shared
-    derivation behind both Render and the driver. guardfileName feeds the embed.
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specverb
-
-package specverb // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/specverb"
-
-Package specverb is the runtime engine of the spec-driven verb design: it builds
-a guarded cli tree from a Guardfile + spec. See docs/specverb.md.
-
-FUNCTIONS
-
-func Build(cfg Config) (*cli.Command, error)
-    Build assembles the guarded command tree and returns the Guardfile group's
-    leaf command (e.g. `forgejo`). Fails closed: an unresolvable grant is an
-    error.
-
-func Mount(root *cli.Command, cfg Config) error
-    Mount builds the guarded group and grafts it onto root, generating the
-    intermediate path groups the Guardfile names. See docs/specverb.md.
-
-
-TYPES
-
-type AuthInfo struct {
-	Scheme string `json:"scheme"`
-	Header string `json:"header"`
-	SSM    string `json:"ssm"` // token path, not the token
-}
-    AuthInfo is the auth scope a describe consumer sees: scheme, header,
-    and the SSM token path. The secret value itself never appears here.
-
-type Config struct {
-	// Guardfile is the parsed L2 policy: the command path, auth, and grants.
-	Guardfile *guardfile.Guardfile
-
-	// Spec is the raw Swagger 2.0 document bytes (embedded by the consumer).
-	Spec []byte
-
-	// Wrap adapts a verb.Spec into a guarded cli.ActionFunc (the audit + argv
-	// pipeline). nil mounts the bare action, for doc rendering only.
-	Wrap func(verb.Spec) cli.ActionFunc
-
-	// Token resolves the auth secret. nil is tolerated for a dry-run-only tree.
-	Token TokenResolver
-
-	// HTTPClient fires the live request. nil uses http.DefaultClient.
-	HTTPClient *http.Client
-
-	// BaseURL overrides the Guardfile base-url. "" uses the Guardfile value.
-	BaseURL string
-}
-    Config is everything the engine needs to build a command tree.
-
-type ParamInfo struct {
-	Name     string `json:"name"`
-	Kind     string `json:"kind"`           // "path" | "body" (query mounting is future work)
-	Type     string `json:"type"`           // swagger scalar type
-	Required bool   `json:"required"`       // path params and required-schema fields
-	Desc     string `json:"desc,omitempty"` // upstream spec description, often blank
-}
-    ParamInfo is one input to a verb, tagged by kind so help can always show
-    the structure the engine knows even where the upstream spec carries no
-    description.
-
-type Surface struct {
-	Group   []string   `json:"group"`    // command path, e.g. ["ward","ops","forgejo"]
-	BaseURL string     `json:"base_url"` // resolved request base, scheme defaulted
-	Auth    AuthInfo   `json:"auth"`     // how the engine authenticates
-	Verbs   []VerbInfo `json:"verbs"`    // every mounted leaf, in mount order
-}
-    Surface is the in-engine model of a mounted command surface: the structural
-    truth shared by help, the describe verb, and (later) completions and the
-    skill.
-
-func Describe(cfg Config) (*Surface, error)
-    Describe builds the surface model for cfg without mounting a command tree,
-    so a caller (skill, completions, docs) can read it directly. Fails closed
-    like Build.
-
-func (s *Surface) Markdown() string
-    Markdown renders the surface as the readable reference doc: the same
-    artifact the describe verb prints and the driver writes beside the Guardfile
-    at build time.
-
-type TokenResolver func(ctx context.Context, ssmPath string) (string, error)
-    TokenResolver fetches the auth secret named by an SSM path. Injected so the
-    AWS SDK stays out of cli-guard; nil is only valid for dry-run-only use.
-
-type VerbInfo struct {
-	Name        string      `json:"name"`               // dotted audit name, e.g. ward.ops.forgejo.repo.create
-	Group       string      `json:"group"`              // CLI noun, e.g. repo
-	Leaf        string      `json:"leaf"`               // CLI verb, e.g. create
-	Method      string      `json:"method"`             // HTTP method
-	Path        string      `json:"path"`               // path template
-	Destructive bool        `json:"destructive"`        // mutates irreversibly
-	Grant       string      `json:"grant"`              // authorizing grant sentence
-	Describe    string      `json:"describe,omitempty"` // Guardfile describe "..." note
-	Params      []ParamInfo `json:"params,omitempty"`   // path + body params, in invocation order
-}
-    VerbInfo is one mounted leaf: its CLI placement, the HTTP op it drives, its
-    destructive flag, the grant that authorized it, and the optional human note.
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/stscache
-
-package stscache // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/stscache"
-
-Package stscache caches `aws sts get-caller-identity` JSON for callers that
-re-resolve the active AWS identity on every invocation. STS
-
-CONSTANTS
-
-const TTL = 1 * time.Hour
-    TTL is the freshness window for cached identity responses. Chosen at the
-    high end of "stable for hours" - role assumption sessions typically
-
-
-FUNCTIONS
-
-func CallerIdentity(fetch func() ([]byte, error)) ([]byte, error)
-    CallerIdentity returns the JSON body of `aws sts get-caller-identity
-    --output json`, served from cache if a fresh entry exists for the
-
-func Invalidate() error
-    Invalidate drops the cached entry for the active profile. Callers that know
-    they just rotated credentials or assumed a different role can use
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/sudo
-
-package sudo // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/sudo"
-
-Package sudo is policy-free plumbing for driving an interactive sudo over any
-transport that pipes a process's stdin without carrying a password.
-
-VARIABLES
-
-var ErrNoTTY = errors.New("sudo: no controlling tty; cannot prompt for password")
-    ErrNoTTY is returned by ReadPassword when /dev/tty cannot be opened.
-    CI and headless invocations should fail fast on this rather than hang
-
-
-FUNCTIONS
-
-func PasswordRequired(stderr string) bool
-    PasswordRequired returns true when stderr from a `sudo -n` attempt indicates
-    the failure was "password needed" rather than a genuine
-
-func ReadPassword(prompt string) ([]byte, error)
-    ReadPassword prompts on /dev/tty (NOT stdin, which the caller will reuse to
-    pipe the password into the remote sudo) and returns the
-
-func Zero(b []byte)
-    Zero overwrites b in place. Use with `defer` after a successful ReadPassword
-    to keep the password-bearing buffer alive only as long
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ttlcache
-
-package ttlcache // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/ttlcache"
+package ttlcache // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/ttlcache"
 
 Package ttlcache is a small on-disk key/value cache with per-entry TTLs.
 Built for the consumer after the lockdown inversion: every aws / kubectl / gh
@@ -2264,59 +2314,9 @@ func (c *Cache) Set(key string, value []byte, ttl time.Duration) error
     filesystem error if the write fails; callers can ignore it (the next
 
 
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/verb
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/workdir
 
-package verb // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/verb"
-
-Package verb is the middleware that wraps every consumer command action in the
-standard pipeline of:
-
-FUNCTIONS
-
-func Wrap(spec Spec, writer *audit.Writer) cli.ActionFunc
-    Wrap returns a cli.ActionFunc that runs the full verb pipeline.
-
-
-TYPES
-
-type Spec struct {
-	// Name is the dotted verb path used for audit logging, e.g.
-	// "aws.route53.change-resource-record-sets" or "lockdown".
-	Name string
-
-	// ArgsFunc extracts the user-supplied string arguments from the
-	// *cli.Command for validation. Returns named flags and positional args.
-	ArgsFunc func(*cli.Command) (args map[string]string, positional []string)
-
-	// Action is the verb's real work. Called only after argv validation passes.
-	Action cli.ActionFunc
-
-	// SkipPolicy disables the shell-metacharacter check for this verb. Set
-	// true only for pass-throughs whose argv goes straight through execve to
-	SkipPolicy bool
-
-	// OnComplete, if set, runs inside writer.Wrap after Action returns and
-	// before the audit record is appended. Receives a pointer to the record
-	OnComplete func(*audit.Record)
-
-	// OnEvaluate, when set, runs after argv validation and before Action.
-	// Returning a non-nil *ProfileDecision attaches it to the audit row.
-	OnEvaluate func(ctx context.Context, cmd *cli.Command) (*audit.ProfileDecision, error)
-
-	// IDOverride, when non-empty, is used as audit.Record.ID for this
-	// invocation in place of the default auto-generated UUID v7. Set by
-	IDOverride string
-
-	// ResolveInvokeCWD, when set, returns the operator's invoke-time cwd
-	// (distinct from os.Getwd() which captures the post-cd subprocess
-	ResolveInvokeCWD func() string
-}
-    Spec describes a verb before it is wrapped into a cli.ActionFunc.
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/workdir
-
-package workdir // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/workdir"
+package workdir // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/workdir"
 
 Package workdir does best-effort detection of the "primary working directory"
 that a consumer invocation is operating against. Subcommands

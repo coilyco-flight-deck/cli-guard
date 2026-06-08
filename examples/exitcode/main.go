@@ -7,7 +7,7 @@ import (
 	"os"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/examples/treebuilders"
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/exitcode"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode"
 )
 
 func main() {

@@ -1,37 +1,48 @@
 # cli-guard features
 
-Inventory of what cli-guard does today. Scope changes should land in the same commit that touches code, so this file stays a faithful mirror of the public API. Pair with `examples/<feature>/` to see each primitive end-to-end.
+Inventory of what cli-guard does today. Scope changes land in the same commit that touches code. Pair with `examples/<feature>/` to see each primitive end-to-end.
 
 ## Framework primitives
 
-Per-primitive detail in [features-detail.md](features-detail.md).
+Packages are grouped by **guarded surface** plus a shared `pkg/` core; `cli/`, `http/`, `mcp/` depend downward on `pkg/`, never on each other. See [architecture.md](architecture.md) for the surface model and import rule, [features-detail.md](features-detail.md) for per-primitive depth.
+
+### CLI passthrough surface (`cli/`)
+
+- **passthrough** - Audited urfave subcommand around an existing binary.
+- **verb** - Middleware around every `*cli.Command.Action`.
+- **shell** / **sandbox** - Subprocess execution plus its seccomp/namespace jail (Linux); the execve enforcement boundary.
+- **gittree** - Clean+synced gate for repo-shaped verbs.
+- **repocfg** / **allowlist** - Per-repo command allowlist from a configurable YAML, validated against the repo Makefile.
+- **catalog** - Assert a repo's config YAML carries a `catalog:` block with the required keys.
+- **hook** / **hookcfg** - Claude Code PreToolUse engine and the `repocfg.Security` -> `hook.Protected` mapping.
+- **shim** - PATH shim per protected binary (UX shadowing, not enforcement). See [deny-by-structure.md](deny-by-structure.md).
+- **doctor** - Verify the deny-by-structure floor (no passwordless sudo, real binary not agent-executable, no credential env).
+- **sudo** - Policy-free interactive sudo plumbing over any stdin-piping transport.
+- **dispatch** - Fire `claude` against a real open issue; consumer swaps the resolver via `Config.IssueFetcher`.
+- **lockdown** / **profiles** / **profile** / **decision** - Permission-file writer, per-host profile registry, shared profile type, and the per-call profile-aware evaluator.
+- **cmd/cli-guard-hook** - Buildable PreToolUse binary for shell-only consumers.
+
+### HTTP request surface (`http/`)
+
+- **egress** - Per-invocation CONNECT proxy with consumer allowlist.
+- **guardfile** / **specverb** / **specgen** / **specdrv** / **cmd/specverb-gen** - Spec-driven verbs from a KDL Guardfile + Swagger spec, with the no-code `specverb-gen` driver. See [specverb.md](specverb.md), [specverb-driver.md](specverb-driver.md).
+- **respfmt** - JSON response renderer with JMESPath + five output formats.
+- **ghcache** / **ghidcache** / **ghratelimit** / **stscache** - Forgejo/GitHub response, id, rate-limit, and STS credential caches.
+
+### MCP surface (`mcp/`)
+
+- **mcporter** - Pre-exec preflight for the mcporter tool, secret resolver.
+
+### Shared core (`pkg/`)
 
 - **audit** - Append-only JSONL invocation log with lumberjack rotation.
 - **policy** - Argv validation rejecting shell metacharacters.
-- **hook** - Shared Claude Code PreToolUse engine.
-- **verb** - Middleware around every `*cli.Command.Action`.
 - **scope** - Resolve cwd to its git toplevel for the audit row's RepoRoot.
 - **exitcode** - Public exit-code taxonomy for orchestrators.
-- **gittree** - Clean+synced gate for repo-shaped verbs.
-- **passthrough** - Audited urfave subcommand around an existing binary.
-- **repocfg** - Per-repo command allowlist from a configurable YAML.
-- **allowlist** - Validate a repocfg-shaped yaml against the repo Makefile.
-- **catalog** - Assert a repo's config YAML carries a `catalog:` block with the required descriptor keys (ports agentic-os's catalog-block-present hook into Go).
-- **hookcfg** - Map `repocfg.Security` into `hook.Protected` for hook consumers.
-- **cmd/cli-guard-hook** - Buildable PreToolUse binary for shell-only consumers (kap, future siblings).
-- **shim** - Render a PATH shim per protected binary from the same `hook.Protected` set. UX layer (shadows the bare name, prints the recovery path), not the enforcement boundary. See [deny-by-structure.md](deny-by-structure.md).
-- **doctor** - Verify the deny-by-structure enforcement floor: no passwordless sudo, real binary not agent-executable, credential env absent from the agent session. See [deny-by-structure.md](deny-by-structure.md).
-- **egress** - Per-invocation CONNECT proxy with consumer allowlist.
-- **mcporter** - Pre-exec preflight for the mcporter tool, secret resolver.
-- **dispatch** - Fire `claude` against a real open issue. Defaults to GitHub (`gh api`); a consumer swaps the resolver via `Config.IssueFetcher`.
-- **shell**, **ttlcache**, **workdir** - Supporting utilities.
-- **sudo** - Policy-free interactive sudo plumbing over any stdin-piping transport.
-- **respfmt** - JSON response renderer with JMESPath + five output formats.
+- **config** - Layered-config primitives and a generic `OverlayFile[T]`.
+- **ttlcache** - Generic TTL-keyed cache machinery (backs the surface caches).
+- **workdir** - Working-directory resolution helper.
 - **skillgen** - Render an urfave/cli command tree into markdown or yaml.
-- **config** - Layered-config primitives and a generic `OverlayFile[T]`; the consumer sets its app-dir once and cli-guard derives every per-user path from it.
-- **profiles** - Per-host lockdown profile registry.
-- **decision** - Per-call profile-aware evaluator.
-- **guardfile** / **specverb** / **cmd/specverb-gen** - Spec-driven verbs from a KDL Guardfile + Swagger spec; the no-code `specverb-gen` driver materializes it out-of-band. See [specverb.md](specverb.md), [specverb-driver.md](specverb-driver.md).
 
 ## Repo development
 
@@ -39,11 +50,7 @@ Per-primitive detail in [features-detail.md](features-detail.md).
 - `.golangci.yaml` mirrors urfave/cli's minimal config.
 - `staticcheck.conf` enables all checks (mirrors urfave/cli).
 - CI runs `go vet`, `go build`, `go test -race`, golangci-lint v2.12.2.
-- Release is automated and Forgejo-canonical: push to `main` cuts a conventional-commit-driven semver tag + Forgejo release. Tag-only - cli-guard is the base of the triple, so consumers (ward, coily) self-bump off its tags. See [release-pipeline.md](release-pipeline.md).
-
-## Deferred to v0.1
-
-- **lockdown** - Generic permission-file writer with a `Driver` interface. [#2](https://github.com/coilysiren/cli-guard/issues/2).
+- Release is automated and Forgejo-canonical, tag-only; consumers (ward, coily) self-bump off its tags. See [release-pipeline.md](release-pipeline.md).
 
 ## See also
 
