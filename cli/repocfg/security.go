@@ -6,33 +6,25 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ModeDenyDirect is the only protected-binary mode supported in v1: the
-// binary may not be invoked directly by a semi-trusted agent; it is routed
-// through an allowed wrapper instead. Other modes (e.g. a future audited
-// read-only allowlist) are reserved and rejected until implemented.
+// ModeDenyDirect is the only protected-binary mode supported in v1: the binary
+// may not be invoked directly by an agent, only through an allowed wrapper.
 const ModeDenyDirect = "deny-direct"
 
-// Security is the optional security: section of a repo config. It is
-// declarative policy a consumer's doctor/hook surfaces read; repocfg parses
-// and validates it but enforces nothing on its own. A config with no
-// security: block yields a zero Security, which every field treats as "no
-// policy declared". Field names are snake_case to match the commands:
-// scheme (allow_metacharacters, audit.egress).
+// Security is the optional security: section of a repo config: declarative
+// policy that doctor/hook surfaces read. A zero value means no policy declared.
 type Security struct {
 	// ProtectedBinaries are host tools a semi-trusted agent must not invoke
 	// directly. Empty means no binary is protected by config.
 	ProtectedBinaries []ProtectedBinary
 	// Sudo carries sudo-posture policy.
 	Sudo SudoPolicy
-	// Hooks carries PreToolUse deny/route policy derived from the protected
-	// set, kept as an explicit block so a consumer can tune hook behavior
-	// without changing the protected-binary contract.
+	// Hooks carries PreToolUse deny/route policy, kept explicit so a consumer
+	// can tune hook behavior without changing the protected-binary contract.
 	Hooks HookPolicy
 }
 
-// ProtectedBinary declares one host tool that direct agent invocation is
-// denied for. The real binary stays runnable by humans through the named
-// wrappers; the policy is about keeping the agent off the bare binary.
+// ProtectedBinary declares one host tool that direct agent invocation is denied
+// for. Humans still run it through the named wrappers.
 type ProtectedBinary struct {
 	// Name is the binary's basename, e.g. "gcloud". Required.
 	Name string
@@ -45,9 +37,8 @@ type ProtectedBinary struct {
 	// ExpectedRealPaths are the canonical install locations of the real
 	// binary, used by doctor to reason about PATH-shim posture.
 	ExpectedRealPaths []string
-	// CredentialEnv names environment variables that, when present in an
-	// agent session, hand the agent the binary's credentials. doctor warns
-	// when these are set.
+	// CredentialEnv names environment variables that hand the agent the
+	// binary's credentials when set. doctor warns when they are present.
 	CredentialEnv []string
 }
 
@@ -62,16 +53,13 @@ func (p ProtectedBinary) EffectiveMode() string {
 
 // SudoPolicy carries sudo-posture expectations doctor checks against.
 type SudoPolicy struct {
-	// ForbidPasswordless asserts the host must not let the agent user run
-	// broad passwordless sudo. doctor fails when `sudo -n` succeeds and
-	// this is set.
+	// ForbidPasswordless asserts the agent user must not have broad
+	// passwordless sudo. doctor fails when `sudo -n` succeeds and this is set.
 	ForbidPasswordless bool
 }
 
-// HookPolicy is the optional PreToolUse deny/route block. When omitted, a
-// consumer can derive the same effect from ProtectedBinaries; this block
-// exists for consumers that want to state it explicitly or add hints for
-// binaries that are not full protected entries.
+// HookPolicy is the optional PreToolUse deny/route block. When omitted, the
+// same effect derives from ProtectedBinaries; this states it explicitly.
 type HookPolicy struct {
 	// DenyBareBinaries are basenames the hook denies on bare invocation.
 	DenyBareBinaries []string
@@ -142,8 +130,7 @@ func decodeSecurity(node yaml.Node) (Security, error) {
 }
 
 // basename returns the final path element of s, matching filepath.Base for
-// the cases we care about without importing path semantics into the config
-// layer's validation message.
+// the cases we care about without importing path semantics here.
 func basename(s string) string {
 	for i := len(s) - 1; i >= 0; i-- {
 		if s[i] == '/' {

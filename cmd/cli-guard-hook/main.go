@@ -1,16 +1,5 @@
-// Command cli-guard-hook is a single-purpose Claude Code PreToolUse
-// binary for shell-only consumers. It reads a hook payload from stdin,
-// evaluates it against a repocfg-shaped yaml file's `security:` block,
-// emits any block message to stderr, and exits 0 on pass / 2 on block.
-//
-// Usage:
-//
-//	cli-guard-hook --config /path/to/policy.yaml [--source kap]
-//
-// The config path comes from --config or $CLI_GUARD_HOOK_CONFIG. There
-// is no walk-up: the consumer's install script names the exact file.
-// Empty resolution, missing file, or unreadable yaml all exit 0 silently
-// so a half-installed host never wedges Claude Code.
+// Command cli-guard-hook is a single-purpose Claude Code PreToolUse binary for
+// shell-only consumers. See docs/architecture.md for payload flow and flags.
 package main
 
 import (
@@ -59,9 +48,8 @@ func run(args []string, stdin io.Reader, stderr io.Writer, getenv func(string) s
 	return 0
 }
 
-// parseFlags walks args looking for --config / --source. Plain `flag`
-// would work but adds noise; this loop keeps the binary's surface to
-// what the install script actually writes into settings.json.
+// parseFlags walks args looking for --config / --source, keeping the binary's
+// surface to what the install script writes into settings.json.
 func parseFlags(args []string, getenv func(string) string) (configPath, source string) {
 	source = defaultSourceName
 	for i := 0; i < len(args); i++ {
@@ -84,9 +72,8 @@ func parseFlags(args []string, getenv func(string) string) (configPath, source s
 	return configPath, source
 }
 
-// loadProtected reads the config file and returns the mapped Protected
-// list. Best-effort: empty path, missing file, or any parse error
-// returns nil so the hook stays a hint surface rather than a hard gate.
+// loadProtected reads the config file and returns the mapped Protected list.
+// Best-effort: empty path, missing file, or any parse error returns nil.
 func loadProtected(path string) []hook.Protected {
 	if path == "" {
 		return nil

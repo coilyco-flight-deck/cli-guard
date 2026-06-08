@@ -1,10 +1,5 @@
-// Package hookcfg bridges repocfg.Security into the hook engine's
-// Protected shape, so consumers (cmd/cli-guard-hook, ward, future shell
-// consumers via go.mod) share one mapping rather than each carrying
-// their own copy.
-//
-// repocfg and hook stay independent of each other; this small bridge
-// owns the direction repocfg.Security -> []hook.Protected.
+// Package hookcfg bridges repocfg.Security into the hook engine's Protected
+// shape so consumers share one mapping (Security -> []hook.Protected).
 package hookcfg
 
 import (
@@ -12,19 +7,8 @@ import (
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/repocfg"
 )
 
-// ProtectedFor maps a parsed repocfg.Security block into the hook engine's
-// Protected list. Merges two sources:
-//
-//   - Every protected_binaries entry becomes a Protected. The engine
-//     matches by basename so bare / absolute / relative spellings all
-//     trigger the same deny.
-//   - Every hooks.deny_bare_binaries entry that is NOT already covered
-//     by a protected_binaries entry becomes a hint-only Protected (no
-//     wrappers), so a downstream config can deny additional bare
-//     invocations without declaring the full protected schema.
-//
-// Hint precedence: hooks.route_hints[name] when set, else the engine
-// synthesizes from Wrappers, else a bare deny.
+// ProtectedFor maps a repocfg.Security block into the hook engine's Protected
+// list, merging protected_binaries with uncovered hooks.deny_bare_binaries.
 func ProtectedFor(sec repocfg.Security) []hook.Protected {
 	if len(sec.ProtectedBinaries) == 0 && len(sec.Hooks.DenyBareBinaries) == 0 {
 		return nil

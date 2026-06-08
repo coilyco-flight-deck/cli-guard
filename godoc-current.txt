@@ -3,10 +3,7 @@
 package allowlist // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/allowlist"
 
 Package allowlist validates a repocfg-shaped command allowlist against the
-repo's Makefile so the verb surface and the make-target surface cannot drift.
-Consumers (ward, coily) wrap Lint in their own doctor / lint subcommands and
-supply already-resolved paths; this package owns the engine, not the resolution
-policy or the CLI surface.
+repo's Makefile so the verb surface and make-target surface cannot drift.
 
 TYPES
 
@@ -15,42 +12,20 @@ type Problem struct {
 	Line int
 	Msg  string
 }
-    Problem is one contract violation. File is the source the problem is
-    anchored to (the yaml for verb-side problems, the Makefile for target- side
-    drift). Consumers format `File:Line: Msg` however suits them.
+    Problem is one contract violation, anchored to its source file (the yaml for
+    verb-side problems, the Makefile for target-side drift).
 
 func Lint(yamlPath, makefilePath string) ([]Problem, error)
-    Lint validates yamlPath against makefilePath. Both must be absolute or
-    already cleaned by the caller; the package does not resolve paths.
-
-    Rules:
-      - commands.<verb>.run must equal "make <verb>".
-      - The Makefile must declare a target named <verb>.
-      - The verb description must equal the Makefile target's `## desc`
-        auto-help comment.
-
-    An empty []Problem with nil error means clean. A non-nil error means
-    the inputs could not be parsed (malformed yaml, unreadable Makefile);
-    rule violations come back as Problems, never as errors.
+    Lint checks each verb's run, matching Makefile target, and description
+    against caller-resolved paths. Violations are Problems; bad input errors.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/catalog
 
 package catalog // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/catalog"
 
-Package catalog validates a repo's catalog config: it asserts the config YAML
-carries a top-level `catalog:` block with the required descriptor keys. It ports
-agentic-os's catalog-block-present pre-commit hook into the shared substrate
-so cli-guard consumers can enforce the same contract from Go (a doctor verb,
-a PreToolUse-adjacent shim, CI) instead of shelling out to the Python hook.
-
-Consumers (coily, ward, a pre-commit wrapper) supply the candidate config paths
-and wrap Check in their own surface; this package owns the rule engine, not the
-path-resolution policy or the CLI. cli-guard hardcodes no consumer's filesystem
-layout, so the caller passes the ordered candidates it wants probed (e.g.
-.ward/ward.yaml then .coily/coily.yaml).
-
-Schema reference: coilysiren/agentic-os-kai#420.
+Package catalog validates that a repo config carries a top-level `catalog:`
+block with the required descriptor keys. See docs/architecture.md.
 
 VARIABLES
 
@@ -69,9 +44,8 @@ var RequiredKeys = []string{
 	"description",
 	"dependsOn",
 }
-    RequiredKeys are the keys a `catalog:` block must declare. Trivial repos
-    still declare every key (use an empty value for list keys) rather than
-    omitting it: missing is a violation, empty is fine.
+    RequiredKeys are the keys a `catalog:` block must declare. Missing is a
+    violation; an empty value (use [] for list keys) is fine.
 
 
 TYPES
@@ -81,25 +55,12 @@ type Problem struct {
 	Line int
 	Msg  string
 }
-    Problem is one contract violation, anchored to the config file and the line
-    of the offending node. Consumers format `File:Line: Msg` however suits them.
+    Problem is one contract violation, anchored to the config file and line.
     Mirrors allowlist.Problem so the two validators report alike.
 
 func Check(candidates ...string) ([]Problem, error)
-    Check resolves the first existing path in candidates and validates its
-    `catalog:` block. Candidates are probed in order; the first that exists
-    on disk is the one checked, matching the upstream "ward.yaml first, then
-    coily.yaml" fallback while leaving the path list to the caller.
-
-    Rules:
-      - The config must carry a top-level `catalog:` mapping.
-      - Every key in RequiredKeys must be present inside it.
-      - Every key in ListKeys must hold a YAML sequence (use [] for empty).
-
-    An empty []Problem with nil error means clean. A non-nil error means the
-    inputs could not be resolved or parsed (no candidate exists, malformed YAML,
-    non-mapping top level); rule violations come back as Problems, never as
-    errors. Passing no candidates returns an error.
+    Check probes candidates in order, validating the first that exists against
+    the RequiredKeys/ListKeys rules. Violations are Problems; bad input errors.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/decision
@@ -405,10 +366,9 @@ substrate. Each cli-guard consumer wires it in.
 FUNCTIONS
 
 func Basename(token string) string
-    Basename returns the final path element of token, e.g. "gcloud"
-    for "/opt/homebrew/bin/gcloud" and "gcloud" for "gcloud". Used for
-    basename-aware matching so an absolute-path spelling cannot slip past a deny
-    keyed on the bare name.
+    Basename returns the final path element of token, e.g. "gcloud" for
+    "/opt/homebrew/bin/gcloud". Used so an absolute path cannot slip past a
+    deny.
 
 func CheckBinaryPath(token string, allowed []string, lookup LookPath, source string) string
     CheckBinaryPath resolves token via lookup and returns a non-empty
@@ -465,20 +425,15 @@ func ReadPayload(r io.Reader) Payload
 type Protected struct {
 	// Name is the binary basename to protect, e.g. "gcloud".
 	Name string
-	// Hint is the recovery sentence appended after the deny. When empty,
-	// the engine synthesizes one from Wrappers (or a bare deny if both are
-	// empty).
+	// Hint is the recovery sentence appended after the deny. When empty, the
+	// engine synthesizes one from Wrappers (or a bare deny if both are empty).
 	Hint string
 	// Wrappers names the audited wrappers a human routes through instead.
 	// Used to synthesize a hint when Hint is empty.
 	Wrappers []string
 }
-    Protected names a host binary that direct invocation by a semi-trusted agent
-    is denied for. Unlike Route (which matches the bare leading token only),
-    Protected matches by basename: the bare token `gcloud`, an absolute
-    path `/opt/homebrew/bin/gcloud`, and any /-containing spelling whose
-    final element is Name all match. This closes the absolute-path bypass a
-    token-keyed deny leaves open (see the 2026-05-08 deny-uv finding).
+    Protected names a host binary whose direct invocation by an agent is denied.
+    Matches by basename, closing the absolute-path bypass a token deny leaves.
 
 type Route struct {
 	// Token is the bare leading-token to match, e.g. "gh", "brew".
@@ -488,8 +443,8 @@ type Route struct {
 	// prefixes "<source> hook: blocked bare `<token>`. Recovery: "
 	Hint string
 
-	// Extra, when non-nil, is consulted for token-specific suffixes
-	// after a match. Receives the matched segment so the consumer
+	// Extra, when non-nil, is consulted for token-specific suffixes after a
+	// match. It receives the matched segment.
 	Extra func(segment string) string
 }
     Route maps a bare leading-token in argv to a recovery hint string the
@@ -500,29 +455,14 @@ type Route struct {
 
 package hookcfg // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/hookcfg"
 
-Package hookcfg bridges repocfg.Security into the hook engine's Protected shape,
-so consumers (cmd/cli-guard-hook, ward, future shell consumers via go.mod) share
-one mapping rather than each carrying their own copy.
-
-repocfg and hook stay independent of each other; this small bridge owns the
-direction repocfg.Security -> []hook.Protected.
+Package hookcfg bridges repocfg.Security into the hook engine's Protected shape
+so consumers share one mapping (Security -> []hook.Protected).
 
 FUNCTIONS
 
 func ProtectedFor(sec repocfg.Security) []hook.Protected
-    ProtectedFor maps a parsed repocfg.Security block into the hook engine's
-    Protected list. Merges two sources:
-
-      - Every protected_binaries entry becomes a Protected. The engine matches
-        by basename so bare / absolute / relative spellings all trigger the same
-        deny.
-      - Every hooks.deny_bare_binaries entry that is NOT already covered by a
-        protected_binaries entry becomes a hint-only Protected (no wrappers),
-        so a downstream config can deny additional bare invocations without
-        declaring the full protected schema.
-
-    Hint precedence: hooks.route_hints[name] when set, else the engine
-    synthesizes from Wrappers, else a bare deny.
+    ProtectedFor maps a repocfg.Security block into the hook engine's Protected
+    list, merging protected_binaries with uncovered hooks.deny_bare_binaries.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/lockdown
@@ -878,9 +818,7 @@ const LocalDirName = ".coily"
 
 const ModeDenyDirect = "deny-direct"
     ModeDenyDirect is the only protected-binary mode supported in v1: the binary
-    may not be invoked directly by a semi-trusted agent; it is routed through
-    an allowed wrapper instead. Other modes (e.g. a future audited read-only
-    allowlist) are reserved and rejected until implemented.
+    may not be invoked directly by an agent, only through an allowed wrapper.
 
 
 VARIABLES
@@ -955,9 +893,7 @@ type HookPolicy struct {
 	RouteHints map[string]string
 }
     HookPolicy is the optional PreToolUse deny/route block. When omitted,
-    a consumer can derive the same effect from ProtectedBinaries; this block
-    exists for consumers that want to state it explicitly or add hints for
-    binaries that are not full protected entries.
+    the same effect derives from ProtectedBinaries; this states it explicitly.
 
 type ProtectedBinary struct {
 	// Name is the binary's basename, e.g. "gcloud". Required.
@@ -971,14 +907,12 @@ type ProtectedBinary struct {
 	// ExpectedRealPaths are the canonical install locations of the real
 	// binary, used by doctor to reason about PATH-shim posture.
 	ExpectedRealPaths []string
-	// CredentialEnv names environment variables that, when present in an
-	// agent session, hand the agent the binary's credentials. doctor warns
-	// when these are set.
+	// CredentialEnv names environment variables that hand the agent the
+	// binary's credentials when set. doctor warns when they are present.
 	CredentialEnv []string
 }
     ProtectedBinary declares one host tool that direct agent invocation is
-    denied for. The real binary stays runnable by humans through the named
-    wrappers; the policy is about keeping the agent off the bare binary.
+    denied for. Humans still run it through the named wrappers.
 
 func (p ProtectedBinary) EffectiveMode() string
     EffectiveMode returns the protected-binary mode with the empty-default
@@ -990,22 +924,17 @@ type Security struct {
 	ProtectedBinaries []ProtectedBinary
 	// Sudo carries sudo-posture policy.
 	Sudo SudoPolicy
-	// Hooks carries PreToolUse deny/route policy derived from the protected
-	// set, kept as an explicit block so a consumer can tune hook behavior
-	// without changing the protected-binary contract.
+	// Hooks carries PreToolUse deny/route policy, kept explicit so a consumer
+	// can tune hook behavior without changing the protected-binary contract.
 	Hooks HookPolicy
 }
-    Security is the optional security: section of a repo config. It is
-    declarative policy a consumer's doctor/hook surfaces read; repocfg parses
-    and validates it but enforces nothing on its own. A config with no security:
-    block yields a zero Security, which every field treats as "no policy
-    declared". Field names are snake_case to match the commands: scheme
-    (allow_metacharacters, audit.egress).
+    Security is the optional security: section of a repo config: declarative
+    policy that doctor/hook surfaces read. A zero value means no policy
+    declared.
 
 type SudoPolicy struct {
-	// ForbidPasswordless asserts the host must not let the agent user run
-	// broad passwordless sudo. doctor fails when `sudo -n` succeeds and
-	// this is set.
+	// ForbidPasswordless asserts the agent user must not have broad
+	// passwordless sudo. doctor fails when `sudo -n` succeeds and this is set.
 	ForbidPasswordless bool
 }
     SudoPolicy carries sudo-posture expectations doctor checks against.
@@ -1226,18 +1155,7 @@ type Spec struct {
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cmd/cli-guard-hook
 
 Command cli-guard-hook is a single-purpose Claude Code PreToolUse binary for
-shell-only consumers. It reads a hook payload from stdin, evaluates it against a
-repocfg-shaped yaml file's `security:` block, emits any block message to stderr,
-and exits 0 on pass / 2 on block.
-
-Usage:
-
-    cli-guard-hook --config /path/to/policy.yaml [--source kap]
-
-The config path comes from --config or $CLI_GUARD_HOOK_CONFIG. There is no
-walk-up: the consumer's install script names the exact file. Empty resolution,
-missing file, or unreadable yaml all exit 0 silently so a half-installed host
-never wedges Claude Code.
+shell-only consumers. See docs/architecture.md for payload flow and flags.
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cmd/specverb-gen
 

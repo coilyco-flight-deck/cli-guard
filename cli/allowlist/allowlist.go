@@ -1,8 +1,5 @@
 // Package allowlist validates a repocfg-shaped command allowlist against the
-// repo's Makefile so the verb surface and the make-target surface cannot
-// drift. Consumers (ward, coily) wrap Lint in their own doctor / lint
-// subcommands and supply already-resolved paths; this package owns the
-// engine, not the resolution policy or the CLI surface.
+// repo's Makefile so the verb surface and make-target surface cannot drift.
 package allowlist
 
 import (
@@ -16,27 +13,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Problem is one contract violation. File is the source the problem is
-// anchored to (the yaml for verb-side problems, the Makefile for target-
-// side drift). Consumers format `File:Line: Msg` however suits them.
+// Problem is one contract violation, anchored to its source file (the yaml for
+// verb-side problems, the Makefile for target-side drift).
 type Problem struct {
 	File string
 	Line int
 	Msg  string
 }
 
-// Lint validates yamlPath against makefilePath. Both must be absolute or
-// already cleaned by the caller; the package does not resolve paths.
-//
-// Rules:
-//   - commands.<verb>.run must equal "make <verb>".
-//   - The Makefile must declare a target named <verb>.
-//   - The verb description must equal the Makefile target's `## desc`
-//     auto-help comment.
-//
-// An empty []Problem with nil error means clean. A non-nil error means
-// the inputs could not be parsed (malformed yaml, unreadable Makefile);
-// rule violations come back as Problems, never as errors.
+// Lint checks each verb's run, matching Makefile target, and description
+// against caller-resolved paths. Violations are Problems; bad input errors.
 func Lint(yamlPath, makefilePath string) ([]Problem, error) {
 	verbs, err := loadYamlVerbs(yamlPath)
 	if err != nil {

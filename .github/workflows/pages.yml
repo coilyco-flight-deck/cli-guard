@@ -10,8 +10,6 @@ permissions:
   pages: write
   id-token: write
 
-# One in-flight deploy at a time. Cancel-in-progress is off so a deploy
-# already running gets to finish even if a new push lands.
 concurrency:
   group: pages
   cancel-in-progress: false

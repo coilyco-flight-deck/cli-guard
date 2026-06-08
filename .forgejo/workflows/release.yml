@@ -1,26 +1,5 @@
 name: release
 
-# Forgejo-canonical release pipeline for cli-guard, the base library of the
-# cli-guard / ward / coily triple. Triggers on push to main against the
-# forgejo repo (forgejo.coilysiren.me/coilyco-flight-deck/cli-guard).
-# Conventional commits drive the semver bump (patch default, feat -> minor,
-# !: / BREAKING CHANGE -> major). Cuts the tag + release on forgejo.
-#
-# cli-guard ships no homebrew formula: it is a Go library plus the
-# cmd/cli-guard-hook binary, consumed by ward and coily through go.mod, not
-# installed via brew. So unlike ward and coily there is no formula-bump job.
-#
-# This pipeline is deliberately tag-only. cli-guard is the BASE of the
-# dependency tree, so it must not reach up into its consumers: an upstream
-# repo opening PRs on ward/coily would reverse the dependsOn edge. Downstream
-# bumps are the consumers' job, pulled along the dependency arrow (a scheduled
-# self-bump in ward and coily watching cli-guard's tags). The tree-direction
-# rule is being made enforceable in agentic-os-kai#626.
-#
-# Shared composite actions live at coilysiren/agentic-os/actions/*. The tag +
-# release writes use the auto-issued job token, so no cross-repo secret is
-# needed.
-
 on:
   push:
     branches: [main]
@@ -41,8 +20,6 @@ jobs:
 
       - id: tag
         uses: coilysiren/agentic-os/actions/tag-bump@main
-        # No bump input: every push-to-main release is a minor bump. For a
-        # major, cut the vN.0.0 tag by hand; pushes resume minor from there.
 
       - id: create
         if: ${{ steps.tag.outputs.new_tag != '' }}

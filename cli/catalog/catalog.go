@@ -1,17 +1,5 @@
-// Package catalog validates a repo's catalog config: it asserts the config
-// YAML carries a top-level `catalog:` block with the required descriptor
-// keys. It ports agentic-os's catalog-block-present pre-commit hook into the
-// shared substrate so cli-guard consumers can enforce the same contract from
-// Go (a doctor verb, a PreToolUse-adjacent shim, CI) instead of shelling out
-// to the Python hook.
-//
-// Consumers (coily, ward, a pre-commit wrapper) supply the candidate config
-// paths and wrap Check in their own surface; this package owns the rule
-// engine, not the path-resolution policy or the CLI. cli-guard hardcodes no
-// consumer's filesystem layout, so the caller passes the ordered candidates
-// it wants probed (e.g. .ward/ward.yaml then .coily/coily.yaml).
-//
-// Schema reference: coilysiren/agentic-os-kai#420.
+// Package catalog validates that a repo config carries a top-level `catalog:`
+// block with the required descriptor keys. See docs/architecture.md.
 package catalog
 
 import (
@@ -22,9 +10,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// RequiredKeys are the keys a `catalog:` block must declare. Trivial repos
-// still declare every key (use an empty value for list keys) rather than
-// omitting it: missing is a violation, empty is fine.
+// RequiredKeys are the keys a `catalog:` block must declare. Missing is a
+// violation; an empty value (use [] for list keys) is fine.
 var RequiredKeys = []string{
 	"kind",
 	"type",
@@ -41,29 +28,16 @@ var ListKeys = []string{
 	"dependsOn",
 }
 
-// Problem is one contract violation, anchored to the config file and the
-// line of the offending node. Consumers format `File:Line: Msg` however
-// suits them. Mirrors allowlist.Problem so the two validators report alike.
+// Problem is one contract violation, anchored to the config file and line.
+// Mirrors allowlist.Problem so the two validators report alike.
 type Problem struct {
 	File string
 	Line int
 	Msg  string
 }
 
-// Check resolves the first existing path in candidates and validates its
-// `catalog:` block. Candidates are probed in order; the first that exists on
-// disk is the one checked, matching the upstream "ward.yaml first, then
-// coily.yaml" fallback while leaving the path list to the caller.
-//
-// Rules:
-//   - The config must carry a top-level `catalog:` mapping.
-//   - Every key in RequiredKeys must be present inside it.
-//   - Every key in ListKeys must hold a YAML sequence (use [] for empty).
-//
-// An empty []Problem with nil error means clean. A non-nil error means the
-// inputs could not be resolved or parsed (no candidate exists, malformed
-// YAML, non-mapping top level); rule violations come back as Problems, never
-// as errors. Passing no candidates returns an error.
+// Check probes candidates in order, validating the first that exists against
+// the RequiredKeys/ListKeys rules. Violations are Problems; bad input errors.
 func Check(candidates ...string) ([]Problem, error) {
 	path, doc, err := loadDoc(candidates)
 	if err != nil {
@@ -86,11 +60,8 @@ func Check(candidates ...string) ([]Problem, error) {
 	return checkBlock(path, catalog), nil
 }
 
-// loadDoc resolves the first existing candidate, reads it, and returns the
-// path alongside the top-level document mapping node. The returned errors
-// cover unresolved or unparseable input (no candidate, malformed YAML,
-// non-mapping top level); a clean parse with no `catalog:` block is not an
-// error here, it is left for Check to report as a Problem.
+// loadDoc resolves the first existing candidate and returns its path and the
+// top-level mapping node. Errors cover unresolved or unparseable input.
 func loadDoc(candidates []string) (string, *yaml.Node, error) {
 	path := firstExisting(candidates)
 	if path == "" {
@@ -153,9 +124,8 @@ func firstExisting(candidates []string) string {
 	return ""
 }
 
-// findChild returns the value node for key in a mapping node, or nil when the
-// key is absent. mapping.Content is a flat [key, value, key, value, ...]
-// slice, so we step by two.
+// findChild returns the value node for key in a mapping node, or nil when
+// absent. mapping.Content is a flat [key, value, ...] slice, so step by two.
 func findChild(mapping *yaml.Node, key string) *yaml.Node {
 	for i := 0; i+1 < len(mapping.Content); i += 2 {
 		if mapping.Content[i].Value == key {

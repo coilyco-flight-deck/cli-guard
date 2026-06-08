@@ -6,8 +6,6 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    # Weekly. CodeQL queries get updated; periodic re-runs catch new finding
-    # categories on old code without waiting for a push.
     - cron: "23 7 * * 1"
 
 permissions:

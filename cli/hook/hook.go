@@ -22,8 +22,8 @@ type Route struct {
 	// prefixes "<source> hook: blocked bare `<token>`. Recovery: "
 	Hint string
 
-	// Extra, when non-nil, is consulted for token-specific suffixes
-	// after a match. Receives the matched segment so the consumer
+	// Extra, when non-nil, is consulted for token-specific suffixes after a
+	// match. It receives the matched segment.
 	Extra func(segment string) string
 }
 
@@ -34,18 +34,13 @@ type IntegrityRule struct {
 	AllowedPaths []string
 }
 
-// Protected names a host binary that direct invocation by a semi-trusted
-// agent is denied for. Unlike Route (which matches the bare leading token
-// only), Protected matches by basename: the bare token `gcloud`, an
-// absolute path `/opt/homebrew/bin/gcloud`, and any /-containing spelling
-// whose final element is Name all match. This closes the absolute-path
-// bypass a token-keyed deny leaves open (see the 2026-05-08 deny-uv finding).
+// Protected names a host binary whose direct invocation by an agent is denied.
+// Matches by basename, closing the absolute-path bypass a token deny leaves.
 type Protected struct {
 	// Name is the binary basename to protect, e.g. "gcloud".
 	Name string
-	// Hint is the recovery sentence appended after the deny. When empty,
-	// the engine synthesizes one from Wrappers (or a bare deny if both are
-	// empty).
+	// Hint is the recovery sentence appended after the deny. When empty, the
+	// engine synthesizes one from Wrappers (or a bare deny if both are empty).
 	Hint string
 	// Wrappers names the audited wrappers a human routes through instead.
 	// Used to synthesize a hint when Hint is empty.
@@ -140,9 +135,8 @@ func evaluateSegment(seg, source, cwd string, integrity map[string][]string, rou
 			source, token)}
 	}
 
-	// Protected-binary deny, basename-aware so an absolute path
-	// (/opt/homebrew/bin/gcloud) is denied the same as the bare token.
-	// Checked before integrity/route, which key on the full token.
+	// Protected-binary deny, basename-aware so an absolute path is denied the
+	// same as the bare token. Checked before integrity/route.
 	if p, ok := protectedByBase[Basename(token)]; ok {
 		return Decision{Block: true, Message: protectedDeny(p, token, source)}
 	}
@@ -259,9 +253,7 @@ func LeadingToken(seg string) string {
 }
 
 // Basename returns the final path element of token, e.g. "gcloud" for
-// "/opt/homebrew/bin/gcloud" and "gcloud" for "gcloud". Used for
-// basename-aware matching so an absolute-path spelling cannot slip past a
-// deny keyed on the bare name.
+// "/opt/homebrew/bin/gcloud". Used so an absolute path cannot slip past a deny.
 func Basename(token string) string {
 	if i := strings.LastIndexByte(token, '/'); i >= 0 {
 		return token[i+1:]
@@ -269,9 +261,8 @@ func Basename(token string) string {
 	return token
 }
 
-// protectedDeny renders the deny message for a matched protected binary.
-// Prefers the consumer-supplied Hint; otherwise synthesizes one from the
-// allowed wrappers; otherwise emits a bare deny.
+// protectedDeny renders the deny message for a matched protected binary,
+// preferring the Hint, else synthesizing from wrappers, else a bare deny.
 func protectedDeny(p Protected, token, source string) string {
 	base := Basename(token)
 	msg := fmt.Sprintf("%s hook: blocked protected binary `%s`. Direct invocation is denied", source, base)

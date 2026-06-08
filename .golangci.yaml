@@ -1,10 +1,4 @@
-# golangci-lint configuration adopted from coilysiren/coily for the cli-* family.
-#
-# Strict-ish. Leans on cyclomatic complexity checks because these packages are
-# security boundaries or wire-protocol layers and tangled branchy code is where
-# the bugs live.
-#
-# Run with `coily exec lint`.
+# golangci-lint config for the cli-* family. Notes: docs/golangci-notes.md.
 
 version: "2"
 
@@ -16,25 +10,21 @@ run:
 linters:
   default: none
   enable:
-    # Correctness.
     - errcheck
     - govet
     - ineffassign
     - staticcheck
     - unused
     - gosec
-    # Style.
     - misspell
     - unconvert
     - unparam
     - whitespace
-    # Complexity.
     - gocyclo
     - gocognit
     - cyclop
     - funlen
     - nestif
-    # Reduce surprise.
     - gocritic
     - revive
     - asasalint
@@ -63,12 +53,7 @@ linters:
       min-complexity: 5
     gosec:
       excludes:
-        # G204 fires on every exec.CommandContext(ctx, bin, argv...) even with
-        # argv properly constructed. Argv validation happens at the cli-guard
-        # policy layer. Refusing it here would defeat the point of the wrappers.
         - G204
-        # G301/G302/G304/G306 (file permissions): we manage perms deliberately
-        # per call site. Trust the per-site choice over a blanket rule.
         - G301
         - G302
         - G304
@@ -104,7 +89,6 @@ linters:
 
   exclusions:
     rules:
-      # Generated files: mostly mechanical, skip most checks.
       - path: "_generated\\.go$"
         linters:
           - cyclop
@@ -120,7 +104,6 @@ linters:
           - misspell
           - errorlint
           - staticcheck
-      # Tests: relaxed complexity, long table-driven cases are fine.
       - path: "_test\\.go$"
         linters:
           - funlen
@@ -131,12 +114,6 @@ linters:
           - goconst
           - errcheck
           - gosec
-      # Examples are small demonstration mains; structure is illustrative, not
-      # production code. Matched on the `examples/` path component rather than
-      # a string-start anchor: in a git worktree golangci-lint reports file
-      # paths prefixed with the relative hop back to the checkout
-      # (`../../../cli-guard/examples/...`), which a `^examples/` anchor would
-      # miss, leaking example-only lint noise into every dispatched commit.
       - path: "(^|/)examples/"
         linters:
           - funlen
@@ -154,7 +131,5 @@ formatters:
 
 issues:
   max-same-issues: 20
-  # Dispatch worktrees are parallel-agent scratch space outside the main
-  # codebase; lint failures there are not actionable from the source repo.
   exclude-dirs:
     - .dispatch-worktrees
