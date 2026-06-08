@@ -1528,6 +1528,11 @@ var ErrSkew = errors.New("spec skew detected")
 
 FUNCTIONS
 
+func Build(opts Options) error
+    Build materializes the consumer binary out-of-band (same cache +
+    staleness path as Run) and copies it to opts.Out instead of execing it.
+    See specverb-driver.md.
+
 func Gen(opts Options) error
     Gen renders the consumer main.go. With no --out it writes into the cache and
     prints the path; --out is the debug escape hatch for inspecting the source.
@@ -1563,7 +1568,7 @@ type DepLock struct {
 
 type Options struct {
 	GuardfilePath   string   // path to the consumer's KDL Guardfile
-	Out             string   // gen: explicit output path (debug escape hatch); cache when empty
+	Out             string   // gen: main.go output path (debug; cache when empty). build: binary output dir or path
 	Args            []string // run: arguments passed through to the materialized binary
 	CLIGuardRef     string   // lock: cli-guard module query to pin (version/commit); empty = auto
 	CLIGuardReplace string   // lock: local cli-guard checkout to replace with (dev locks only)

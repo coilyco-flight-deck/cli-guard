@@ -48,6 +48,7 @@ func app() *cli.Command {
 			genCmd(),
 			lockCmd(),
 			skewCmd(),
+			buildCmd(),
 			runCmd(),
 		},
 		// Root action keeps the legacy `--guardfile X --out Y` one-shot working:
@@ -114,6 +115,23 @@ func skewCmd() *cli.Command {
 				return err
 			}
 			return specdrv.Skew(specdrv.Options{GuardfilePath: gf})
+		},
+	}
+}
+
+func buildCmd() *cli.Command {
+	return &cli.Command{
+		Name:  "build",
+		Usage: "materialize+build the consumer binary if stale, then write it to --out (a dir or file path)",
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "out", Value: "bin", Usage: "output directory (binary keeps its Guardfile name) or explicit file path"},
+		},
+		Action: func(_ context.Context, c *cli.Command) error {
+			gf, err := resolveGuardfile(c)
+			if err != nil {
+				return err
+			}
+			return specdrv.Build(specdrv.Options{GuardfilePath: gf, Out: c.String("out")})
 		},
 	}
 }

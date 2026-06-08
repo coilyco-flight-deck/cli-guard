@@ -2,13 +2,14 @@
 
 `ward-kdl` is a **no-code** CLI: the consumer authors only policy plus its committed locks, never Go or build glue. `specverb-gen` is the uv-style driver that makes that real - the `uv run` / `uv lock` model, not make targets. See [specverb.md](specverb.md) for the engine the driver wraps.
 
-## The four verbs
+## The five verbs
 
 Every verb reads a `--guardfile`, defaulting to the lone `*.guardfile.kdl` in the current directory.
 
 - **`gen`** - render `main.go` into the cache (or `--out` to inspect it), and write the reference doc (`<name>.md`) beside the Guardfile from the committed spec lock. A debug step for the source; `run` materializes for you.
 - **`lock`** - the deliberate online step. Fetches the upstream Swagger to the committed spec lock (`<spec>.lock.json`), then resolves the build's module graph (`go mod tidy` in a throwaway module) and freezes it into `specverb.lock`, and refreshes the reference doc from the freshly fetched spec. `--cli-guard-ref` pins the framework version (defaults to the driver's own); `--cli-guard-replace` points at a local checkout for development.
 - **`skew`** - diff the committed spec lock against live upstream at the operation level (added / removed / changed paths and definitions). Exit 3 on drift, never writes; a fetch failure is a plain error, so offline is distinguishable from drift.
+- **`build`** - materialize the consumer binary **out-of-band** (same cache + staleness path as `run`) and copy it to `--out` (default `bin`) instead of execing it, so the consumer keeps a real binary on disk to invoke directly. `--out` naming follows `go build -o`: an existing directory (or a trailing separator) takes the Guardfile-derived binary name; anything else is the explicit file path. Refuses without committed locks.
 - **`run`** - materialize the consumer binary **out-of-band** and exec it with the passed-through args.
 
 ## Out-of-band materialization

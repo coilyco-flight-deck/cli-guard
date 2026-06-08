@@ -22,7 +22,7 @@ import (
 // Options are the inputs shared by every driver verb.
 type Options struct {
 	GuardfilePath   string   // path to the consumer's KDL Guardfile
-	Out             string   // gen: explicit output path (debug escape hatch); cache when empty
+	Out             string   // gen: main.go output path (debug; cache when empty). build: binary output dir or path
 	Args            []string // run: arguments passed through to the materialized binary
 	CLIGuardRef     string   // lock: cli-guard module query to pin (version/commit); empty = auto
 	CLIGuardReplace string   // lock: local cli-guard checkout to replace with (dev locks only)
@@ -191,33 +191,61 @@ func Skew(opts Options) error {
 // Run materializes the consumer binary out-of-band (building only when stale)
 // and execs it. It refuses to run without committed locks rather than auto-locking.
 func Run(opts Options) error {
-	gf, p, gfBytes, err := load(opts)
+	binPath, _, err := materialize(opts)
 	if err != nil {
 		return err
+	}
+	return execBinary(binPath, opts.Args)
+}
+
+// Build materializes the consumer binary out-of-band (same cache + staleness
+// path as Run) and copies it to opts.Out instead of execing it. See specverb-driver.md.
+func Build(opts Options) error {
+	binPath, p, err := materialize(opts)
+	if err != nil {
+		return err
+	}
+	dest, err := resolveBuildDest(opts.Out, p.Binary)
+	if err != nil {
+		return err
+	}
+	if err := copyExecutable(binPath, dest); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "specverb-gen: built %s\n", dest)
+	return nil
+}
+
+// materialize is the shared prelude of Run and Build: it builds the consumer
+// binary into the cache when stale and returns its path. Refuses without locks.
+func materialize(opts Options) (string, specgen.Params, error) {
+	gf, p, gfBytes, err := load(opts)
+	if err != nil {
+		return "", specgen.Params{}, err
 	}
 	dir := filepath.Dir(opts.GuardfilePath)
 	specBytes, err := os.ReadFile(filepath.Join(dir, p.SpecLockName)) //nolint:gosec // committed spec snapshot
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("specdrv: no spec lock %s: %w", p.SpecLockName, ErrNoLock)
+			return "", p, fmt.Errorf("specdrv: no spec lock %s: %w", p.SpecLockName, ErrNoLock)
 		}
-		return fmt.Errorf("specdrv: read spec lock: %w", err)
+		return "", p, fmt.Errorf("specdrv: read spec lock: %w", err)
 	}
 	depLockPath := filepath.Join(dir, LockName)
 	depRaw, err := os.ReadFile(depLockPath) //nolint:gosec // committed dep lock
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("specdrv: no %s: %w", LockName, ErrNoLock)
+			return "", p, fmt.Errorf("specdrv: no %s: %w", LockName, ErrNoLock)
 		}
-		return fmt.Errorf("specdrv: read %s: %w", LockName, err)
+		return "", p, fmt.Errorf("specdrv: read %s: %w", LockName, err)
 	}
 	dl, err := readDepLock(depLockPath)
 	if err != nil {
-		return err
+		return "", p, err
 	}
 	cdir, err := cacheDir(opts.GuardfilePath)
 	if err != nil {
-		return err
+		return "", p, err
 	}
 	binPath := filepath.Join(cdir, "bin", p.Binary)
 	want := stamp{
@@ -228,9 +256,57 @@ func Run(opts Options) error {
 		BuiltAt:          time.Now().UTC().Format(time.RFC3339),
 	}
 	if err := materializeIfStale(cdir, binPath, gf, p, gfBytes, specBytes, dl, want); err != nil {
-		return err
+		return "", p, err
 	}
-	return execBinary(binPath, opts.Args)
+	return binPath, p, nil
+}
+
+// resolveBuildDest turns Build's --out into the binary's destination, following
+// go build -o: an existing dir (or trailing separator) takes the binary name.
+func resolveBuildDest(out, binary string) (string, error) {
+	if out == "" {
+		return "", fmt.Errorf("specdrv: build needs an output path (--out)")
+	}
+	dest := out
+	if strings.HasSuffix(out, string(os.PathSeparator)) {
+		dest = filepath.Join(out, binary)
+	} else if info, err := os.Stat(out); err == nil && info.IsDir() {
+		dest = filepath.Join(out, binary)
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
+		return "", fmt.Errorf("specdrv: create output dir: %w", err)
+	}
+	return dest, nil
+}
+
+// copyExecutable copies the cached binary to dest via temp file + rename, so an
+// older copy running at dest is replaced atomically, not truncated ("text file busy").
+func copyExecutable(src, dest string) error {
+	in, err := os.Open(src) //nolint:gosec // driver-built cache binary
+	if err != nil {
+		return fmt.Errorf("specdrv: open built binary: %w", err)
+	}
+	defer func() { _ = in.Close() }()
+	tmp, err := os.CreateTemp(filepath.Dir(dest), ".specverb-build-*")
+	if err != nil {
+		return fmt.Errorf("specdrv: create temp binary: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if _, err := io.Copy(tmp, in); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("specdrv: copy binary: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("specdrv: close temp binary: %w", err)
+	}
+	if err := os.Chmod(tmpName, 0o755); err != nil { //nolint:gosec // executable output
+		return fmt.Errorf("specdrv: chmod binary: %w", err)
+	}
+	if err := os.Rename(tmpName, dest); err != nil {
+		return fmt.Errorf("specdrv: install binary: %w", err)
+	}
+	return nil
 }
 
 // materializeIfStale rebuilds the binary under the cache lock when its inputs
