@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/awsgate"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode"
 	"github.com/urfave/cli/v3"
@@ -52,10 +53,35 @@ func Build(cfg Config) (*cli.Command, error) {
 		Usage: fmt.Sprintf("guarded %s verbs (exec dialect)", strings.Join(gf.Group, " ")),
 	}
 	for _, g := range gf.Grants {
+		if g.Wildcard {
+			if len(gf.Grants) != 1 {
+				return nil, fmt.Errorf("execverb: `can run *` must be the only grant (fail-closed)")
+			}
+			return mountWildcard(root, gf, g, wrap, run)
+		}
 		if err := mountGrant(root, gf, g, wrap, run); err != nil {
 			return nil, err
 		}
 	}
+	return root, nil
+}
+
+// mountWildcard turns the group itself into one open passthrough leaf; the
+// grant's gates and flag policy still decide whether the call happens.
+func mountWildcard(root *cli.Command, gf *Guardfile, g Grant, wrap func(verb.Spec) cli.ActionFunc, run Runner) (*cli.Command, error) {
+	gates, err := buildGates(g)
+	if err != nil {
+		return nil, err
+	}
+	root.Usage = leafUsage(gf, g)
+	root.SkipFlagParsing = true
+	root.Action = wrap(verb.Spec{
+		Name: strings.Join(gf.Group, "."),
+		ArgsFunc: func(c *cli.Command) (map[string]string, []string) {
+			return nil, c.Args().Slice()
+		},
+		Action: actionFor(gf, g, gates, run),
+	})
 	return root, nil
 }
 
@@ -94,6 +120,10 @@ func mountGrant(root *cli.Command, gf *Guardfile, g Grant, wrap func(verb.Spec) 
 		return fmt.Errorf("execverb: duplicate grant for subcommand %q", strings.Join(g.Subcommand, " "))
 	}
 	verbName := strings.Join(gf.Group, ".") + "." + strings.Join(g.Subcommand, ".")
+	gates, err := buildGates(g)
+	if err != nil {
+		return err
+	}
 	parent.Commands = append(parent.Commands, &cli.Command{
 		Name:            leafName,
 		Usage:           leafUsage(gf, g),
@@ -103,17 +133,56 @@ func mountGrant(root *cli.Command, gf *Guardfile, g Grant, wrap func(verb.Spec) 
 			ArgsFunc: func(c *cli.Command) (map[string]string, []string) {
 				return nil, c.Args().Slice()
 			},
-			Action: actionFor(gf, g, run),
+			Action: actionFor(gf, g, gates, run),
 		}),
 	})
 	return nil
 }
 
-// actionFor returns the leaf action: flag policy, then exec with the fixed
-// prefix + subcommand + caller args. The caller can never alter bin or prefix.
-func actionFor(gf *Guardfile, g Grant, run Runner) cli.ActionFunc {
+// gateFunc is one built preflight gate: a non-nil error denies the call.
+type gateFunc func(argv []string) error
+
+// gateRegistry maps Guardfile gate names onto builders. Unknown names fail
+// closed at build time, so a typo can never become a silently absent gate.
+var gateRegistry = map[string]func(GateSpec) gateFunc{
+	"aws-read": awsReadGate,
+}
+
+// awsReadGate adapts awsgate's sensitive-read denial to the gate contract.
+func awsReadGate(gs GateSpec) gateFunc {
+	g := awsgate.Gate{Patterns: gs.Patterns, AllowPatterns: gs.Allow, AllowEnv: gs.AllowEnv}
+	return func(argv []string) error {
+		token, pattern, denied := g.Check(argv)
+		if !denied {
+			return nil
+		}
+		return fmt.Errorf("read-only aws denied: %q matched the sensitive-read pattern %q (set %s=1 or add an allow glob to proceed deliberately)", token, pattern, gs.AllowEnv)
+	}
+}
+
+// buildGates resolves a grant's gate specs against the registry, fail-closed.
+func buildGates(g Grant) ([]gateFunc, error) {
+	var gates []gateFunc
+	for _, gs := range g.Gates {
+		build, ok := gateRegistry[gs.Name]
+		if !ok {
+			return nil, fmt.Errorf("execverb: grant %q: unknown gate %q (fail-closed)", g.subcommandLabel(), gs.Name)
+		}
+		gates = append(gates, build(gs))
+	}
+	return gates, nil
+}
+
+// actionFor returns the leaf action: gates, then flag policy, then exec with
+// the fixed prefix + subcommand + caller args (bin and prefix are immutable).
+func actionFor(gf *Guardfile, g Grant, gates []gateFunc, run Runner) cli.ActionFunc {
 	return func(ctx context.Context, c *cli.Command) error {
 		args := c.Args().Slice()
+		for _, gate := range gates {
+			if err := gate(args); err != nil {
+				return exitcode.New(exitcode.UserError, "user_error", err, "this call is refused by a Guardfile gate")
+			}
+		}
 		if err := checkFlagPolicy(args, g); err != nil {
 			return exitcode.New(exitcode.UserError, "user_error", err, "this flag is refused by the Guardfile policy")
 		}
@@ -153,7 +222,11 @@ func checkFlagPolicy(args []string, g Grant) error {
 
 // leafUsage renders the one-line help: the real invocation plus the policy.
 func leafUsage(gf *Guardfile, g Grant) string {
-	u := fmt.Sprintf("exec: %s %s", gf.Bin, strings.Join(append(append([]string{}, gf.ArgvPrefix...), g.Subcommand...), " "))
+	invocation := append(append([]string{}, gf.ArgvPrefix...), g.Subcommand...)
+	u := fmt.Sprintf("exec: %s %s", gf.Bin, strings.TrimSpace(strings.Join(invocation, " ")))
+	if g.Wildcard {
+		u += " <args...> (open passthrough)"
+	}
 	if g.Describe != "" {
 		u += " - " + g.Describe
 	}

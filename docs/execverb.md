@@ -23,7 +23,9 @@ wrap ward git {
 - **`exec <bin>`** - the real binary, fixed at parse. The caller can never substitute it.
 - **`argv-prefix`** (child of `exec`) - an unoverridable leading argv, the remote-exec transport: `exec ssh { argv-prefix "kai@kai-server" "k3s" "kubectl" ... }` pins the whole invocation shape ahead of the granted subcommand.
 - **`can run <subcommand>`** - deny-by-default: only named subcommands mount. A quoted multi-word sentence (`"admin user list"`) mounts as a nested path.
+- **`can run "*"`** - the open-passthrough grant: the group itself becomes one leaf and every service/operation reaches the binary. Must be the only grant. This is the funnel shape for broad tools (aws): coverage stays comprehensive, and the gates below decide what is refused.
 - **Flag policy per grant** - `deny-flag` (default-allow minus denials) or `allow-flag` (strict allowlist when any is present). `describe` adds the human note.
+- **`gate <name> { ... }`** - a registered preflight gate with declarative config (`pattern`, `allow`, `allow-env`). `aws-read` ships first: read-only aws verbs touching sensitive globs (secrets, tfstate, backups, admin ARNs - `cli/awsgate`) are denied pre-send, with allow-glob and one-shot env escapes. Unknown gate names fail closed at build.
 - **`never run`** - an explicit denial; parses for documentation value, mounts nothing.
 
 Unknown nodes fail closed, like every Guardfile shape.

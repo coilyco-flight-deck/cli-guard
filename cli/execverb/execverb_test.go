@@ -171,6 +171,88 @@ func TestComposesWithVerbWrap(t *testing.T) {
 	}
 }
 
+const awsGuardfile = `wrap ward ops aws {
+	exec aws
+
+	can run "*" {
+		gate aws-read {
+			allow-env "WARD_AWS_ALLOW_SENSITIVE_READ"
+		}
+		describe "open aws passthrough behind the sensitive-read gate"
+	}
+}`
+
+// TestWildcardPassthrough proves `can run *` mounts the group itself as one
+// open passthrough: any service/operation reaches the binary verbatim.
+func TestWildcardPassthrough(t *testing.T) {
+	var cp capture
+	if err := runArgv(t, awsGuardfile, &cp, "ops", "aws", "sts", "get-caller-identity"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if cp.bin != "aws" || strings.Join(cp.argv, " ") != "sts get-caller-identity" {
+		t.Errorf("invocation = %s %v, want aws sts get-caller-identity", cp.bin, cp.argv)
+	}
+}
+
+// TestAWSReadGateDeniesSensitiveRead proves the declared gate refuses a
+// read-only verb touching a sensitive token before any exec happens.
+func TestAWSReadGateDeniesSensitiveRead(t *testing.T) {
+	var cp capture
+	err := runArgv(t, awsGuardfile, &cp, "ops", "aws", "s3", "ls", "s3://prod-secrets-bucket")
+	if err == nil {
+		t.Fatal("expected the sensitive read to be denied, got nil")
+	}
+	if cp.bin != "" {
+		t.Errorf("denied invocation still executed: %s %v", cp.bin, cp.argv)
+	}
+	if !strings.Contains(err.Error(), "*secret*") {
+		t.Errorf("denial should name the matched pattern: %v", err)
+	}
+}
+
+// TestAWSReadGatePassesWritesAndEscapes proves write verbs skip the read gate
+// and the env escape allows a deliberate sensitive read.
+func TestAWSReadGatePassesWritesAndEscapes(t *testing.T) {
+	var cp capture
+	if err := runArgv(t, awsGuardfile, &cp, "ops", "aws", "ssm", "put-parameter", "--name", "/x/secret-thing"); err != nil {
+		t.Fatalf("write verb must pass the read gate: %v", err)
+	}
+	t.Setenv("WARD_AWS_ALLOW_SENSITIVE_READ", "1")
+	if err := runArgv(t, awsGuardfile, &cp, "ops", "aws", "s3", "ls", "s3://prod-secrets-bucket"); err != nil {
+		t.Fatalf("env escape must allow the read: %v", err)
+	}
+}
+
+// TestUnknownGateFailsClosed proves a typo'd gate name refuses to build.
+func TestUnknownGateFailsClosed(t *testing.T) {
+	gf, err := Parse([]byte(`wrap ward ops aws {
+		exec aws
+		can run "*" { gate aws-reed {} }
+	}`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, err := Build(Config{Guardfile: gf}); err == nil {
+		t.Fatal("expected an unknown-gate build error, got nil")
+	}
+}
+
+// TestWildcardMustBeOnlyGrant proves mixing `can run *` with named grants
+// refuses to build.
+func TestWildcardMustBeOnlyGrant(t *testing.T) {
+	gf, err := Parse([]byte(`wrap ward ops aws {
+		exec aws
+		can run "*"
+		can run s3
+	}`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, err := Build(Config{Guardfile: gf}); err == nil {
+		t.Fatal("expected a wildcard-exclusivity build error, got nil")
+	}
+}
+
 func TestParseFailsClosed(t *testing.T) {
 	cases := []string{
 		`wrap ward git { can run status }`,                           // no exec block

@@ -10,8 +10,9 @@ Packages are grouped by **guarded surface** plus a shared `pkg/` core; `cli/`, `
 
 - **passthrough** - Audited urfave subcommand around an existing binary.
 - **execverb** - Exec-dialect KDL verbs. See [execverb.md](execverb.md).
+- **awsgate** - Deny sensitive-glob aws reads.
 - **verb** - Middleware around every `*cli.Command.Action`.
-- **shell** / **sandbox** - Subprocess execution plus its seccomp/namespace jail (Linux); the execve enforcement boundary.
+- **shell** / **sandbox** - Subprocess execution + seccomp/namespace jail (Linux), the execve boundary.
 - **gittree** - Clean+synced gate for repo-shaped verbs.
 - **repocfg** / **allowlist** - Per-repo command allowlist from a configurable YAML, validated against the repo Makefile.
 - **catalog** - Assert a repo's config YAML carries a `catalog:` block with the required keys.
@@ -20,7 +21,7 @@ Packages are grouped by **guarded surface** plus a shared `pkg/` core; `cli/`, `
 - **doctor** - Verify the deny-by-structure floor (no passwordless sudo, real binary not agent-executable, no credential env).
 - **sudo** - Policy-free interactive sudo plumbing over any stdin-piping transport.
 - **dispatch** - Fire `claude` against a real open issue; consumer swaps the resolver via `Config.IssueFetcher`.
-- **lockdown** / **profiles** / **profile** / **decision** - Permission-file writer, per-host profile registry, shared profile type, and the per-call profile-aware evaluator.
+- **lockdown** / **profiles** / **profile** / **decision** - Permission-file writer, per-host profile registry + type, per-call evaluator.
 - **cmd/cli-guard-hook** - Buildable PreToolUse binary for shell-only consumers.
 
 ### HTTP request surface (`http/`)

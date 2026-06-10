@@ -20,6 +20,66 @@ func Lint(yamlPath, makefilePath string) ([]Problem, error)
     against caller-resolved paths. Violations are Problems; bad input errors.
 
 
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/awsgate
+
+package awsgate // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/awsgate"
+
+Package awsgate denies read-only aws invocations touching sensitive resources,
+pre-send. Extracted from coily's read gate; see docs/execverb.md.
+
+VARIABLES
+
+var DefaultSensitivePatterns = []string{
+	"*secret*",
+	"*credential*",
+	"*-private*",
+	"*private-*",
+	"*tfstate*",
+	"*terraform-state*",
+	"*-backup*",
+	"*-backups*",
+	"arn:aws:iam::*:role/*admin*",
+	"arn:aws:iam::*:role/*root*",
+}
+    DefaultSensitivePatterns is the baked-in default-deny set: secrets,
+    terraform state, backups, admin/root ARNs. Meaningful-name globs only.
+
+
+FUNCTIONS
+
+func GlobMatch(pattern, s string) bool
+    GlobMatch reports whether s matches pattern, where `*` matches any run of
+    characters (crossing `/` and `:`, unlike filepath.Match), the rest literal.
+
+func IsReadOnly(argv []string) bool
+    IsReadOnly reports whether argv is a read-only aws invocation: a service
+    plus an operation named by the CLI's read convention (describe-*, ls, ...).
+
+func Positionals(argv []string) []string
+    Positionals returns argv with flags (and the values of known value-taking
+    global flags) removed, preserving order.
+
+
+TYPES
+
+type Gate struct {
+	// Patterns are the sensitive globs; empty means DefaultSensitivePatterns.
+	Patterns []string
+
+	// AllowPatterns are globs naming tokens explicitly allowed through.
+	AllowPatterns []string
+
+	// AllowEnv, when set non-empty in the environment, is the one-shot
+	// per-invocation override for a deliberate read of a flagged resource.
+	AllowEnv string
+}
+    Gate is one configured sensitive-read policy.
+
+func (g Gate) Check(argv []string) (token, pattern string, denied bool)
+    Check returns a denial (token, pattern, denied=true) when argv is a
+    read-only aws invocation touching a sensitive token no escape allows.
+
+
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/catalog
 
 package catalog // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/catalog"
@@ -340,10 +400,20 @@ type Config struct {
 }
     Config is everything the engine needs to build a command tree.
 
+type GateSpec struct {
+	Name     string   // registry key, e.g. "aws-read"
+	Patterns []string // gate-specific deny globs; empty = gate defaults
+	Allow    []string // explicit allow globs
+	AllowEnv string   // one-shot env-var escape hatch
+}
+    GateSpec names a registered preflight gate plus its declarative config.
+
 type Grant struct {
 	Subcommand []string // e.g. ["admin", "user", "list"]
+	Wildcard   bool     // `can run *`: the whole binary passes through
 	AllowFlags []string // non-empty -> strict flag allowlist
 	DenyFlags  []string // default-allow minus these
+	Gates      []GateSpec
 	Describe   string
 }
     Grant is one `can run <subcommand>` sentence plus its flag policy.

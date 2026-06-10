@@ -20,9 +20,19 @@ type Guardfile struct {
 // Grant is one `can run <subcommand>` sentence plus its flag policy.
 type Grant struct {
 	Subcommand []string // e.g. ["admin", "user", "list"]
+	Wildcard   bool     // `can run *`: the whole binary passes through
 	AllowFlags []string // non-empty -> strict flag allowlist
 	DenyFlags  []string // default-allow minus these
+	Gates      []GateSpec
 	Describe   string
+}
+
+// GateSpec names a registered preflight gate plus its declarative config.
+type GateSpec struct {
+	Name     string   // registry key, e.g. "aws-read"
+	Patterns []string // gate-specific deny globs; empty = gate defaults
+	Allow    []string // explicit allow globs
+	AllowEnv string   // one-shot env-var escape hatch
 }
 
 // Parse turns exec-dialect Guardfile source into a Guardfile. It fails closed:
@@ -107,12 +117,51 @@ func parseGrant(n *kdl.Node) (Grant, error) {
 		// a quoted multi-word sentence ("admin user list") splits to path words
 		g.Subcommand = append(g.Subcommand, strings.Fields(a.String())...)
 	}
+	if len(g.Subcommand) == 1 && g.Subcommand[0] == "*" {
+		g.Subcommand = nil
+		g.Wildcard = true
+	}
 	for _, c := range n.Children().Nodes {
+		if c.Name() == "gate" {
+			gs, err := parseGate(c)
+			if err != nil {
+				return Grant{}, err
+			}
+			g.Gates = append(g.Gates, gs)
+			continue
+		}
 		if err := g.applyPolicyNode(c); err != nil {
 			return Grant{}, err
 		}
 	}
 	return g, nil
+}
+
+// parseGate reads a `gate <name> { pattern|allow|allow-env ... }` child.
+func parseGate(c *kdl.Node) (GateSpec, error) {
+	args := c.Arguments()
+	if len(args) != 1 {
+		return GateSpec{}, fmt.Errorf("execverb: `gate` expects exactly one name, got %d", len(args))
+	}
+	gs := GateSpec{Name: args[0].String()}
+	for _, n := range c.Children().Nodes {
+		na := n.Arguments()
+		if len(na) != 1 {
+			return GateSpec{}, fmt.Errorf("execverb: gate %s: %q expects exactly one value", gs.Name, n.Name())
+		}
+		v := na[0].String()
+		switch n.Name() {
+		case "pattern":
+			gs.Patterns = append(gs.Patterns, v)
+		case "allow":
+			gs.Allow = append(gs.Allow, v)
+		case "allow-env":
+			gs.AllowEnv = v
+		default:
+			return GateSpec{}, fmt.Errorf("execverb: gate %s: unknown node %q (fail-closed)", gs.Name, n.Name())
+		}
+	}
+	return gs, nil
 }
 
 // applyPolicyNode reads one flag-policy or describe child of a grant.
@@ -133,4 +182,12 @@ func (g *Grant) applyPolicyNode(c *kdl.Node) error {
 		return fmt.Errorf("execverb: grant body: unknown node %q (fail-closed)", c.Name())
 	}
 	return nil
+}
+
+// subcommandLabel renders the grant's path for error messages.
+func (g Grant) subcommandLabel() string {
+	if g.Wildcard {
+		return "*"
+	}
+	return strings.Join(g.Subcommand, " ")
 }
