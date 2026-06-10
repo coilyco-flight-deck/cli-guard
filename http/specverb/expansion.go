@@ -17,8 +17,8 @@ type tableEntry struct {
 	OperationID string
 }
 
-// expansionTable is the M0 allowlist: the forgejo repo and org
-// read/create/delete trios. Everything else fails closed.
+// expansionTable is the curated allowlist: the forgejo repo and org trios
+// plus the all-scalar label and milestone groups. Everything else fails closed.
 var expansionTable = map[grantKey]tableEntry{
 	{Verb: "read", Resource: "repos"}:   {Group: "repo", Leaf: "get", OperationID: "repoGet"},
 	{Verb: "create", Resource: "repos"}: {Group: "repo", Leaf: "create", OperationID: "createCurrentUserRepo"},
@@ -28,6 +28,20 @@ var expansionTable = map[grantKey]tableEntry{
 	{Verb: "list", Resource: "orgs"}:   {Group: "org", Leaf: "list", OperationID: "orgGetAll"},
 	{Verb: "create", Resource: "orgs"}: {Group: "org", Leaf: "create", OperationID: "orgCreate"},
 	{Verb: "delete", Resource: "orgs"}: {Group: "org", Leaf: "delete", OperationID: "orgDelete"},
+
+	// labels and milestones: the all-scalar-body groups, so the full
+	// read/list/create/edit/delete fan-out is pure table rows.
+	{Verb: "read", Resource: "labels"}:   {Group: "label", Leaf: "get", OperationID: "issueGetLabel"},
+	{Verb: "list", Resource: "labels"}:   {Group: "label", Leaf: "list", OperationID: "issueListLabels"},
+	{Verb: "create", Resource: "labels"}: {Group: "label", Leaf: "create", OperationID: "issueCreateLabel"},
+	{Verb: "edit", Resource: "labels"}:   {Group: "label", Leaf: "edit", OperationID: "issueEditLabel"},
+	{Verb: "delete", Resource: "labels"}: {Group: "label", Leaf: "delete", OperationID: "issueDeleteLabel"},
+
+	{Verb: "read", Resource: "milestones"}:   {Group: "milestone", Leaf: "get", OperationID: "issueGetMilestone"},
+	{Verb: "list", Resource: "milestones"}:   {Group: "milestone", Leaf: "list", OperationID: "issueGetMilestonesList"},
+	{Verb: "create", Resource: "milestones"}: {Group: "milestone", Leaf: "create", OperationID: "issueCreateMilestone"},
+	{Verb: "edit", Resource: "milestones"}:   {Group: "milestone", Leaf: "edit", OperationID: "issueEditMilestone"},
+	{Verb: "delete", Resource: "milestones"}: {Group: "milestone", Leaf: "delete", OperationID: "issueDeleteMilestone"},
 }
 
 // destructiveLeaves names the irreversibly-mutating leaves. The descriptor
