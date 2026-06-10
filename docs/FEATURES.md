@@ -9,6 +9,7 @@ Packages are grouped by **guarded surface** plus a shared `pkg/` core; `cli/`, `
 ### CLI passthrough surface (`cli/`)
 
 - **passthrough** - Audited urfave subcommand around an existing binary.
+- **execverb** - Exec-dialect KDL verbs. See [execverb.md](execverb.md).
 - **verb** - Middleware around every `*cli.Command.Action`.
 - **shell** / **sandbox** - Subprocess execution plus its seccomp/namespace jail (Linux); the execve enforcement boundary.
 - **gittree** - Clean+synced gate for repo-shaped verbs.
@@ -25,7 +26,7 @@ Packages are grouped by **guarded surface** plus a shared `pkg/` core; `cli/`, `
 ### HTTP request surface (`http/`)
 
 - **egress** - Per-invocation CONNECT proxy with consumer allowlist.
-- **guardfile** / **specverb** / **specgen** / **specdrv** / **cmd/specverb-gen** - Spec-driven verbs from a KDL Guardfile + Swagger spec, with the no-code `specverb-gen` driver. See [specverb.md](specverb.md), [specverb-driver.md](specverb-driver.md).
+- **guardfile** / **specverb** / **specgen** / **specdrv** - Spec-driven verbs from a KDL Guardfile + Swagger spec; no-code driver. See [specverb.md](specverb.md), [specverb-driver.md](specverb-driver.md).
 - **respfmt** - JSON response renderer with JMESPath + five output formats.
 - **ghcache** / **ghidcache** / **ghratelimit** / **stscache** - Forgejo/GitHub response, id, rate-limit, and STS credential caches.
 

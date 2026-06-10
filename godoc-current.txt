@@ -307,6 +307,64 @@ func (s Severity) String() string
     String renders the severity as a short uppercase label.
 
 
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/execverb
+
+package execverb // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/execverb"
+
+Package execverb mounts exec-shaped verbs from a KDL Guardfile: the exec dialect
+of the spec-driven design. See docs/execverb.md.
+
+FUNCTIONS
+
+func Build(cfg Config) (*cli.Command, error)
+    Build assembles the guarded command tree and returns the Guardfile group's
+    leaf command (e.g. `git`). Fails closed: a malformed grant is an error.
+
+func Mount(root *cli.Command, cfg Config) error
+    Mount builds the guarded group and grafts it onto root, generating the
+    intermediate path groups the Guardfile names, mirroring specverb.Mount.
+
+
+TYPES
+
+type Config struct {
+	// Guardfile is the parsed exec-dialect policy.
+	Guardfile *Guardfile
+
+	// Wrap adapts a verb.Spec into a guarded cli.ActionFunc (the audit + argv
+	// pipeline). nil mounts the bare action, for doc rendering only.
+	Wrap func(verb.Spec) cli.ActionFunc
+
+	// Run fires the command. nil execs for real.
+	Run Runner
+}
+    Config is everything the engine needs to build a command tree.
+
+type Grant struct {
+	Subcommand []string // e.g. ["admin", "user", "list"]
+	AllowFlags []string // non-empty -> strict flag allowlist
+	DenyFlags  []string // default-allow minus these
+	Describe   string
+}
+    Grant is one `can run <subcommand>` sentence plus its flag policy.
+
+type Guardfile struct {
+	Group      []string // command path, e.g. ["ward", "git"]
+	Bin        string   // the real binary, fixed at parse
+	ArgvPrefix []string // unoverridable leading argv (remote-exec transport)
+	Grants     []Grant
+}
+    Guardfile is the parsed form of one exec-dialect wrap block.
+
+func Parse(src []byte) (*Guardfile, error)
+    Parse turns exec-dialect Guardfile source into a Guardfile. It fails closed:
+    an unknown node, missing exec block, or malformed sentence is an error.
+
+type Runner func(ctx context.Context, bin string, argv []string) error
+    Runner fires the resolved command. Injected so tests capture argv; nil uses
+    the real exec with inherited stdio.
+
+
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/gittree
 
 package gittree // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/gittree"
