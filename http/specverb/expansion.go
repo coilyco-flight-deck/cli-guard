@@ -15,7 +15,7 @@ type tableEntry struct {
 	Group       string
 	Leaf        string
 	OperationID string
-	FixedBody   map[string]string
+	FixedBody   map[string]any
 }
 
 // expansionTable is the curated allowlist: the forgejo repo and org trios
@@ -56,10 +56,33 @@ var expansionTable = map[grantKey]tableEntry{
 
 	// state toggles: fixed-body PATCHes over the edit ops. Reversible by
 	// construction (close <-> reopen), so never flagged destructive.
-	{Verb: "close", Resource: "issues"}:      {Group: "issue", Leaf: "close", OperationID: "issueEditIssue", FixedBody: map[string]string{"state": "closed"}},
-	{Verb: "reopen", Resource: "issues"}:     {Group: "issue", Leaf: "reopen", OperationID: "issueEditIssue", FixedBody: map[string]string{"state": "open"}},
-	{Verb: "close", Resource: "milestones"}:  {Group: "milestone", Leaf: "close", OperationID: "issueEditMilestone", FixedBody: map[string]string{"state": "closed"}},
-	{Verb: "reopen", Resource: "milestones"}: {Group: "milestone", Leaf: "reopen", OperationID: "issueEditMilestone", FixedBody: map[string]string{"state": "open"}},
+	{Verb: "close", Resource: "issues"}:      {Group: "issue", Leaf: "close", OperationID: "issueEditIssue", FixedBody: map[string]any{"state": "closed"}},
+	{Verb: "reopen", Resource: "issues"}:     {Group: "issue", Leaf: "reopen", OperationID: "issueEditIssue", FixedBody: map[string]any{"state": "open"}},
+	{Verb: "close", Resource: "milestones"}:  {Group: "milestone", Leaf: "close", OperationID: "issueEditMilestone", FixedBody: map[string]any{"state": "closed"}},
+	{Verb: "reopen", Resource: "milestones"}: {Group: "milestone", Leaf: "reopen", OperationID: "issueEditMilestone", FixedBody: map[string]any{"state": "open"}},
+
+	// releases: all-scalar option schemas; upload-asset (multipart) is the
+	// named follow-up in docs/specverb.md.
+	{Verb: "read", Resource: "releases"}:   {Group: "release", Leaf: "get", OperationID: "repoGetRelease"},
+	{Verb: "list", Resource: "releases"}:   {Group: "release", Leaf: "list", OperationID: "repoListReleases"},
+	{Verb: "create", Resource: "releases"}: {Group: "release", Leaf: "create", OperationID: "repoCreateRelease"},
+	{Verb: "edit", Resource: "releases"}:   {Group: "release", Leaf: "edit", OperationID: "repoEditRelease"},
+	{Verb: "delete", Resource: "releases"}: {Group: "release", Leaf: "delete", OperationID: "repoDeleteRelease"},
+
+	// repos, second batch: search-list, sparse edit (nested tracker/wiki
+	// objects ride --body-file), fork, and archive/unarchive toggles.
+	{Verb: "list", Resource: "repos"}:      {Group: "repo", Leaf: "list", OperationID: "repoSearch"},
+	{Verb: "edit", Resource: "repos"}:      {Group: "repo", Leaf: "edit", OperationID: "repoEdit"},
+	{Verb: "fork", Resource: "repos"}:      {Group: "repo", Leaf: "fork", OperationID: "createFork"},
+	{Verb: "archive", Resource: "repos"}:   {Group: "repo", Leaf: "archive", OperationID: "repoEdit", FixedBody: map[string]any{"archived": true}},
+	{Verb: "unarchive", Resource: "repos"}: {Group: "repo", Leaf: "unarchive", OperationID: "repoEdit", FixedBody: map[string]any{"archived": false}},
+
+	// pulls: read-only pair; pr create stays policy-disabled (merge to main).
+	{Verb: "read", Resource: "pulls"}: {Group: "pr", Leaf: "view", OperationID: "repoGetPullRequest"},
+	{Verb: "list", Resource: "pulls"}: {Group: "pr", Leaf: "list", OperationID: "repoListPullRequests"},
+
+	// actions tasks: the read surface of CI runs.
+	{Verb: "list", Resource: "tasks"}: {Group: "task", Leaf: "list", OperationID: "ListActionTasks"},
 }
 
 // destructiveLeaves names the irreversibly-mutating leaves. The descriptor

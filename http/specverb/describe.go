@@ -5,6 +5,7 @@ package specverb
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -34,16 +35,16 @@ type AuthInfo struct {
 // VerbInfo is one mounted leaf: its CLI placement, the HTTP op it drives, its
 // destructive flag, the grant that authorized it, and the optional human note.
 type VerbInfo struct {
-	Name        string            `json:"name"`                 // dotted audit name, e.g. ward.ops.forgejo.repo.create
-	Group       string            `json:"group"`                // CLI noun, e.g. repo
-	Leaf        string            `json:"leaf"`                 // CLI verb, e.g. create
-	Method      string            `json:"method"`               // HTTP method
-	Path        string            `json:"path"`                 // path template
-	Destructive bool              `json:"destructive"`          // mutates irreversibly
-	Grant       string            `json:"grant"`                // authorizing grant sentence
-	Describe    string            `json:"describe,omitempty"`   // Guardfile describe "..." note
-	Params      []ParamInfo       `json:"params,omitempty"`     // path/query/body params, in invocation order
-	FixedBody   map[string]string `json:"fixed_body,omitempty"` // exact body a state-toggle leaf sends
+	Name        string         `json:"name"`                 // dotted audit name, e.g. ward.ops.forgejo.repo.create
+	Group       string         `json:"group"`                // CLI noun, e.g. repo
+	Leaf        string         `json:"leaf"`                 // CLI verb, e.g. create
+	Method      string         `json:"method"`               // HTTP method
+	Path        string         `json:"path"`                 // path template
+	Destructive bool           `json:"destructive"`          // mutates irreversibly
+	Grant       string         `json:"grant"`                // authorizing grant sentence
+	Describe    string         `json:"describe,omitempty"`   // Guardfile describe "..." note
+	Params      []ParamInfo    `json:"params,omitempty"`     // path/query/body params, in invocation order
+	FixedBody   map[string]any `json:"fixed_body,omitempty"` // exact body a state-toggle leaf sends
 }
 
 // ParamInfo is one input to a verb, tagged by kind so help can always show the
@@ -205,7 +206,7 @@ func writeParamSections(b *strings.Builder, params []ParamInfo) {
 
 // fixedBodySentence states the exact body a state-toggle leaf sends, in sorted
 // key order so the sentence is deterministic; "" for ordinary leaves.
-func fixedBodySentence(fixed map[string]string) string {
+func fixedBodySentence(fixed map[string]any) string {
 	if len(fixed) == 0 {
 		return ""
 	}
@@ -216,7 +217,8 @@ func fixedBodySentence(fixed map[string]string) string {
 	sort.Strings(keys)
 	parts := make([]string, len(keys))
 	for i, k := range keys {
-		parts[i] = fmt.Sprintf("%q: %q", k, fixed[k])
+		v, _ := json.Marshal(fixed[k])
+		parts[i] = fmt.Sprintf("%q: %s", k, v)
 	}
 	return fmt.Sprintf("Always sends the fixed body {%s}; takes no body flags.", strings.Join(parts, ", "))
 }

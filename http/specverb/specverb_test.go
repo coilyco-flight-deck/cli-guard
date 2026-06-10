@@ -614,6 +614,21 @@ func TestStateToggleSendsFixedBody(t *testing.T) {
 	}
 }
 
+// TestBoolFixedBodyToggle proves a non-string fixed body (archive ->
+// {"archived":true}) serializes with its JSON type, matching coily's oracle.
+func TestBoolFixedBodyToggle(t *testing.T) {
+	e, ok := lookupExpansion("archive", "repos")
+	if !ok {
+		t.Fatal("archive repos should be in the expansion allowlist")
+	}
+	if v, isBool := e.FixedBody["archived"].(bool); !isBool || !v {
+		t.Errorf("archive fixed body = %#v, want archived: true (bool)", e.FixedBody)
+	}
+	if got := fixedBodySentence(e.FixedBody); !strings.Contains(got, `"archived": true`) {
+		t.Errorf("fixed body sentence = %q, want a JSON-typed rendering", got)
+	}
+}
+
 // TestDescribeShowsQueryAndArrayParams proves the describe model carries the
 // new param kinds so the reference doc and help stay truthful.
 func TestDescribeShowsQueryAndArrayParams(t *testing.T) {

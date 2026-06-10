@@ -48,18 +48,18 @@ type Config struct {
 // opDescriptor is the tiny per-operation payload the generic action binds to,
 // isolated from the static request machinery.
 type opDescriptor struct {
-	VerbName    string            // dotted audit name, e.g. ward.ops.forgejo.repo.create
-	Group       string            // CLI group noun, e.g. repo
-	Leaf        string            // CLI leaf verb, e.g. create
-	Method      string            // HTTP method
-	Path        string            // path template, e.g. /repos/{owner}/{repo}
-	PathParams  []string          // ordered positional args drawn from the path
-	BodyFlags   []fieldFlag       // request-body fields promoted to flags
-	QueryFlags  []fieldFlag       // scalar query params promoted to flags
-	FixedBody   map[string]string // exact body for state-toggle leaves; no body flags mount
-	Destructive bool              // leaf mutates irreversibly (delete)
-	Grant       string            // the authorizing grant sentence, e.g. "can delete repos"
-	Describe    string            // optional Guardfile describe "..." note, "" if none
+	VerbName    string         // dotted audit name, e.g. ward.ops.forgejo.repo.create
+	Group       string         // CLI group noun, e.g. repo
+	Leaf        string         // CLI leaf verb, e.g. create
+	Method      string         // HTTP method
+	Path        string         // path template, e.g. /repos/{owner}/{repo}
+	PathParams  []string       // ordered positional args drawn from the path
+	BodyFlags   []fieldFlag    // request-body fields promoted to flags
+	QueryFlags  []fieldFlag    // scalar query params promoted to flags
+	FixedBody   map[string]any // exact body for state-toggle leaves; no body flags mount
+	Destructive bool           // leaf mutates irreversibly (delete)
+	Grant       string         // the authorizing grant sentence, e.g. "can delete repos"
+	Describe    string         // optional Guardfile describe "..." note, "" if none
 }
 
 // fieldFlag is one spec input promoted to a typed CLI flag: a request-body
