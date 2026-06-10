@@ -56,6 +56,7 @@ type opDescriptor struct {
 	PathParams  []string       // ordered positional args drawn from the path
 	BodyFlags   []fieldFlag    // request-body fields promoted to flags
 	QueryFlags  []fieldFlag    // scalar query params promoted to flags
+	FormFlags   []fieldFlag    // formData params; "file" types take a path
 	FixedBody   map[string]any // exact body for state-toggle leaves; no body flags mount
 	Destructive bool           // leaf mutates irreversibly (delete)
 	Grant       string         // the authorizing grant sentence, e.g. "can delete repos"
@@ -258,6 +259,7 @@ func resolveDescriptor(spec *swaggerSpec, group []string, g guardfile.Grant) (op
 		PathParams:  pathParamsInOrder(path),
 		BodyFlags:   bodyFlagsFrom(bodySchema),
 		QueryFlags:  queryFlagsFrom(op),
+		FormFlags:   formFlagsFrom(op),
 		FixedBody:   entry.FixedBody,
 		Destructive: destructiveLeaves[entry.Leaf],
 		Grant:       formatGrant(g),
@@ -282,12 +284,13 @@ var reservedFlagNames = map[string]bool{
 // universal flag or another promoted input on the same leaf.
 func checkFlagCollisions(desc opDescriptor) error {
 	seen := map[string]bool{}
-	for _, f := range append(append([]fieldFlag{}, desc.QueryFlags...), desc.BodyFlags...) {
+	all := append(append([]fieldFlag{}, desc.QueryFlags...), desc.BodyFlags...)
+	for _, f := range append(all, desc.FormFlags...) {
 		if reservedFlagNames[f.Name] {
 			return fmt.Errorf("specverb: %s: spec input %q collides with a reserved engine flag (fail-closed)", desc.VerbName, f.Name)
 		}
 		if seen[f.Name] {
-			return fmt.Errorf("specverb: %s: query and body inputs both name %q (fail-closed)", desc.VerbName, f.Name)
+			return fmt.Errorf("specverb: %s: two spec inputs both name %q (fail-closed)", desc.VerbName, f.Name)
 		}
 		seen[f.Name] = true
 	}
@@ -320,26 +323,52 @@ func bodyFlagsFrom(schema *swaggerSchema) []fieldFlag {
 	sort.Strings(names)
 	var flags []fieldFlag
 	for _, name := range names {
-		prop := schema.Properties[name]
-		f := fieldFlag{Name: name, Required: required[name], Desc: prop.Description}
-		switch {
-		case isScalar(prop.Type):
-			f.Type = prop.Type
-		case prop.Type == "array" && prop.Items != nil && isScalar(prop.Items.Type):
-			f.Type = "array"
-			f.Items = prop.Items.Type
-		default: // nested objects stay out of scope; --body-file covers them
-			continue
+		if f, ok := fieldFlagFor(name, schema.Properties[name], required[name]); ok {
+			flags = append(flags, f)
 		}
-		flags = append(flags, f)
 	}
 	return flags
+}
+
+// fieldFlagFor lowers one body property to a flag; ok=false for shapes only
+// --body-file can express (nested objects).
+func fieldFlagFor(name string, prop swaggerSchema, required bool) (fieldFlag, bool) {
+	f := fieldFlag{Name: name, Required: required, Desc: prop.Description}
+	switch {
+	case isScalar(prop.Type):
+		f.Type = prop.Type
+	case prop.Type == "array" && prop.Items != nil && isScalar(prop.Items.Type):
+		f.Type = "array"
+		f.Items = prop.Items.Type
+	case prop.Type == "array" && prop.Items != nil && prop.Items.Type == "":
+		// untyped union items (forgejo's "label ids or names") lower to strings
+		f.Type = "array"
+		f.Items = "string"
+	default:
+		return fieldFlag{}, false
+	}
+	return f, true
 }
 
 // queryFlagsFrom promotes an operation's scalar query parameters to flags.
 func queryFlagsFrom(op swaggerOp) []fieldFlag {
 	var flags []fieldFlag
 	for _, p := range queryParamsOf(op) {
+		flags = append(flags, fieldFlag{
+			Name:     p.Name,
+			Type:     p.Type,
+			Required: p.Required,
+			Desc:     p.Description,
+		})
+	}
+	return flags
+}
+
+// formFlagsFrom promotes an operation's formData parameters to flags; a "file"
+// param mounts as a path-taking string flag the action streams into multipart.
+func formFlagsFrom(op swaggerOp) []fieldFlag {
+	var flags []fieldFlag
+	for _, p := range formParamsOf(op) {
 		flags = append(flags, fieldFlag{
 			Name:     p.Name,
 			Type:     p.Type,

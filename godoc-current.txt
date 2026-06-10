@@ -1581,7 +1581,7 @@ type Config struct {
 
 type ParamInfo struct {
 	Name     string `json:"name"`
-	Kind     string `json:"kind"`           // "path" | "query" | "body"
+	Kind     string `json:"kind"`           // "path" | "query" | "body" | "form"
 	Type     string `json:"type"`           // swagger type; arrays render as []elem
 	Required bool   `json:"required"`       // path params and required-schema fields
 	Desc     string `json:"desc,omitempty"` // upstream spec description, often blank

@@ -9,9 +9,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	neturl "net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
@@ -55,6 +57,7 @@ func (rt *runtime) buildLeaf(desc opDescriptor) *cli.Command {
 	}
 	flags = append(flags, fieldFlagsToCLI(desc.QueryFlags)...)
 	flags = append(flags, fieldFlagsToCLI(desc.BodyFlags)...)
+	flags = append(flags, fieldFlagsToCLI(desc.FormFlags)...)
 
 	usage := fmt.Sprintf("%s %s", desc.Method, desc.Path)
 	if desc.Destructive {
@@ -120,7 +123,8 @@ func argsUsage(params []string) string {
 func argsFuncFor(desc opDescriptor) func(*cli.Command) (map[string]string, []string) {
 	return func(c *cli.Command) (map[string]string, []string) {
 		named := map[string]string{}
-		for _, f := range append(append([]fieldFlag{}, desc.QueryFlags...), desc.BodyFlags...) {
+		all := append(append([]fieldFlag{}, desc.QueryFlags...), desc.BodyFlags...)
+		for _, f := range append(all, desc.FormFlags...) {
 			if c.IsSet(f.Name) {
 				named[f.Name] = stringifyFlag(c, f)
 			}
@@ -144,12 +148,20 @@ func (rt *runtime) actionFor(desc opDescriptor) cli.ActionFunc {
 		url := rt.baseURL + fillPath(desc.Path, positional) + assembleQuery(c, desc.QueryFlags)
 		var body []byte
 		var err error
-		if len(desc.FixedBody) > 0 {
+		contentType := contentTypeJSON
+		var preview any
+		switch {
+		case len(desc.FormFlags) > 0:
+			body, contentType, preview, err = assembleMultipart(c, desc.FormFlags, c.Bool(flagDryRun))
+			if err != nil {
+				return exitcode.New(exitcode.UserError, "user_error", err, "check the form flag values")
+			}
+		case len(desc.FixedBody) > 0:
 			body, err = json.Marshal(desc.FixedBody)
 			if err != nil {
 				return exitcode.New(exitcode.Internal, "internal", err, "")
 			}
-		} else {
+		default:
 			body, err = assembleBody(c, desc.BodyFlags)
 			if err != nil {
 				return exitcode.New(exitcode.UserError, "user_error", err, "check the body flag values")
@@ -157,10 +169,75 @@ func (rt *runtime) actionFor(desc opDescriptor) cli.ActionFunc {
 		}
 
 		if c.Bool(flagDryRun) {
-			return rt.renderDryRun(desc.Method, url, body, c.String(flagOutput))
+			return rt.renderDryRun(desc.Method, url, body, contentType, preview, c.String(flagOutput))
 		}
-		return rt.fire(ctx, desc.Method, url, body, c.String(flagQuery), c.String(flagOutput))
+		return rt.fire(ctx, desc.Method, url, body, contentType, c.String(flagQuery), c.String(flagOutput))
 	}
+}
+
+// contentTypeJSON is the body content type for every non-multipart verb.
+const contentTypeJSON = "application/json"
+
+// assembleMultipart builds a multipart/form-data body from the set form flags,
+// streaming "file" params from paths; a dry run returns a part-name preview.
+func assembleMultipart(c *cli.Command, flags []fieldFlag, dryRun bool) (body []byte, contentType string, preview any, err error) {
+	if dryRun {
+		return nil, "multipart/form-data", multipartPreview(c, flags), nil
+	}
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	for _, f := range flags {
+		if !c.IsSet(f.Name) {
+			continue
+		}
+		if f.Type != "file" {
+			if err := w.WriteField(f.Name, c.String(f.Name)); err != nil {
+				return nil, "", nil, err
+			}
+			continue
+		}
+		if err := writeFilePart(w, f.Name, c.String(f.Name)); err != nil {
+			return nil, "", nil, err
+		}
+	}
+	if err := w.Close(); err != nil {
+		return nil, "", nil, err
+	}
+	return buf.Bytes(), w.FormDataContentType(), nil, nil
+}
+
+// multipartPreview names each set form part for a dry run, file paths @-marked.
+func multipartPreview(c *cli.Command, flags []fieldFlag) map[string]string {
+	parts := map[string]string{}
+	for _, f := range flags {
+		if !c.IsSet(f.Name) {
+			continue
+		}
+		v := c.String(f.Name)
+		if f.Type == "file" {
+			v = "@" + v
+		}
+		parts[f.Name] = v
+	}
+	return parts
+}
+
+// writeFilePart streams one file param from its path into the multipart body.
+func writeFilePart(w *multipart.Writer, field, path string) error {
+	part, err := w.CreateFormFile(field, filepath.Base(path))
+	if err != nil {
+		return err
+	}
+	src, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open --%s: %w", field, err)
+	}
+	_, err = io.Copy(part, src)
+	_ = src.Close()
+	if err != nil {
+		return fmt.Errorf("read --%s: %w", field, err)
+	}
+	return nil
 }
 
 // assembleQuery encodes the set query flags as a ?-prefixed query string, ""
@@ -268,13 +345,16 @@ func flagValue(c *cli.Command, f fieldFlag) any {
 
 // renderDryRun prints the resolved request without firing it, auth value
 // redacted, honoring --output so a dry-run reads the same as a live response.
-func (rt *runtime) renderDryRun(method, url string, body []byte, output string) error {
+func (rt *runtime) renderDryRun(method, url string, body []byte, contentType string, bodyPreview any, output string) error {
 	preview := map[string]any{
 		"method":  method,
 		"url":     url,
-		"headers": rt.previewHeaders(body),
+		"headers": rt.previewHeaders(body != nil || bodyPreview != nil, contentType),
 	}
-	if body != nil {
+	switch {
+	case bodyPreview != nil: // multipart: name the parts, never dump encodings
+		preview["body"] = bodyPreview
+	case body != nil:
 		var parsed any
 		if err := json.Unmarshal(body, &parsed); err == nil {
 			preview["body"] = parsed
@@ -295,17 +375,17 @@ func (rt *runtime) renderDryRun(method, url string, body []byte, output string) 
 }
 
 // previewHeaders builds the header map a dry-run shows, redacting the secret.
-func (rt *runtime) previewHeaders(body []byte) map[string]string {
+func (rt *runtime) previewHeaders(hasBody bool, contentType string) map[string]string {
 	h := map[string]string{rt.auth.Header: rt.auth.Prefix + redacted}
-	if body != nil {
-		h["Content-Type"] = "application/json"
+	if hasBody {
+		h["Content-Type"] = contentType
 	}
 	return h
 }
 
 // fire resolves the secret, sends the request, and renders the response.
 // Non-2xx becomes an UpstreamFailed coded error carrying the response body.
-func (rt *runtime) fire(ctx context.Context, method, url string, body []byte, query, output string) error {
+func (rt *runtime) fire(ctx context.Context, method, url string, body []byte, contentType, query, output string) error {
 	if rt.token == nil {
 		return exitcode.New(exitcode.Internal, "internal",
 			fmt.Errorf("no token resolver configured"), "wire a TokenResolver into specverb.Config")
@@ -326,7 +406,7 @@ func (rt *runtime) fire(ctx context.Context, method, url string, body []byte, qu
 	}
 	req.Header.Set(rt.auth.Header, rt.auth.Prefix+secret)
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", contentType)
 	}
 
 	resp, err := rt.client.Do(req)

@@ -46,13 +46,10 @@ One generic action backs every verb: path params positional, query params and bo
 
 ## Milestone status
 
-Mounted today: forgejo repo + org trios, the all-scalar label and milestone groups, and the issues batch exercising query params, array bodies, `--body-file`, and fixed-body toggles. Unit-tested over tree shape, deny-by-default, the Swagger-2.0 gate, dry-run, live create/delete, and `verb.Wrap`.
+Mounted today: the forgejo repo/org/label/milestone/issue/release/pull/task groups, exercising every shape above. Unit-tested over tree shape, deny-by-default, the Swagger-2.0 gate, dry-run, live create/delete, and `verb.Wrap`.
 
-Named follow-ups (not silent gaps):
+Named follow-ups (not silent gaps): **M2** `--yes` destructive-confirm + teaching errors; **M4** migrate coily's remaining verbs, prune the spec lock to granted ops.
 
-- **name->id resolution** - issue label add/remove take names; a pre-flight list+match resolves ids.
-- **multipart POST** - release upload-asset.
-- **M2** - `--yes` destructive-confirm, teaching errors.
-- **M4** - migrate coily's remaining verbs; prune the spec lock to granted ops.
+Two shapes dissolved without new machinery: issue-label verbs need no name->id pre-flight (IssueLabelsOption takes names directly), and release-asset upload is a formData promotion (see [specverb-request.md](specverb-request.md)).
 
-Design: [cli-guard#75](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/75).
+Design: [#75](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/75).

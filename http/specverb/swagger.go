@@ -100,6 +100,21 @@ func queryParamsOf(op swaggerOp) []swaggerParam {
 	return out
 }
 
+// formParamsOf returns the operation's `in: formData` parameters: file params
+// plus scalars, the multipart-POST surface (release/issue asset uploads).
+func formParamsOf(op swaggerOp) []swaggerParam {
+	var out []swaggerParam
+	for _, p := range op.Parameters {
+		if p.In != "formData" {
+			continue
+		}
+		if p.Type == "file" || isScalar(p.Type) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // bodySchema resolves an operation's request-body schema. ok is false when the
 // op takes no body (a normal case); a $ref resolves one hop into definitions.
 func (s *swaggerSpec) bodySchema(op swaggerOp) (schema *swaggerSchema, ok bool, err error) {

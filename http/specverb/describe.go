@@ -51,7 +51,7 @@ type VerbInfo struct {
 // structure the engine knows even where the upstream spec carries no description.
 type ParamInfo struct {
 	Name     string `json:"name"`
-	Kind     string `json:"kind"`           // "path" | "query" | "body"
+	Kind     string `json:"kind"`           // "path" | "query" | "body" | "form"
 	Type     string `json:"type"`           // swagger type; arrays render as []elem
 	Required bool   `json:"required"`       // path params and required-schema fields
 	Desc     string `json:"desc,omitempty"` // upstream spec description, often blank
@@ -119,6 +119,9 @@ func paramsOf(d opDescriptor) []ParamInfo {
 	}
 	for _, f := range d.BodyFlags {
 		params = append(params, ParamInfo{Name: f.Name, Kind: "body", Type: f.typeLabel(), Required: f.Required, Desc: f.Desc})
+	}
+	for _, f := range d.FormFlags {
+		params = append(params, ParamInfo{Name: f.Name, Kind: "form", Type: f.typeLabel(), Required: f.Required, Desc: f.Desc})
 	}
 	return params
 }

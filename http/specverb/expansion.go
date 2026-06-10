@@ -83,6 +83,16 @@ var expansionTable = map[grantKey]tableEntry{
 
 	// actions tasks: the read surface of CI runs.
 	{Verb: "list", Resource: "tasks"}: {Group: "task", Leaf: "list", OperationID: "ListActionTasks"},
+
+	// issue-labels: the API takes names or ids directly (IssueLabelsOption's
+	// untyped items), so no name->id pre-flight is needed.
+	{Verb: "list", Resource: "issue-labels"}:   {Group: "issue-label", Leaf: "list", OperationID: "issueGetLabels"},
+	{Verb: "add", Resource: "issue-labels"}:    {Group: "issue-label", Leaf: "add", OperationID: "issueAddLabel"},
+	{Verb: "set", Resource: "issue-labels"}:    {Group: "issue-label", Leaf: "set", OperationID: "issueReplaceLabels"},
+	{Verb: "remove", Resource: "issue-labels"}: {Group: "issue-label", Leaf: "remove", OperationID: "issueRemoveLabel"},
+
+	// release assets: the multipart-POST shape.
+	{Verb: "upload", Resource: "release-assets"}: {Group: "release", Leaf: "upload-asset", OperationID: "repoCreateReleaseAttachment"},
 }
 
 // destructiveLeaves names the irreversibly-mutating leaves. The descriptor

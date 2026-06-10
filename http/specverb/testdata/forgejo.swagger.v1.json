@@ -70,6 +70,33 @@
         ],
         "responses": { "201": {}, "404": {} }
       }
+    },
+    "/repos/{owner}/{repo}/issues/{index}/labels": {
+      "post": {
+        "operationId": "issueAddLabel",
+        "parameters": [
+          { "name": "owner", "in": "path", "required": true, "type": "string" },
+          { "name": "repo", "in": "path", "required": true, "type": "string" },
+          { "name": "index", "in": "path", "required": true, "type": "integer" },
+          { "name": "body", "in": "body", "schema": { "$ref": "#/definitions/IssueLabelsOption" } }
+        ],
+        "responses": { "200": {} }
+      }
+    },
+    "/repos/{owner}/{repo}/releases/{id}/assets": {
+      "post": {
+        "operationId": "repoCreateReleaseAttachment",
+        "consumes": ["multipart/form-data"],
+        "parameters": [
+          { "name": "owner", "in": "path", "required": true, "type": "string" },
+          { "name": "repo", "in": "path", "required": true, "type": "string" },
+          { "name": "id", "in": "path", "required": true, "type": "integer" },
+          { "name": "name", "in": "query", "type": "string" },
+          { "name": "attachment", "in": "formData", "type": "file" },
+          { "name": "external_url", "in": "formData", "type": "string" }
+        ],
+        "responses": { "201": {} }
+      }
     }
   },
   "definitions": {
@@ -101,6 +128,12 @@
         "title": { "type": "string", "description": "issue title" },
         "body": { "type": "string", "description": "issue body" },
         "state": { "type": "string", "description": "open or closed" }
+      }
+    },
+    "IssueLabelsOption": {
+      "type": "object",
+      "properties": {
+        "labels": { "type": "array", "items": {}, "description": "label ids or names" }
       }
     }
   }

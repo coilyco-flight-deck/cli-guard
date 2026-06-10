@@ -614,6 +614,93 @@ func TestStateToggleSendsFixedBody(t *testing.T) {
 	}
 }
 
+// TestUntypedArrayTakesNames proves an untyped-items array (IssueLabelsOption)
+// mounts as a repeatable string flag carrying label names through verbatim.
+func TestUntypedArrayTakesNames(t *testing.T) {
+	_, spec := loadFixtures(t)
+	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
+		spec forgejo.swagger.v1.json
+		auth header-token { header Authorization; ssm "/forgejo/api-token" }
+		can add issue-labels
+	}`))
+	if err != nil {
+		t.Fatalf("parse guardfile: %v", err)
+	}
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+	cfg := Config{Guardfile: gf, Spec: spec, BaseURL: srv.URL,
+		Token: func(context.Context, string) (string, error) { return "x", nil }}
+	if _, err := runTree(t, cfg, "forgejo", "issue-label", "add", "kai", "demo", "7", "--labels", "bug", "--labels", "P3"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !strings.Contains(gotBody, `"labels":["bug","P3"]`) {
+		t.Errorf("body = %q, want the names as a string array", gotBody)
+	}
+}
+
+// TestMultipartUpload proves a formData op streams the file flag as a real
+// multipart part and keeps the scalar form field beside it.
+func TestMultipartUpload(t *testing.T) {
+	_, spec := loadFixtures(t)
+	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
+		spec forgejo.swagger.v1.json
+		auth header-token { header Authorization; ssm "/forgejo/api-token" }
+		can upload release-assets
+	}`))
+	if err != nil {
+		t.Fatalf("parse guardfile: %v", err)
+	}
+	asset := filepath.Join(t.TempDir(), "asset.bin")
+	if err := os.WriteFile(asset, []byte("payload-bytes"), 0o600); err != nil {
+		t.Fatalf("write asset: %v", err)
+	}
+	var gotContentType, gotFile, gotFilename string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotContentType = r.Header.Get("Content-Type")
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Errorf("parse multipart: %v", err)
+		}
+		f, hdr, err := r.FormFile("attachment")
+		if err != nil {
+			t.Errorf("form file: %v", err)
+		} else {
+			b, _ := io.ReadAll(f)
+			gotFile = string(b)
+			gotFilename = hdr.Filename
+			_ = f.Close()
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	cfg := Config{Guardfile: gf, Spec: spec, BaseURL: srv.URL,
+		Token: func(context.Context, string) (string, error) { return "x", nil }}
+	if _, err := runTree(t, cfg, "forgejo", "release", "upload-asset", "kai", "demo", "5", "--attachment", asset, "--name", "asset.bin"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !strings.HasPrefix(gotContentType, "multipart/form-data") {
+		t.Errorf("content type = %q, want multipart/form-data", gotContentType)
+	}
+	if gotFile != "payload-bytes" || gotFilename != "asset.bin" {
+		t.Errorf("file part = %q (%q), want payload-bytes (asset.bin)", gotFile, gotFilename)
+	}
+	// dry run must not read the file, only name the part
+	cfg.HTTPClient = &http.Client{Transport: failingTransport{t}}
+	out, err := runTree(t, cfg, "forgejo", "release", "upload-asset", "kai", "demo", "5", "--attachment", asset, "--dry-run", "--output", "json")
+	if err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if !strings.Contains(out, "@"+asset) {
+		t.Errorf("dry-run preview should name the file part:\n%s", out)
+	}
+}
+
 // TestBoolFixedBodyToggle proves a non-string fixed body (archive ->
 // {"archived":true}) serializes with its JSON type, matching coily's oracle.
 func TestBoolFixedBodyToggle(t *testing.T) {
