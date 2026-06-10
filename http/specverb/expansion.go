@@ -9,12 +9,13 @@ type grantKey struct {
 	Resource string
 }
 
-// tableEntry maps a grant onto a CLI placement and the spec op it drives.
-// Group is the singular CLI noun (repos -> repo); Leaf is the CLI verb.
+// tableEntry maps a grant onto a CLI placement (Group noun, Leaf verb) and the
+// spec op; FixedBody set = state-toggle leaf sending exactly that JSON, no flags.
 type tableEntry struct {
 	Group       string
 	Leaf        string
 	OperationID string
+	FixedBody   map[string]string
 }
 
 // expansionTable is the curated allowlist: the forgejo repo and org trios
@@ -42,6 +43,23 @@ var expansionTable = map[grantKey]tableEntry{
 	{Verb: "create", Resource: "milestones"}: {Group: "milestone", Leaf: "create", OperationID: "issueCreateMilestone"},
 	{Verb: "edit", Resource: "milestones"}:   {Group: "milestone", Leaf: "edit", OperationID: "issueEditMilestone"},
 	{Verb: "delete", Resource: "milestones"}: {Group: "milestone", Leaf: "delete", OperationID: "issueDeleteMilestone"},
+
+	// issues: the array-body + query-param group; view aliases read, and
+	// comment posts to the comments sub-resource.
+	{Verb: "read", Resource: "issues"}:    {Group: "issue", Leaf: "get", OperationID: "issueGetIssue"},
+	{Verb: "view", Resource: "issues"}:    {Group: "issue", Leaf: "view", OperationID: "issueGetIssue"},
+	{Verb: "list", Resource: "issues"}:    {Group: "issue", Leaf: "list", OperationID: "issueListIssues"},
+	{Verb: "create", Resource: "issues"}:  {Group: "issue", Leaf: "create", OperationID: "issueCreateIssue"},
+	{Verb: "edit", Resource: "issues"}:    {Group: "issue", Leaf: "edit", OperationID: "issueEditIssue"},
+	{Verb: "comment", Resource: "issues"}: {Group: "issue", Leaf: "comment", OperationID: "issueCreateComment"},
+	{Verb: "delete", Resource: "issues"}:  {Group: "issue", Leaf: "delete", OperationID: "issueDelete"},
+
+	// state toggles: fixed-body PATCHes over the edit ops. Reversible by
+	// construction (close <-> reopen), so never flagged destructive.
+	{Verb: "close", Resource: "issues"}:      {Group: "issue", Leaf: "close", OperationID: "issueEditIssue", FixedBody: map[string]string{"state": "closed"}},
+	{Verb: "reopen", Resource: "issues"}:     {Group: "issue", Leaf: "reopen", OperationID: "issueEditIssue", FixedBody: map[string]string{"state": "open"}},
+	{Verb: "close", Resource: "milestones"}:  {Group: "milestone", Leaf: "close", OperationID: "issueEditMilestone", FixedBody: map[string]string{"state": "closed"}},
+	{Verb: "reopen", Resource: "milestones"}: {Group: "milestone", Leaf: "reopen", OperationID: "issueEditMilestone", FixedBody: map[string]string{"state": "open"}},
 }
 
 // destructiveLeaves names the irreversibly-mutating leaves. The descriptor

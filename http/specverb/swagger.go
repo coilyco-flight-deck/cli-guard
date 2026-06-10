@@ -25,21 +25,23 @@ type swaggerOp struct {
 
 // swaggerParam is one parameter; `in: body` carries Schema, others carry Type.
 type swaggerParam struct {
-	Name     string         `json:"name"`
-	In       string         `json:"in"`
-	Required bool           `json:"required"`
-	Type     string         `json:"type"`
-	Schema   *swaggerSchema `json:"schema"`
+	Name        string         `json:"name"`
+	In          string         `json:"in"`
+	Required    bool           `json:"required"`
+	Type        string         `json:"type"`
+	Schema      *swaggerSchema `json:"schema"`
+	Description string         `json:"description"`
 }
 
-// swaggerSchema is a $ref or an inline object with scalar properties. Nested
-// objects are out of scope for M0.
+// swaggerSchema is a $ref or an inline object whose properties are scalars or
+// arrays of scalars. Nested objects are out of scope.
 type swaggerSchema struct {
 	Ref         string                   `json:"$ref"`
 	Type        string                   `json:"type"`
 	Required    []string                 `json:"required"`
 	Properties  map[string]swaggerSchema `json:"properties"`
 	Description string                   `json:"description"`
+	Items       *swaggerSchema           `json:"items"`
 }
 
 // parseSwagger reads a Swagger 2.0 document, failing closed on anything that is
@@ -81,6 +83,19 @@ func pathParamsInOrder(path string) []string {
 	out := make([]string, 0, len(matches))
 	for _, m := range matches {
 		out = append(out, m[1])
+	}
+	return out
+}
+
+// queryParamsOf returns the operation's scalar `in: query` parameters, the
+// ones that lower to a typed CLI flag; array query params are skipped.
+func queryParamsOf(op swaggerOp) []swaggerParam {
+	var out []swaggerParam
+	for _, p := range op.Parameters {
+		if p.In != "query" || !isScalar(p.Type) {
+			continue
+		}
+		out = append(out, p)
 	}
 	return out
 }

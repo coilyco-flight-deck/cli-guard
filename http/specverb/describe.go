@@ -6,6 +6,7 @@ package specverb
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
@@ -33,23 +34,24 @@ type AuthInfo struct {
 // VerbInfo is one mounted leaf: its CLI placement, the HTTP op it drives, its
 // destructive flag, the grant that authorized it, and the optional human note.
 type VerbInfo struct {
-	Name        string      `json:"name"`               // dotted audit name, e.g. ward.ops.forgejo.repo.create
-	Group       string      `json:"group"`              // CLI noun, e.g. repo
-	Leaf        string      `json:"leaf"`               // CLI verb, e.g. create
-	Method      string      `json:"method"`             // HTTP method
-	Path        string      `json:"path"`               // path template
-	Destructive bool        `json:"destructive"`        // mutates irreversibly
-	Grant       string      `json:"grant"`              // authorizing grant sentence
-	Describe    string      `json:"describe,omitempty"` // Guardfile describe "..." note
-	Params      []ParamInfo `json:"params,omitempty"`   // path + body params, in invocation order
+	Name        string            `json:"name"`                 // dotted audit name, e.g. ward.ops.forgejo.repo.create
+	Group       string            `json:"group"`                // CLI noun, e.g. repo
+	Leaf        string            `json:"leaf"`                 // CLI verb, e.g. create
+	Method      string            `json:"method"`               // HTTP method
+	Path        string            `json:"path"`                 // path template
+	Destructive bool              `json:"destructive"`          // mutates irreversibly
+	Grant       string            `json:"grant"`                // authorizing grant sentence
+	Describe    string            `json:"describe,omitempty"`   // Guardfile describe "..." note
+	Params      []ParamInfo       `json:"params,omitempty"`     // path/query/body params, in invocation order
+	FixedBody   map[string]string `json:"fixed_body,omitempty"` // exact body a state-toggle leaf sends
 }
 
 // ParamInfo is one input to a verb, tagged by kind so help can always show the
 // structure the engine knows even where the upstream spec carries no description.
 type ParamInfo struct {
 	Name     string `json:"name"`
-	Kind     string `json:"kind"`           // "path" | "body" (query mounting is future work)
-	Type     string `json:"type"`           // swagger scalar type
+	Kind     string `json:"kind"`           // "path" | "query" | "body"
+	Type     string `json:"type"`           // swagger type; arrays render as []elem
 	Required bool   `json:"required"`       // path params and required-schema fields
 	Desc     string `json:"desc,omitempty"` // upstream spec description, often blank
 }
@@ -98,20 +100,24 @@ func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor)
 			Grant:       d.Grant,
 			Describe:    d.Describe,
 			Params:      paramsOf(d),
+			FixedBody:   d.FixedBody,
 		})
 	}
 	return s
 }
 
-// paramsOf flattens a descriptor's path params (positional, always required) and
-// body flags into one tagged list, path params first to match invocation order.
+// paramsOf flattens path params (positional, required), query flags, and body
+// flags into one tagged list, path params first to match invocation order.
 func paramsOf(d opDescriptor) []ParamInfo {
 	var params []ParamInfo
 	for _, p := range d.PathParams {
 		params = append(params, ParamInfo{Name: p, Kind: "path", Type: "string", Required: true})
 	}
+	for _, f := range d.QueryFlags {
+		params = append(params, ParamInfo{Name: f.Name, Kind: "query", Type: f.typeLabel(), Required: f.Required, Desc: f.Desc})
+	}
 	for _, f := range d.BodyFlags {
-		params = append(params, ParamInfo{Name: f.Name, Kind: "body", Type: f.Type, Required: f.Required, Desc: f.Desc})
+		params = append(params, ParamInfo{Name: f.Name, Kind: "body", Type: f.typeLabel(), Required: f.Required, Desc: f.Desc})
 	}
 	return params
 }
@@ -160,6 +166,9 @@ func renderProse(s *Surface) string {
 			dest = "Destructive - mutates irreversibly."
 		}
 		fmt.Fprintf(&b, "Authorized by grant: %s. %s\n", v.Grant, dest)
+		if line := fixedBodySentence(v.FixedBody); line != "" {
+			fmt.Fprintf(&b, "\n%s\n", line)
+		}
 		writeParamSections(&b, v.Params)
 	}
 	return b.String()
@@ -192,6 +201,24 @@ func writeParamSections(b *strings.Builder, params []ParamInfo) {
 			fmt.Fprintf(b, "- %s\n", line)
 		}
 	}
+}
+
+// fixedBodySentence states the exact body a state-toggle leaf sends, in sorted
+// key order so the sentence is deterministic; "" for ordinary leaves.
+func fixedBodySentence(fixed map[string]string) string {
+	if len(fixed) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(fixed))
+	for k := range fixed {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, len(keys))
+	for i, k := range keys {
+		parts[i] = fmt.Sprintf("%q: %q", k, fixed[k])
+	}
+	return fmt.Sprintf("Always sends the fixed body {%s}; takes no body flags.", strings.Join(parts, ", "))
 }
 
 // authSentence states how the engine authenticates in plain language, naming the
@@ -251,6 +278,12 @@ func leafDescription(desc opDescriptor) string {
 		for _, line := range paramHelpLines(params) {
 			fmt.Fprintf(&b, "  %s\n", line)
 		}
+	}
+	if len(desc.BodyFlags) > 0 {
+		b.WriteString("\n--body-file <path> supplies the full JSON body instead of the body flags.\n")
+	}
+	if line := fixedBodySentence(desc.FixedBody); line != "" {
+		fmt.Fprintf(&b, "\n%s\n", line)
 	}
 	b.WriteString("\nUse --dry-run to print the resolved request without firing it.")
 	return b.String()

@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
+	"os"
 	"strings"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
@@ -34,20 +36,25 @@ type runtime struct {
 
 // universal flag names every mounted leaf carries.
 const (
-	flagDryRun = "dry-run"
-	flagQuery  = "query"
-	flagOutput = "output"
+	flagDryRun   = "dry-run"
+	flagQuery    = "query"
+	flagOutput   = "output"
+	flagBodyFile = "body-file"
 )
 
-// buildLeaf turns one descriptor into a guarded leaf: body flags plus the
-// universal dry-run/query/output flags, action wrapped in the verb pipeline.
+// buildLeaf turns one descriptor into a guarded leaf: query + body flags plus
+// the universal dry-run/query/output flags, action wrapped in the verb pipeline.
 func (rt *runtime) buildLeaf(desc opDescriptor) *cli.Command {
 	flags := []cli.Flag{
 		&cli.BoolFlag{Name: flagDryRun, Usage: "print the resolved request without firing it"},
 		&cli.StringFlag{Name: flagQuery, Usage: "JMESPath projection applied to the response"},
 		&cli.StringFlag{Name: flagOutput, Usage: "output format: yaml | yaml-stream | json | text | table"},
 	}
-	flags = append(flags, bodyFlagsToCLI(desc.BodyFlags)...)
+	if len(desc.BodyFlags) > 0 {
+		flags = append(flags, &cli.StringFlag{Name: flagBodyFile, Usage: "path to a JSON file supplying the full request body (exclusive with the body flags)"})
+	}
+	flags = append(flags, fieldFlagsToCLI(desc.QueryFlags)...)
+	flags = append(flags, fieldFlagsToCLI(desc.BodyFlags)...)
 
 	usage := fmt.Sprintf("%s %s", desc.Method, desc.Path)
 	if desc.Destructive {
@@ -67,20 +74,30 @@ func (rt *runtime) buildLeaf(desc opDescriptor) *cli.Command {
 	}
 }
 
-// bodyFlagsToCLI maps each promoted body field to its typed cli.Flag.
-func bodyFlagsToCLI(bf []bodyFlag) []cli.Flag {
+// fieldFlagsToCLI maps each promoted spec input to its typed cli.Flag; nothing
+// is CLI-required since assembly enforces it (--body-file is a legal source).
+func fieldFlagsToCLI(ff []fieldFlag) []cli.Flag {
 	var flags []cli.Flag
-	for _, f := range bf {
+	for _, f := range ff {
 		usage := f.Desc
 		switch f.Type {
 		case "boolean":
-			flags = append(flags, &cli.BoolFlag{Name: f.Name, Usage: usage, Required: f.Required})
+			flags = append(flags, &cli.BoolFlag{Name: f.Name, Usage: usage})
 		case "integer":
-			flags = append(flags, &cli.IntFlag{Name: f.Name, Usage: usage, Required: f.Required})
+			flags = append(flags, &cli.IntFlag{Name: f.Name, Usage: usage})
 		case "number":
-			flags = append(flags, &cli.FloatFlag{Name: f.Name, Usage: usage, Required: f.Required})
+			flags = append(flags, &cli.FloatFlag{Name: f.Name, Usage: usage})
+		case "array":
+			switch f.Items {
+			case "integer":
+				flags = append(flags, &cli.IntSliceFlag{Name: f.Name, Usage: usage})
+			case "number":
+				flags = append(flags, &cli.FloatSliceFlag{Name: f.Name, Usage: usage})
+			default: // string
+				flags = append(flags, &cli.StringSliceFlag{Name: f.Name, Usage: usage})
+			}
 		default: // string
-			flags = append(flags, &cli.StringFlag{Name: f.Name, Usage: usage, Required: f.Required})
+			flags = append(flags, &cli.StringFlag{Name: f.Name, Usage: usage})
 		}
 	}
 	return flags
@@ -98,15 +115,18 @@ func argsUsage(params []string) string {
 	return strings.Join(parts, " ")
 }
 
-// argsFuncFor extracts the user strings for the policy shell-metachar gate:
-// every set body flag plus the positional path params.
+// argsFuncFor extracts the user strings for the policy shell-metachar gate;
+// --body-file contributes its path, never its contents (the gate-safe spill).
 func argsFuncFor(desc opDescriptor) func(*cli.Command) (map[string]string, []string) {
 	return func(c *cli.Command) (map[string]string, []string) {
 		named := map[string]string{}
-		for _, f := range desc.BodyFlags {
+		for _, f := range append(append([]fieldFlag{}, desc.QueryFlags...), desc.BodyFlags...) {
 			if c.IsSet(f.Name) {
 				named[f.Name] = stringifyFlag(c, f)
 			}
+		}
+		if c.IsSet(flagBodyFile) {
+			named[flagBodyFile] = c.String(flagBodyFile)
 		}
 		return named, c.Args().Slice()
 	}
@@ -121,10 +141,19 @@ func (rt *runtime) actionFor(desc opDescriptor) cli.ActionFunc {
 				fmt.Errorf("%s takes %d positional arg(s) %v, got %d", desc.Leaf, len(desc.PathParams), desc.PathParams, len(positional)),
 				"supply exactly the path parameters this verb names")
 		}
-		url := rt.baseURL + fillPath(desc.Path, positional)
-		body, err := assembleBody(c, desc.BodyFlags)
-		if err != nil {
-			return exitcode.New(exitcode.UserError, "user_error", err, "check the body flag values")
+		url := rt.baseURL + fillPath(desc.Path, positional) + assembleQuery(c, desc.QueryFlags)
+		var body []byte
+		var err error
+		if len(desc.FixedBody) > 0 {
+			body, err = json.Marshal(desc.FixedBody)
+			if err != nil {
+				return exitcode.New(exitcode.Internal, "internal", err, "")
+			}
+		} else {
+			body, err = assembleBody(c, desc.BodyFlags)
+			if err != nil {
+				return exitcode.New(exitcode.UserError, "user_error", err, "check the body flag values")
+			}
 		}
 
 		if c.Bool(flagDryRun) {
@@ -132,6 +161,22 @@ func (rt *runtime) actionFor(desc opDescriptor) cli.ActionFunc {
 		}
 		return rt.fire(ctx, desc.Method, url, body, c.String(flagQuery), c.String(flagOutput))
 	}
+}
+
+// assembleQuery encodes the set query flags as a ?-prefixed query string, ""
+// when none are set. url.Values sorts keys, so the result is deterministic.
+func assembleQuery(c *cli.Command, flags []fieldFlag) string {
+	vals := neturl.Values{}
+	for _, f := range flags {
+		if !c.IsSet(f.Name) {
+			continue
+		}
+		vals.Set(f.Name, stringifyFlag(c, f))
+	}
+	if len(vals) == 0 {
+		return ""
+	}
+	return "?" + vals.Encode()
 }
 
 // fillPath substitutes the i-th positional value into the i-th `{...}` slot.
@@ -148,32 +193,77 @@ func fillPath(template string, values []string) string {
 	})
 }
 
-// assembleBody builds the request body JSON: a field is included only when it
-// is required or explicitly set, so an unset optional is omitted, not zeroed.
-func assembleBody(c *cli.Command, flags []bodyFlag) ([]byte, error) {
+// assembleBody builds the body JSON from --body-file or the body flags; unset
+// optionals are omitted and required fields enforced over whichever source.
+func assembleBody(c *cli.Command, flags []fieldFlag) ([]byte, error) {
 	if len(flags) == 0 {
 		return nil, nil
 	}
-	obj := map[string]any{}
+	obj, err := bodyObject(c, flags)
+	if err != nil {
+		return nil, err
+	}
 	for _, f := range flags {
-		if !f.Required && !c.IsSet(f.Name) {
-			continue
-		}
-		switch f.Type {
-		case "boolean":
-			obj[f.Name] = c.Bool(f.Name)
-		case "integer":
-			obj[f.Name] = c.Int(f.Name)
-		case "number":
-			obj[f.Name] = c.Float(f.Name)
-		default:
-			obj[f.Name] = c.String(f.Name)
+		if f.Required {
+			if _, present := obj[f.Name]; !present {
+				return nil, fmt.Errorf("required body field %q is missing (set --%s or supply it via --%s)", f.Name, f.Name, flagBodyFile)
+			}
 		}
 	}
 	if len(obj) == 0 {
 		return nil, nil
 	}
 	return json.Marshal(obj)
+}
+
+// bodyObject collects the body fields from --body-file or the set body flags,
+// the two mutually exclusive sources.
+func bodyObject(c *cli.Command, flags []fieldFlag) (map[string]any, error) {
+	obj := map[string]any{}
+	if !c.IsSet(flagBodyFile) {
+		for _, f := range flags {
+			if c.IsSet(f.Name) {
+				obj[f.Name] = flagValue(c, f)
+			}
+		}
+		return obj, nil
+	}
+	for _, f := range flags {
+		if c.IsSet(f.Name) {
+			return nil, fmt.Errorf("--%s and --%s are mutually exclusive", flagBodyFile, f.Name)
+		}
+	}
+	raw, err := os.ReadFile(c.String(flagBodyFile))
+	if err != nil {
+		return nil, fmt.Errorf("read --%s: %w", flagBodyFile, err)
+	}
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, fmt.Errorf("--%s must hold a JSON object: %w", flagBodyFile, err)
+	}
+	return obj, nil
+}
+
+// flagValue reads one set flag as the JSON value its swagger type implies.
+func flagValue(c *cli.Command, f fieldFlag) any {
+	switch f.Type {
+	case "boolean":
+		return c.Bool(f.Name)
+	case "integer":
+		return c.Int(f.Name)
+	case "number":
+		return c.Float(f.Name)
+	case "array":
+		switch f.Items {
+		case "integer":
+			return c.IntSlice(f.Name)
+		case "number":
+			return c.FloatSlice(f.Name)
+		default:
+			return c.StringSlice(f.Name)
+		}
+	default:
+		return c.String(f.Name)
+	}
 }
 
 // renderDryRun prints the resolved request without firing it, auth value
@@ -265,8 +355,9 @@ func (rt *runtime) fire(ctx context.Context, method, url string, body []byte, qu
 	return nil
 }
 
-// stringifyFlag renders a set flag's value as a string for the policy gate.
-func stringifyFlag(c *cli.Command, f bodyFlag) string {
+// stringifyFlag renders a set flag's value as a string for the policy gate
+// and the query encoder; array values join with commas.
+func stringifyFlag(c *cli.Command, f fieldFlag) string {
 	switch f.Type {
 	case "boolean":
 		return fmt.Sprintf("%t", c.Bool(f.Name))
@@ -274,7 +365,33 @@ func stringifyFlag(c *cli.Command, f bodyFlag) string {
 		return fmt.Sprintf("%d", c.Int(f.Name))
 	case "number":
 		return fmt.Sprintf("%g", c.Float(f.Name))
+	case "array":
+		parts := []string{}
+		for _, v := range anySlice(c, f) {
+			parts = append(parts, fmt.Sprintf("%v", v))
+		}
+		return strings.Join(parts, ",")
 	default:
 		return c.String(f.Name)
 	}
+}
+
+// anySlice reads an array flag's elements as []any for stringification.
+func anySlice(c *cli.Command, f fieldFlag) []any {
+	var out []any
+	switch f.Items {
+	case "integer":
+		for _, v := range c.IntSlice(f.Name) {
+			out = append(out, v)
+		}
+	case "number":
+		for _, v := range c.FloatSlice(f.Name) {
+			out = append(out, v)
+		}
+	default:
+		for _, v := range c.StringSlice(f.Name) {
+			out = append(out, v)
+		}
+	}
+	return out
 }

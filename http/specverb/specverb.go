@@ -48,24 +48,36 @@ type Config struct {
 // opDescriptor is the tiny per-operation payload the generic action binds to,
 // isolated from the static request machinery.
 type opDescriptor struct {
-	VerbName    string     // dotted audit name, e.g. ward.ops.forgejo.repo.create
-	Group       string     // CLI group noun, e.g. repo
-	Leaf        string     // CLI leaf verb, e.g. create
-	Method      string     // HTTP method
-	Path        string     // path template, e.g. /repos/{owner}/{repo}
-	PathParams  []string   // ordered positional args drawn from the path
-	BodyFlags   []bodyFlag // request-body scalar fields promoted to flags
-	Destructive bool       // leaf mutates irreversibly (delete)
-	Grant       string     // the authorizing grant sentence, e.g. "can delete repos"
-	Describe    string     // optional Guardfile describe "..." note, "" if none
+	VerbName    string            // dotted audit name, e.g. ward.ops.forgejo.repo.create
+	Group       string            // CLI group noun, e.g. repo
+	Leaf        string            // CLI leaf verb, e.g. create
+	Method      string            // HTTP method
+	Path        string            // path template, e.g. /repos/{owner}/{repo}
+	PathParams  []string          // ordered positional args drawn from the path
+	BodyFlags   []fieldFlag       // request-body fields promoted to flags
+	QueryFlags  []fieldFlag       // scalar query params promoted to flags
+	FixedBody   map[string]string // exact body for state-toggle leaves; no body flags mount
+	Destructive bool              // leaf mutates irreversibly (delete)
+	Grant       string            // the authorizing grant sentence, e.g. "can delete repos"
+	Describe    string            // optional Guardfile describe "..." note, "" if none
 }
 
-// bodyFlag is one request-body scalar field promoted to a typed CLI flag.
-type bodyFlag struct {
-	Name     string // json field name, doubling as the flag name
-	Type     string // swagger scalar type: string|boolean|integer|number
-	Required bool   // required schema field -> required flag
+// fieldFlag is one spec input promoted to a typed CLI flag: a request-body
+// field (scalar or array-of-scalar) or a scalar query parameter.
+type fieldFlag struct {
+	Name     string // json field / query param name, doubling as the flag name
+	Type     string // swagger type: string|boolean|integer|number|array
+	Items    string // scalar element type when Type is "array"
+	Required bool   // required in the schema; enforced at request assembly
 	Desc     string
+}
+
+// typeLabel renders the flag's type for help and the reference doc.
+func (f fieldFlag) typeLabel() string {
+	if f.Type == "array" {
+		return "[]" + f.Items
+	}
+	return f.Type
 }
 
 // Build assembles the guarded command tree and returns the Guardfile group's
@@ -245,11 +257,41 @@ func resolveDescriptor(spec *swaggerSpec, group []string, g guardfile.Grant) (op
 		Path:        path,
 		PathParams:  pathParamsInOrder(path),
 		BodyFlags:   bodyFlagsFrom(bodySchema),
+		QueryFlags:  queryFlagsFrom(op),
+		FixedBody:   entry.FixedBody,
 		Destructive: destructiveLeaves[entry.Leaf],
 		Grant:       formatGrant(g),
 		Describe:    g.Describe,
 	}
+	if len(desc.FixedBody) > 0 {
+		// a state toggle owns its body: the spec's edit fields stay unmounted
+		desc.BodyFlags = nil
+	}
+	if err := checkFlagCollisions(desc); err != nil {
+		return opDescriptor{}, err
+	}
 	return desc, nil
+}
+
+// reservedFlagNames are the universal per-leaf flags no spec input may shadow.
+var reservedFlagNames = map[string]bool{
+	flagDryRun: true, flagQuery: true, flagOutput: true, flagBodyFile: true,
+}
+
+// checkFlagCollisions fails closed when a promoted spec input would shadow a
+// universal flag or another promoted input on the same leaf.
+func checkFlagCollisions(desc opDescriptor) error {
+	seen := map[string]bool{}
+	for _, f := range append(append([]fieldFlag{}, desc.QueryFlags...), desc.BodyFlags...) {
+		if reservedFlagNames[f.Name] {
+			return fmt.Errorf("specverb: %s: spec input %q collides with a reserved engine flag (fail-closed)", desc.VerbName, f.Name)
+		}
+		if seen[f.Name] {
+			return fmt.Errorf("specverb: %s: query and body inputs both name %q (fail-closed)", desc.VerbName, f.Name)
+		}
+		seen[f.Name] = true
+	}
+	return nil
 }
 
 // formatGrant renders the authorizing grant sentence for help and describe,
@@ -259,9 +301,9 @@ func formatGrant(g guardfile.Grant) string {
 	return strings.Join(parts, " ")
 }
 
-// bodyFlagsFrom promotes a body schema's scalar properties to typed flags
-// (required-in-schema -> required flag). Non-scalars are skipped at M0.
-func bodyFlagsFrom(schema *swaggerSchema) []bodyFlag {
+// bodyFlagsFrom promotes a body schema's scalar and array-of-scalar properties
+// to typed flags; required-ness is enforced at assembly, not the CLI layer.
+func bodyFlagsFrom(schema *swaggerSchema) []fieldFlag {
 	if schema == nil {
 		return nil
 	}
@@ -276,17 +318,33 @@ func bodyFlagsFrom(schema *swaggerSchema) []bodyFlag {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	var flags []bodyFlag
+	var flags []fieldFlag
 	for _, name := range names {
 		prop := schema.Properties[name]
-		if !isScalar(prop.Type) {
+		f := fieldFlag{Name: name, Required: required[name], Desc: prop.Description}
+		switch {
+		case isScalar(prop.Type):
+			f.Type = prop.Type
+		case prop.Type == "array" && prop.Items != nil && isScalar(prop.Items.Type):
+			f.Type = "array"
+			f.Items = prop.Items.Type
+		default: // nested objects stay out of scope; --body-file covers them
 			continue
 		}
-		flags = append(flags, bodyFlag{
-			Name:     name,
-			Type:     prop.Type,
-			Required: required[name],
-			Desc:     prop.Description,
+		flags = append(flags, f)
+	}
+	return flags
+}
+
+// queryFlagsFrom promotes an operation's scalar query parameters to flags.
+func queryFlagsFrom(op swaggerOp) []fieldFlag {
+	var flags []fieldFlag
+	for _, p := range queryParamsOf(op) {
+		flags = append(flags, fieldFlag{
+			Name:     p.Name,
+			Type:     p.Type,
+			Required: p.Required,
+			Desc:     p.Description,
 		})
 	}
 	return flags

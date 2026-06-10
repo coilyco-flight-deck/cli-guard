@@ -7,8 +7,8 @@ Gold-standard visibility for the fanatically thin generated CLI. The surface is 
 `specverb.Describe(Config)` builds a `Surface`: the in-engine model of the mounted surface, the single structural truth shared by help, the describe verb, and (later) completions and the generated skill. It is assembled from the same resolved descriptors the runtime mounts, so it can never name a verb that is not callable.
 
 - **`Surface`** - the command path, resolved base-url, `AuthInfo`, and one `VerbInfo` per mounted leaf in mount order.
-- **`VerbInfo`** - the CLI placement (noun -> leaf), the HTTP method/path, the destructive flag, the dotted audit name, the authorizing grant sentence, the optional `describe` note, and `Params`.
-- **`ParamInfo`** - each param tagged by kind (`path` positional, `body` flag) plus type and requiredness. The `Kind` taxonomy also names `query`, which the engine does not yet promote to a flag.
+- **`VerbInfo`** - the CLI placement (noun -> leaf), the HTTP method/path, the destructive flag, the dotted audit name, the authorizing grant sentence, the optional `describe` note, `Params`, and the `FixedBody` a state-toggle leaf always sends.
+- **`ParamInfo`** - each param tagged by kind (`path` positional, `query` flag, `body` flag) plus type (arrays render as `[]elem`) and requiredness.
 - **`AuthInfo`** - the scheme, header, and SSM token **path**. The secret value never appears in the model.
 
 ## The three consumer surfaces

@@ -106,11 +106,11 @@ func names(cmds []*cli.Command) []string {
 
 func TestDenyByDefault(t *testing.T) {
 	_, spec := loadFixtures(t)
-	// `labels` has no expansion-table row: the build must fail closed.
+	// `webhooks` has no expansion-table row: the build must fail closed.
 	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
 		spec forgejo.swagger.v1.json
 		auth header-token { header Authorization; ssm "/forgejo/api-token" }
-		can read labels
+		can read webhooks
 	}`))
 	if err != nil {
 		t.Fatalf("parse guardfile: %v", err)
@@ -420,4 +420,224 @@ func childNamed(parent *cli.Command, name string) *cli.Command {
 		}
 	}
 	return nil
+}
+
+// issuesFixtures parses an issues-grants guardfile against the shared spec,
+// the consumer for the query-param and array-body primitives.
+func issuesFixtures(t *testing.T) (*guardfile.Guardfile, []byte) {
+	t.Helper()
+	_, spec := loadFixtures(t)
+	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
+		spec forgejo.swagger.v1.json
+		auth header-token { header Authorization; ssm "/forgejo/api-token" }
+		can list issues
+		can create issues
+	}`))
+	if err != nil {
+		t.Fatalf("parse guardfile: %v", err)
+	}
+	return gf, spec
+}
+
+// TestQueryParamsPromoted proves scalar query params mount as flags and a set
+// flag lands in the URL's query string; unset ones are omitted entirely.
+func TestQueryParamsPromoted(t *testing.T) {
+	gf, spec := issuesFixtures(t)
+	cfg := Config{Guardfile: gf, Spec: spec, HTTPClient: &http.Client{Transport: failingTransport{t}}}
+	out, err := runTree(t, cfg, "forgejo", "issue", "list", "kai", "demo", "--state", "open", "--page", "2", "--dry-run", "--output", "json")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	// JSON rendering escapes the ampersand, so assert the parts separately.
+	for _, want := range []string{"/repos/kai/demo/issues?page=2", "state=open"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dry-run URL missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "limit") {
+		t.Errorf("unset query param leaked into the URL:\n%s", out)
+	}
+}
+
+// TestArrayBodyFlags proves array-of-scalar body fields mount as repeatable
+// flags and serialize as JSON arrays of the right element type.
+func TestArrayBodyFlags(t *testing.T) {
+	gf, spec := issuesFixtures(t)
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	cfg := Config{
+		Guardfile: gf, Spec: spec, BaseURL: srv.URL,
+		Token: func(context.Context, string) (string, error) { return "x", nil },
+	}
+	_, err := runTree(t, cfg, "forgejo", "issue", "create", "kai", "demo",
+		"--title", "t", "--assignees", "a", "--assignees", "b", "--labels", "7", "--labels", "9")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	for _, want := range []string{`"assignees":["a","b"]`, `"labels":[7,9]`, `"title":"t"`} {
+		if !strings.Contains(gotBody, want) {
+			t.Errorf("body = %q, want it to contain %q", gotBody, want)
+		}
+	}
+}
+
+// TestBodyFileSuppliesBody proves --body-file replaces the body flags wholesale
+// and satisfies required-field enforcement.
+func TestBodyFileSuppliesBody(t *testing.T) {
+	gf, spec := issuesFixtures(t)
+	path := filepath.Join(t.TempDir(), "body.json")
+	if err := os.WriteFile(path, []byte(`{"title":"from-file","assignees":["c"]}`), 0o600); err != nil {
+		t.Fatalf("write body file: %v", err)
+	}
+	cfg := Config{Guardfile: gf, Spec: spec, HTTPClient: &http.Client{Transport: failingTransport{t}}}
+	out, err := runTree(t, cfg, "forgejo", "issue", "create", "kai", "demo", "--body-file", path, "--dry-run", "--output", "json")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	for _, want := range []string{"from-file", `"c"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dry-run body missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestBodyFileExclusiveWithFlags proves mixing --body-file with a body flag is
+// a user error, not a silent merge.
+func TestBodyFileExclusiveWithFlags(t *testing.T) {
+	gf, spec := issuesFixtures(t)
+	path := filepath.Join(t.TempDir(), "body.json")
+	if err := os.WriteFile(path, []byte(`{"title":"x"}`), 0o600); err != nil {
+		t.Fatalf("write body file: %v", err)
+	}
+	cfg := Config{Guardfile: gf, Spec: spec, BaseURL: "http://127.0.0.1:0",
+		Token: func(context.Context, string) (string, error) { return "x", nil }}
+	if _, err := runTree(t, cfg, "forgejo", "issue", "create", "kai", "demo", "--body-file", path, "--title", "y", "--dry-run"); err == nil {
+		t.Fatal("expected a mutual-exclusion error, got nil")
+	}
+}
+
+// TestRequiredBodyFieldEnforced proves a missing required field fails at
+// request assembly with a pointer at both sources.
+func TestRequiredBodyFieldEnforced(t *testing.T) {
+	gf, spec := issuesFixtures(t)
+	cfg := Config{Guardfile: gf, Spec: spec, BaseURL: "http://127.0.0.1:0",
+		Token: func(context.Context, string) (string, error) { return "x", nil }}
+	_, err := runTree(t, cfg, "forgejo", "issue", "create", "kai", "demo", "--body", "no title", "--dry-run")
+	if err == nil {
+		t.Fatal("expected a required-field error, got nil")
+	}
+	if !strings.Contains(err.Error(), "title") {
+		t.Errorf("error should name the missing field: %v", err)
+	}
+}
+
+// TestFlagCollisionFailsClosed proves a spec input shadowing a reserved engine
+// flag refuses to build rather than silently winning.
+func TestFlagCollisionFailsClosed(t *testing.T) {
+	desc := opDescriptor{
+		VerbName:   "ward.ops.forgejo.issue.list",
+		QueryFlags: []fieldFlag{{Name: "output", Type: "string"}},
+	}
+	if err := checkFlagCollisions(desc); err == nil {
+		t.Fatal("expected a reserved-flag collision error, got nil")
+	}
+	desc = opDescriptor{
+		VerbName:   "ward.ops.forgejo.issue.list",
+		QueryFlags: []fieldFlag{{Name: "state", Type: "string"}},
+		BodyFlags:  []fieldFlag{{Name: "state", Type: "string"}},
+	}
+	if err := checkFlagCollisions(desc); err == nil {
+		t.Fatal("expected a query/body name collision error, got nil")
+	}
+}
+
+// TestStateToggleSendsFixedBody proves a close grant PATCHes exactly
+// {"state":"closed"}, mounts no body flags, and says so in describe.
+func TestStateToggleSendsFixedBody(t *testing.T) {
+	_, spec := loadFixtures(t)
+	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
+		spec forgejo.swagger.v1.json
+		auth header-token { header Authorization; ssm "/forgejo/api-token" }
+		can close issues
+	}`))
+	if err != nil {
+		t.Fatalf("parse guardfile: %v", err)
+	}
+	var gotMethod, gotPath, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	cfg := Config{Guardfile: gf, Spec: spec, BaseURL: srv.URL,
+		Token: func(context.Context, string) (string, error) { return "x", nil }}
+	if _, err := runTree(t, cfg, "forgejo", "issue", "close", "kai", "demo", "7"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if gotMethod != "PATCH" || gotPath != "/repos/kai/demo/issues/7" {
+		t.Errorf("server saw %s %s, want PATCH /repos/kai/demo/issues/7", gotMethod, gotPath)
+	}
+	if gotBody != `{"state":"closed"}` {
+		t.Errorf("body = %q, want exactly the fixed state body", gotBody)
+	}
+	// the toggle owns its body: the edit op's fields must not mount as flags
+	root, err := Build(cfg)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	closeLeaf := childNamed(childNamed(root, "issue"), "close")
+	for _, f := range closeLeaf.Flags {
+		for _, name := range f.Names() {
+			if name == "title" || name == "state" || name == flagBodyFile {
+				t.Errorf("state toggle mounted body flag %q", name)
+			}
+		}
+	}
+	surface, err := Describe(cfg)
+	if err != nil {
+		t.Fatalf("Describe: %v", err)
+	}
+	if got := surface.Verbs[0].FixedBody["state"]; got != "closed" {
+		t.Errorf("describe fixed body = %v", surface.Verbs[0].FixedBody)
+	}
+}
+
+// TestDescribeShowsQueryAndArrayParams proves the describe model carries the
+// new param kinds so the reference doc and help stay truthful.
+func TestDescribeShowsQueryAndArrayParams(t *testing.T) {
+	gf, spec := issuesFixtures(t)
+	surface, err := Describe(Config{Guardfile: gf, Spec: spec})
+	if err != nil {
+		t.Fatalf("Describe: %v", err)
+	}
+	byLeaf := map[string]VerbInfo{}
+	for _, v := range surface.Verbs {
+		byLeaf[v.Leaf] = v
+	}
+	kinds := map[string]string{}
+	types := map[string]string{}
+	for _, p := range byLeaf["list"].Params {
+		kinds[p.Name] = p.Kind
+	}
+	for _, p := range byLeaf["create"].Params {
+		types[p.Name] = p.Type
+	}
+	if kinds["state"] != "query" || kinds["owner"] != "path" {
+		t.Errorf("list param kinds = %v, want state=query owner=path", kinds)
+	}
+	if types["assignees"] != "[]string" || types["labels"] != "[]integer" {
+		t.Errorf("create param types = %v, want assignees=[]string labels=[]integer", types)
+	}
 }

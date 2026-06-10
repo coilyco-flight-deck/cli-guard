@@ -34,16 +34,11 @@ Quotes are quarantined to the config header (`base-url`, the trailing-space `pre
 
 `specverb.Build(Config)` assembles the guarded `*cli.Command` tree:
 
-1. Parse the embedded Swagger 2.0 spec (minimal M0 reader: method, path, operationId, ordered path params, request-body scalars, one-hop `$ref`).
-2. For each `can` grant, resolve `(verb, resource)` through the committed expansion table to `{cliGroup, cliLeaf, operationId}`. **Deny-by-default: no row, no mount.** The set of rows is the M0 allowlist.
-3. Mount each resolved op as a guarded leaf under `verb.Wrap` (audit + argv gate). An unresolvable grant is a fail-closed error, never a silently dropped verb.
+1. Parse the embedded Swagger 2.0 spec (minimal reader: method, path, operationId, path params, scalar query params, body scalars and arrays, one-hop `$ref`).
+2. For each `can` grant, resolve `(verb, resource)` through the committed expansion table to `{cliGroup, cliLeaf, operationId}` (plus an optional fixed body). **Deny-by-default: no row, no mount.** The set of rows is the allowlist.
+3. Mount each resolved op as a guarded leaf under `verb.Wrap` (audit + argv gate). An unresolvable grant is a fail-closed error, never a silently dropped verb; so is a spec input colliding with a reserved engine flag.
 
-One generic action backs every verb:
-
-- **Path params** become positional args (`repo delete <owner> <repo>`).
-- **Request-body scalars** are promoted to typed flags; required schema field -> required flag, unset optional omitted rather than sent as a zero value.
-- **Auth** (header-token) resolves the secret through an injected `TokenResolver`, keeping the AWS SDK out of cli-guard - the consumer wires the real SSM resolver, tests inject a fake.
-- **`--dry-run`** prints the resolved request with the secret redacted and fires nothing; live responses render through the `respfmt` `--query`/`--output` rail.
+One generic action backs every verb: path params positional, query params and body fields as typed flags, `--body-file`, fixed-body state toggles, injected-resolver auth, `--dry-run`, and the `respfmt` render rail - the full input and firing semantics live in [specverb-request.md](specverb-request.md).
 
 `specverb.Mount(root, Config)` is the consumer entry point: it `Build`s the group and grafts it onto root, generating the intermediate path groups the `wrap` line names (`wrap ward ops forgejo` -> find-or-create `ops`), so a consumer registers the whole surface in one call. Two defaults keep it thin: a scheme-less `base-url` defaults to `https://`, and a nil `HTTPClient` refuses redirects for mutating methods (net/http would otherwise downgrade a redirected POST, dropping the body).
 
@@ -51,11 +46,13 @@ One generic action backs every verb:
 
 ## Milestone status
 
-M0 mounts the forgejo repo read/create/delete trio, unit-tested over tree shape, deny-by-default, the Swagger-2.0 gate, dry-run, live create/delete, and `verb.Wrap`. M1 wires it into ward via `Mount` + the real SSM resolver.
+Mounted today: forgejo repo + org trios, the all-scalar label and milestone groups, and the issues batch exercising query params, array bodies, `--body-file`, and fixed-body toggles. Unit-tested over tree shape, deny-by-default, the Swagger-2.0 gate, dry-run, live create/delete, and `verb.Wrap`.
 
 Named follow-ups (not silent gaps):
 
-- **M2** - fanatical-UX: `--yes` destructive-confirm, teaching errors.
-- **M4** - migrate coily's verbs to specverb; prune the spec lock to granted ops.
+- **name->id resolution** - issue label add/remove take names; a pre-flight list+match resolves ids.
+- **multipart POST** - release upload-asset.
+- **M2** - `--yes` destructive-confirm, teaching errors.
+- **M4** - migrate coily's remaining verbs; prune the spec lock to granted ops.
 
 Design: [cli-guard#75](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/75).
