@@ -3,6 +3,7 @@ package specdrv
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -12,7 +13,7 @@ func TestDepLockRoundTrip(t *testing.T) {
 	in := &DepLock{
 		Go:       "1.25.5",
 		CLIGuard: "v0.4.0",
-		GoMod:    "module specverbgen.local/build\n\ngo 1.25.5\n",
+		GoMod:    []string{"module specverbgen.local/build", "", "go 1.25.5"},
 		GoSum:    []string{"b v1 h1:bbb=", "a v1 h1:aaa="},
 	}
 	if err := writeDepLock(path, in); err != nil {
@@ -25,7 +26,7 @@ func TestDepLockRoundTrip(t *testing.T) {
 	if out.Version != depLockVersion {
 		t.Errorf("Version = %d, want %d", out.Version, depLockVersion)
 	}
-	if out.GoMod != in.GoMod || out.CLIGuard != in.CLIGuard {
+	if strings.Join(out.GoMod, "\n") != strings.Join(in.GoMod, "\n") || out.CLIGuard != in.CLIGuard {
 		t.Errorf("round-trip mismatch: %+v", out)
 	}
 	// writeDepLock sorts go.sum lines for a stable diff.
@@ -48,7 +49,7 @@ func TestReadDepLockRejectsBadVersion(t *testing.T) {
 func TestWriteModuleFilesReplaysLock(t *testing.T) {
 	dir := t.TempDir()
 	dl := &DepLock{
-		GoMod: "module specverbgen.local/build\n\ngo 1.25.5\n",
+		GoMod: []string{"module specverbgen.local/build", "", "go 1.25.5"},
 		GoSum: []string{"a v1 h1:aaa=", "b v1 h1:bbb="},
 	}
 	if err := writeModuleFiles(dir, dl); err != nil {
@@ -58,8 +59,8 @@ func TestWriteModuleFilesReplaysLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(gotMod) != dl.GoMod {
-		t.Errorf("go.mod = %q, want %q", gotMod, dl.GoMod)
+	if string(gotMod) != "module specverbgen.local/build\n\ngo 1.25.5\n" {
+		t.Errorf("go.mod = %q", gotMod)
 	}
 	gotSum, err := os.ReadFile(filepath.Join(dir, "go.sum"))
 	if err != nil {

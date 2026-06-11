@@ -18,8 +18,9 @@ import (
 // sits beside the Guardfile as source-of-truth; the generated Go does not.
 const LockName = "specverb.lock"
 
-// depLockVersion is the schema version of a LockName file.
-const depLockVersion = 1
+// depLockVersion is the schema version of a LockName file. v2 made goMod a line
+// array (symmetric with goSum), so the lock is diff-reviewable.
+const depLockVersion = 2
 
 // cliGuardModule is the framework's own module path. The driver is part of
 // cli-guard, so it pins this module into every consumer's build.
@@ -39,7 +40,7 @@ type DepLock struct {
 	Version  int      `json:"version"`  // schema version
 	Go       string   `json:"go"`       // go directive of the build module
 	CLIGuard string   `json:"cliGuard"` // resolved cli-guard module query (version, commit, or replace path)
-	GoMod    string   `json:"goMod"`    // verbatim go.mod of the build module
+	GoMod    []string `json:"goMod"`    // go.mod lines, order preserved
 	GoSum    []string `json:"goSum"`    // sorted go.sum lines
 }
 
@@ -146,7 +147,13 @@ func resolveDepLock(dir, ref, replace string) (*DepLock, error) {
 	if replace != "" {
 		cg = "replace=" + replace
 	}
-	return &DepLock{Go: buildGoDirective, CLIGuard: cg, GoMod: string(goMod), GoSum: splitSortedLines(goSum)}, nil
+	return &DepLock{Go: buildGoDirective, CLIGuard: cg, GoMod: splitLines(goMod), GoSum: splitSortedLines(goSum)}, nil
+}
+
+// splitLines splits go.mod bytes into lines with order preserved (go.mod block
+// structure is significant), dropping only the trailing newline.
+func splitLines(b []byte) []string {
+	return strings.Split(strings.TrimRight(string(b), "\n"), "\n")
 }
 
 // modVersionForRequire is the version token for the initial require line; a
@@ -174,7 +181,11 @@ func splitSortedLines(b []byte) []string {
 // writeModuleFiles replays a DepLock's go.mod and go.sum into dir, the build
 // step's reproducible input.
 func writeModuleFiles(dir string, dl *DepLock) error {
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(dl.GoMod), 0o600); err != nil {
+	mod := strings.Join(dl.GoMod, "\n")
+	if mod != "" {
+		mod += "\n"
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(mod), 0o600); err != nil {
 		return fmt.Errorf("specdrv: write build go.mod: %w", err)
 	}
 	sum := strings.Join(dl.GoSum, "\n")

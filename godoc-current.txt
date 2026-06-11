@@ -1606,7 +1606,7 @@ type DepLock struct {
 	Version  int      `json:"version"`  // schema version
 	Go       string   `json:"go"`       // go directive of the build module
 	CLIGuard string   `json:"cliGuard"` // resolved cli-guard module query (version, commit, or replace path)
-	GoMod    string   `json:"goMod"`    // verbatim go.mod of the build module
+	GoMod    []string `json:"goMod"`    // go.mod lines, order preserved
 	GoSum    []string `json:"goSum"`    // sorted go.sum lines
 }
     DepLock is specverb.lock: the frozen build module. GoMod and GoSum
