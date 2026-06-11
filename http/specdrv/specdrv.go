@@ -194,27 +194,41 @@ func writeReferenceDoc(dir string, m member, specBytes []byte) error {
 	return nil
 }
 
-// Lock refreshes both committed locks beside the Guardfile: the spec lock (the
-// fetched Swagger) and specverb.lock (the frozen build module). The `uv lock` analog.
+// lockSpecs fetches each member's upstream spec, prunes it to the granted
+// surface, writes the per-member spec lock, and returns the pruned bytes.
+func lockSpecs(g *group) ([][]byte, error) {
+	specs := make([][]byte, len(g.Members))
+	for i, m := range g.Members {
+		full, err := fetchSpec(m.Params.SpecURL)
+		if err != nil {
+			return nil, fmt.Errorf("specdrv: fetch spec %s: %w", m.Params.GuardfileName, err)
+		}
+		// Commit only the granted slice, not the full upstream dump: the lock
+		// becomes the consumer's own contract. See docs/specverb-driver.md.
+		specBytes, err := specverb.Prune(full, m.GF)
+		if err != nil {
+			return nil, fmt.Errorf("specdrv: prune spec %s: %w", m.Params.GuardfileName, err)
+		}
+		specLockPath := filepath.Join(g.Dir, m.Params.SpecLockName)
+		if err := os.WriteFile(specLockPath, specBytes, 0o644); err != nil { //nolint:gosec // committed spec snapshot, not a secret
+			return nil, fmt.Errorf("specdrv: write spec lock: %w", err)
+		}
+		specs[i] = specBytes
+		fmt.Fprintf(os.Stderr, "specverb-gen: locked %s (%d bytes, pruned from %d)\n", m.Params.SpecLockName, len(specBytes), len(full))
+	}
+	return specs, nil
+}
+
+// Lock refreshes both committed locks: each member's pruned spec lock and the
+// one specverb.lock (the frozen build module). The `uv lock` analog.
 func Lock(opts Options) error {
 	g, err := loadGroup(opts)
 	if err != nil {
 		return err
 	}
-	// Per member: fetch its upstream spec and write its own spec lock (the
-	// separate-artifact half). Keep the bytes for the dep lock + reference docs.
-	specs := make([][]byte, len(g.Members))
-	for i, m := range g.Members {
-		specBytes, err := fetchSpec(m.Params.SpecURL)
-		if err != nil {
-			return fmt.Errorf("specdrv: fetch spec %s: %w", m.Params.GuardfileName, err)
-		}
-		specLockPath := filepath.Join(g.Dir, m.Params.SpecLockName)
-		if err := os.WriteFile(specLockPath, specBytes, 0o644); err != nil { //nolint:gosec // committed spec snapshot, not a secret
-			return fmt.Errorf("specdrv: write spec lock: %w", err)
-		}
-		specs[i] = specBytes
-		fmt.Fprintf(os.Stderr, "specverb-gen: locked %s (%d bytes)\n", m.Params.SpecLockName, len(specBytes))
+	specs, err := lockSpecs(g)
+	if err != nil {
+		return err
 	}
 	// One merged dep lock for the whole binary - the module graph is the union.
 	main, err := g.render()
@@ -265,7 +279,13 @@ func Skew(opts Options) error {
 		if err != nil {
 			return fmt.Errorf("specdrv: fetch spec %s: %w", m.Params.GuardfileName, err)
 		}
-		d, err := diffSpecs(committed, live)
+		// Prune live to the same granted slice the committed lock holds, so
+		// drift is reported only for operations this consumer exposes.
+		livePruned, err := specverb.Prune(live, m.GF)
+		if err != nil {
+			return fmt.Errorf("specdrv: prune live spec %s: %w", m.Params.GuardfileName, err)
+		}
+		d, err := diffSpecs(committed, livePruned)
 		if err != nil {
 			return err
 		}

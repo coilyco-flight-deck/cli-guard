@@ -1586,9 +1586,8 @@ func Gen(opts Options) error
     refreshes each member's reference doc from its committed spec lock.
 
 func Lock(opts Options) error
-    Lock refreshes both committed locks beside the Guardfile: the spec lock (the
-    fetched Swagger) and specverb.lock (the frozen build module). The `uv lock`
-    analog.
+    Lock refreshes both committed locks: each member's pruned spec lock and the
+    one specverb.lock (the frozen build module). The `uv lock` analog.
 
 func Run(opts Options) error
     Run materializes the consumer binary out-of-band (building only when
@@ -1689,6 +1688,11 @@ func Build(cfg Config) (*cli.Command, error)
 func Mount(root *cli.Command, cfg Config) error
     Mount builds the guarded group and grafts it onto root, generating the
     intermediate path groups the Guardfile names. See docs/specverb.md.
+
+func Prune(spec []byte, gf *guardfile.Guardfile) ([]byte, error)
+    Prune returns a minimal Swagger 2.0 doc with only the operations gf
+    grants and their reachable definitions (raw-JSON, full-fidelity). See
+    docs/specverb-driver.md.
 
 
 TYPES
