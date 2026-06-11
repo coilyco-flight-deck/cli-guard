@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/config"
 )
@@ -38,9 +40,25 @@ func cacheKey(guardfilePath string) (string, error) {
 	return hex.EncodeToString(sum[:])[:16], nil
 }
 
-// cacheDir returns the materialized module dir for guardfilePath.
-func cacheDir(guardfilePath string) (string, error) {
-	key, err := cacheKey(guardfilePath)
+// cacheKeyForGroup derives the per-binary cache key from the sorted absolute
+// member paths, so a merged build gets one stable, collision-free key.
+func cacheKeyForGroup(g *group) (string, error) {
+	abs := make([]string, len(g.Members))
+	for i, m := range g.Members {
+		a, err := filepath.Abs(m.Path)
+		if err != nil {
+			return "", fmt.Errorf("specdrv: resolve guardfile path: %w", err)
+		}
+		abs[i] = a
+	}
+	sort.Strings(abs)
+	sum := sha256.Sum256([]byte(strings.Join(abs, "\n")))
+	return hex.EncodeToString(sum[:])[:16], nil
+}
+
+// cacheDirForGroup returns the materialized module dir for a merged binary.
+func cacheDirForGroup(g *group) (string, error) {
+	key, err := cacheKeyForGroup(g)
 	if err != nil {
 		return "", err
 	}
@@ -61,6 +79,16 @@ type stamp struct {
 func hashBytes(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+// hashConcat hashes an ordered set of byte slices as one combined staleness
+// input. Callers pass the slices in a deterministic (sorted) order.
+func hashConcat(bss ...[]byte) string {
+	h := sha256.New()
+	for _, b := range bss {
+		h.Write(b)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // readStamp loads the cache stamp; a missing stamp is reported as not-found so

@@ -1582,8 +1582,8 @@ func Build(opts Options) error
     See specverb-driver.md.
 
 func Gen(opts Options) error
-    Gen renders the consumer main.go. With no --out it writes into the cache and
-    prints the path; --out is the debug escape hatch for inspecting the source.
+    Gen renders the merged consumer main.go (cache, or --out for inspection) and
+    refreshes each member's reference doc from its committed spec lock.
 
 func Lock(opts Options) error
     Lock refreshes both committed locks beside the Guardfile: the spec lock (the
@@ -1634,9 +1634,13 @@ so a consumer never hand-writes the specverb wiring. See docs/specverb.md.
 FUNCTIONS
 
 func Render(gf *guardfile.Guardfile, guardfileName string) ([]byte, error)
-    Render emits a gofmt'd `package main` wiring specverb.Mount for gf.
-    guardfileName is the Guardfile's filename in the consumer dir (for the
-    embed).
+    Render emits a gofmt'd `package main` wiring specverb.Mount for gf,
+    the single-guardfile convenience over RenderSet.
+
+func RenderSet(gfs []*guardfile.Guardfile, names []string) ([]byte, error)
+    RenderSet emits a gofmt'd `package main` mounting every guardfile in the
+    set onto one binary. names are the consumer-dir filenames (for embeds),
+    parallel to gfs.
 
 
 TYPES
@@ -1654,6 +1658,18 @@ type Params struct {
 func Plan(gf *guardfile.Guardfile, guardfileName string) (Params, error)
     Plan derives the per-consumer Params from gf without rendering, the shared
     derivation behind both Render and the driver. guardfileName feeds the embed.
+
+type SetParams struct {
+	Binary string
+	Mounts []Params
+}
+    SetParams binds the merged-binary template: one shared Binary name and N
+    per-guardfile mounts (a single-guardfile build is the len(Mounts)==1 case).
+
+func PlanSet(gfs []*guardfile.Guardfile, names []string) (SetParams, error)
+    PlanSet derives the merged params for guardfiles that share a binary name.
+    It fails closed on an empty set or a Group[0] disagreement (one binary per
+    merge).
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specverb

@@ -27,7 +27,7 @@ Packages are grouped by **guarded surface** plus a shared `pkg/` core; `cli/`, `
 ### HTTP request surface (`http/`)
 
 - **egress** - Per-invocation CONNECT proxy with consumer allowlist.
-- **guardfile** / **specverb** / **specgen** / **specdrv** - Spec-driven verbs from a KDL Guardfile + Swagger spec; no-code driver. See [specverb.md](specverb.md), [specverb-driver.md](specverb-driver.md).
+- **guardfile** / **specverb** / **specgen** / **specdrv** - Spec-driven verbs from a KDL Guardfile; no-code driver. Guardfiles merge by `wrap` binary name. See [specverb-driver.md](specverb-driver.md).
 - **respfmt** - JSON response renderer with JMESPath + five output formats.
 - **ghcache** / **ghidcache** / **ghratelimit** / **stscache** - Forgejo/GitHub response, id, rate-limit, and STS credential caches.
 

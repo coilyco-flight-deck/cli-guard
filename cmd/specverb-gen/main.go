@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specdrv"
 	"github.com/urfave/cli/v3"
@@ -57,10 +56,7 @@ func app() *cli.Command {
 			if c.String("out") == "" {
 				return cli.ShowAppHelp(c)
 			}
-			gf, err := resolveGuardfile(c)
-			if err != nil {
-				return err
-			}
+			gf := resolveGuardfile(c)
 			return specdrv.Gen(specdrv.Options{GuardfilePath: gf, Out: c.String("out")})
 		},
 	}
@@ -74,10 +70,7 @@ func genCmd() *cli.Command {
 			&cli.StringFlag{Name: "out", Usage: "write main.go here instead of the cache (debug)"},
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
-			gf, err := resolveGuardfile(c)
-			if err != nil {
-				return err
-			}
+			gf := resolveGuardfile(c)
 			return specdrv.Gen(specdrv.Options{GuardfilePath: gf, Out: c.String("out")})
 		},
 	}
@@ -92,10 +85,7 @@ func lockCmd() *cli.Command {
 			&cli.StringFlag{Name: "cli-guard-replace", Usage: "local cli-guard checkout to build against (dev locks only)"},
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
-			gf, err := resolveGuardfile(c)
-			if err != nil {
-				return err
-			}
+			gf := resolveGuardfile(c)
 			return specdrv.Lock(specdrv.Options{
 				GuardfilePath:   gf,
 				CLIGuardRef:     c.String("cli-guard-ref"),
@@ -110,10 +100,7 @@ func skewCmd() *cli.Command {
 		Name:  "skew",
 		Usage: "report drift between the committed spec lock and live upstream (exit 3 on drift)",
 		Action: func(_ context.Context, c *cli.Command) error {
-			gf, err := resolveGuardfile(c)
-			if err != nil {
-				return err
-			}
+			gf := resolveGuardfile(c)
 			return specdrv.Skew(specdrv.Options{GuardfilePath: gf})
 		},
 	}
@@ -127,10 +114,7 @@ func buildCmd() *cli.Command {
 			&cli.StringFlag{Name: "out", Value: "bin", Usage: "output directory (binary keeps its Guardfile name) or explicit file path"},
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
-			gf, err := resolveGuardfile(c)
-			if err != nil {
-				return err
-			}
+			gf := resolveGuardfile(c)
 			return specdrv.Build(specdrv.Options{GuardfilePath: gf, Out: c.String("out")})
 		},
 	}
@@ -141,31 +125,14 @@ func runCmd() *cli.Command {
 		Name:  "run",
 		Usage: "materialize+build the consumer binary if stale, then exec it with the remaining args",
 		Action: func(_ context.Context, c *cli.Command) error {
-			gf, err := resolveGuardfile(c)
-			if err != nil {
-				return err
-			}
+			gf := resolveGuardfile(c)
 			return specdrv.Run(specdrv.Options{GuardfilePath: gf, Args: c.Args().Slice()})
 		},
 	}
 }
 
-// resolveGuardfile returns the --guardfile value, or discovers the lone
-// *.guardfile.kdl in the current directory when the flag is unset.
-func resolveGuardfile(c *cli.Command) (string, error) {
-	if p := c.String("guardfile"); p != "" {
-		return p, nil
-	}
-	matches, err := filepath.Glob("*.guardfile.kdl")
-	if err != nil {
-		return "", fmt.Errorf("discover guardfile: %w", err)
-	}
-	switch len(matches) {
-	case 0:
-		return "", errors.New("no *.guardfile.kdl in cwd; pass --guardfile")
-	case 1:
-		return matches[0], nil
-	default:
-		return "", fmt.Errorf("multiple guardfiles in cwd (%v); pass --guardfile", matches)
-	}
+// resolveGuardfile returns the --guardfile value verbatim (empty when unset).
+// The driver (specdrv.loadGroup) owns discovery and the merge-vs-error rules.
+func resolveGuardfile(c *cli.Command) string {
+	return c.String("guardfile")
 }
