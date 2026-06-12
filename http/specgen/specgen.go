@@ -263,7 +263,21 @@ func wrapWith(w *audit.Writer) func(verb.Spec) cli.ActionFunc {
 }
 
 func ssmTokenResolver(ctx context.Context, ssmPath string) (string, error) {
-	cfg, err := awsconfig.LoadDefaultConfig(ctx)
+	val, err := getSSMParam(ctx, ssmPath)
+	if err == nil {
+		return val, nil
+	}
+	// Stale static keys in ~/.aws/credentials shadow a same-name SSO profile, so
+	// retry without the credentials file. See docs/specgen-ssm-resolver.md.
+	if ssoVal, ssoErr := getSSMParam(ctx, ssmPath, awsconfig.WithSharedCredentialsFiles([]string{})); ssoErr == nil {
+		fmt.Fprintln(os.Stderr, "{{.Binary}}: note: ignored ~/.aws/credentials (it was shadowing an SSO profile); remove the stale static keys to silence this")
+		return ssoVal, nil
+	}
+	return "", err
+}
+
+func getSSMParam(ctx context.Context, ssmPath string, opts ...func(*awsconfig.LoadOptions) error) (string, error) {
+	cfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
 		return "", fmt.Errorf("load aws config: %w", err)
 	}
