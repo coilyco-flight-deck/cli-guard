@@ -25,26 +25,24 @@ wrap ward git {
 - **`can run <subcommand>`** - deny-by-default: only named subcommands mount. A quoted multi-word sentence (`"admin user list"`) mounts as a nested path.
 - **`can run "*"`** - the open-passthrough grant: the group becomes one leaf and every service/operation reaches the binary. Must be the only grant. The funnel shape for broad tools (aws); guards below decide what is refused.
 - **Flag policy per grant** - `deny-flag` (default-allow minus denials) or `allow-flag` (strict allowlist when any is present). `describe` adds the human note.
-- **`when <selector> matches <glob...>`** / **`deny-when ...`** - argv guards in the CLI's own vocabulary, not an opaque gate name. `when` passes only if a value matches; `deny-when` refuses on a match. The selector names an argv slot: a bare **flag name** (`secret-id` reads `--secret-id`'s value), **`any-arg`** (every positional), or **`argN`** (the Nth positional, 0-based, after the matched subcommand path). Optional `{ ... }` qualifiers: `only-reads` scopes the guard to read-only aws ops (the `get-/list-/describe-` convention, via `cli/awsgate`); `allow-env "VAR"` is the one-shot escape. A glob containing `*` needs quoting; selector and operation tokens stay bare.
-- **`gate <name> { ... }`** - a registered preflight gate for logic that cannot be said declaratively (`pattern`, `allow`, `allow-env`). `aws-read` shipped first, but the aws guardfile now uses the visible `deny-when` form below instead. Unknown gate names fail closed at build.
+- **`when <selector> matches <glob...>`** / **`deny-when ...`** - argv guards in the CLI's own vocabulary, not an opaque gate name. `when` passes only if a value matches; `deny-when` refuses on a match. The selector names an argv slot: a bare **flag name** (`secret-id` reads `--secret-id`'s value), **`any-arg`** (every positional), or **`argN`** (the Nth positional, 0-based, after the matched subcommand path). Optional `{ ... }` qualifiers: `only-reads` scopes the guard to read-only aws ops (via `cli/awsgate`); `allow-env "VAR"` is the one-shot escape. A glob containing `*` needs quoting; selector and operation tokens stay bare.
+- **`gate <name> { ... }`** - a registered preflight gate for logic that cannot be said declaratively (`pattern`, `allow`, `allow-env`). `aws-read` shipped first; the aws guardfile now uses `deny-when` instead. Unknown gate names fail closed at build.
 - **`never run`** - an explicit denial; parses for documentation value, mounts nothing.
 
 Unknown nodes fail closed, like every Guardfile shape.
 
-The aws funnel with the read gate spelled out, then the precise per-operation kwarg form:
+Per-operation grants read like the invocation, guarding the kwarg or positional that names the resource:
 
 ```kdl
-can run "*" {
-    deny-when any-arg matches "*secret*" "*tfstate*" "arn:aws:iam::*:role/*admin*" {
-        only-reads
-        allow-env "WARD_AWS_ALLOW_SENSITIVE_READ"
-    }
-}
-
 can run secretsmanager get-secret-value {
-    when secret-id matches "readonly-*"
+    deny-when secret-id matches "*prod*"
+}
+can run s3 ls {
+    deny-when arg0 matches "*tfstate*"
 }
 ```
+
+A broad `can run "*"` funnel uses `any-arg` to net every positional; `only-reads` and `allow-env` are its read-scope and break-glass escapes.
 
 ## Engine
 
