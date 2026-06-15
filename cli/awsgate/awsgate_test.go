@@ -52,11 +52,6 @@ func TestCheckEscapes(t *testing.T) {
 	if _, _, denied := g.Check(split("s3 ls s3://prod-secrets-bucket")); denied {
 		t.Error("allow glob must escape the gate")
 	}
-	g = Gate{AllowEnv: "WARD_AWS_ALLOW_SENSITIVE_READ"}
-	t.Setenv("WARD_AWS_ALLOW_SENSITIVE_READ", "1")
-	if _, _, denied := g.Check(split("s3 ls s3://prod-secrets-bucket")); denied {
-		t.Error("env escape must allow the read")
-	}
 }
 
 func TestGlobMatch(t *testing.T) {

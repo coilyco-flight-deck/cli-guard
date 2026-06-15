@@ -3,7 +3,6 @@
 package awsgate
 
 import (
-	"os"
 	"strings"
 )
 
@@ -29,14 +28,10 @@ type Gate struct {
 
 	// AllowPatterns are globs naming tokens explicitly allowed through.
 	AllowPatterns []string
-
-	// AllowEnv, when set non-empty in the environment, is the one-shot
-	// per-invocation override for a deliberate read of a flagged resource.
-	AllowEnv string
 }
 
 // Check returns a denial (token, pattern, denied=true) when argv is a
-// read-only aws invocation touching a sensitive token no escape allows.
+// read-only aws invocation touching a sensitive token no allow glob clears.
 func (g Gate) Check(argv []string) (token, pattern string, denied bool) {
 	if !IsReadOnly(argv) {
 		return "", "", false
@@ -52,11 +47,8 @@ func (g Gate) Check(argv []string) (token, pattern string, denied bool) {
 	return token, pattern, true
 }
 
-// allowed reports whether token escapes the gate, by env or allow glob.
+// allowed reports whether token escapes the gate via an allow glob.
 func (g Gate) allowed(token string) bool {
-	if g.AllowEnv != "" && strings.TrimSpace(os.Getenv(g.AllowEnv)) != "" {
-		return true
-	}
 	lower := strings.ToLower(token)
 	for _, pat := range g.AllowPatterns {
 		if GlobMatch(strings.ToLower(pat), lower) {

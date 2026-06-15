@@ -175,9 +175,7 @@ const awsGuardfile = `wrap ward ops aws {
 	exec aws
 
 	can run "*" {
-		gate aws-read {
-			allow-env "WARD_AWS_ALLOW_SENSITIVE_READ"
-		}
+		gate aws-read
 		describe "open aws passthrough behind the sensitive-read gate"
 	}
 }`
@@ -210,16 +208,11 @@ func TestAWSReadGateDeniesSensitiveRead(t *testing.T) {
 	}
 }
 
-// TestAWSReadGatePassesWritesAndEscapes proves write verbs skip the read gate
-// and the env escape allows a deliberate sensitive read.
-func TestAWSReadGatePassesWritesAndEscapes(t *testing.T) {
+// TestAWSReadGatePassesWrites proves write verbs skip the read gate.
+func TestAWSReadGatePassesWrites(t *testing.T) {
 	var cp capture
 	if err := runArgv(t, awsGuardfile, &cp, "ops", "aws", "ssm", "put-parameter", "--name", "/x/secret-thing"); err != nil {
 		t.Fatalf("write verb must pass the read gate: %v", err)
-	}
-	t.Setenv("WARD_AWS_ALLOW_SENSITIVE_READ", "1")
-	if err := runArgv(t, awsGuardfile, &cp, "ops", "aws", "s3", "ls", "s3://prod-secrets-bucket"); err != nil {
-		t.Fatalf("env escape must allow the read: %v", err)
 	}
 }
 
@@ -233,14 +226,13 @@ const awsWhenGuardfile = `wrap ward ops aws {
 			"*secret*" "*tfstate*" "arn:aws:iam::*:role/*admin*" \
 		{
 			only-reads
-			allow-env "WARD_AWS_ALLOW_SENSITIVE_READ"
 		}
 		describe "open aws passthrough; sensitive reads denied pre-send"
 	}
 }`
 
 // TestDenyWhenScopesToSensitiveReads proves the deny-when guard refuses a
-// sensitive read, passes writes (only-reads), and honors the env escape.
+// sensitive read and passes writes (only-reads).
 func TestDenyWhenScopesToSensitiveReads(t *testing.T) {
 	var cp capture
 	err := runArgv(t, awsWhenGuardfile, &cp, "ops", "aws", "s3", "ls", "s3://prod-secrets-bucket")
@@ -257,12 +249,6 @@ func TestDenyWhenScopesToSensitiveReads(t *testing.T) {
 	// a write naming the same sensitive token passes: the guard is read-scoped
 	if err := runArgv(t, awsWhenGuardfile, &cp, "ops", "aws", "ssm", "put-parameter", "--name", "/x/secret-thing"); err != nil {
 		t.Fatalf("write verb must skip the read-scoped guard: %v", err)
-	}
-
-	// the env escape allows a deliberate sensitive read
-	t.Setenv("WARD_AWS_ALLOW_SENSITIVE_READ", "1")
-	if err := runArgv(t, awsWhenGuardfile, &cp, "ops", "aws", "s3", "ls", "s3://prod-secrets-bucket"); err != nil {
-		t.Fatalf("env escape must allow the read: %v", err)
 	}
 }
 

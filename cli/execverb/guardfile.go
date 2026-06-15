@@ -42,9 +42,6 @@ type WhenClause struct {
 
 	// OnlyReads scopes the guard to read-only aws operations.
 	OnlyReads bool
-
-	// AllowEnv, set non-empty, is the one-shot escape that skips the guard.
-	AllowEnv string
 }
 
 // GateSpec names a registered preflight gate plus its declarative config.
@@ -52,7 +49,6 @@ type GateSpec struct {
 	Name     string   // registry key, e.g. "aws-read"
 	Patterns []string // gate-specific deny globs; empty = gate defaults
 	Allow    []string // explicit allow globs
-	AllowEnv string   // one-shot env-var escape hatch
 }
 
 // Parse turns exec-dialect Guardfile source into a Guardfile. It fails closed:
@@ -173,7 +169,7 @@ func (g *Grant) applyGrantChild(c *kdl.Node) error {
 }
 
 // parseWhen reads a `when|deny-when <selector> matches <glob...>` guard and its
-// optional `{ only-reads; allow-env "VAR" }` qualifier block.
+// optional `{ only-reads }` qualifier block.
 func parseWhen(c *kdl.Node) (WhenClause, error) {
 	args := c.Arguments()
 	if len(args) < 3 || args[1].String() != "matches" {
@@ -190,12 +186,6 @@ func parseWhen(c *kdl.Node) (WhenClause, error) {
 				return WhenClause{}, fmt.Errorf("execverb: %s: `only-reads` takes no value", c.Name())
 			}
 			wc.OnlyReads = true
-		case "allow-env":
-			na := n.Arguments()
-			if len(na) != 1 {
-				return WhenClause{}, fmt.Errorf("execverb: %s: `allow-env` expects exactly one value", c.Name())
-			}
-			wc.AllowEnv = na[0].String()
 		default:
 			return WhenClause{}, fmt.Errorf("execverb: %s: unknown qualifier %q (fail-closed)", c.Name(), n.Name())
 		}
@@ -203,7 +193,7 @@ func parseWhen(c *kdl.Node) (WhenClause, error) {
 	return wc, nil
 }
 
-// parseGate reads a `gate <name> { pattern|allow|allow-env ... }` child.
+// parseGate reads a `gate <name> { pattern|allow ... }` child.
 func parseGate(c *kdl.Node) (GateSpec, error) {
 	args := c.Arguments()
 	if len(args) != 1 {
@@ -221,8 +211,6 @@ func parseGate(c *kdl.Node) (GateSpec, error) {
 			gs.Patterns = append(gs.Patterns, v)
 		case "allow":
 			gs.Allow = append(gs.Allow, v)
-		case "allow-env":
-			gs.AllowEnv = v
 		default:
 			return GateSpec{}, fmt.Errorf("execverb: gate %s: unknown node %q (fail-closed)", gs.Name, n.Name())
 		}

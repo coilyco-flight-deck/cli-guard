@@ -151,13 +151,13 @@ var gateRegistry = map[string]func(GateSpec) gateFunc{
 
 // awsReadGate adapts awsgate's sensitive-read denial to the gate contract.
 func awsReadGate(gs GateSpec) gateFunc {
-	g := awsgate.Gate{Patterns: gs.Patterns, AllowPatterns: gs.Allow, AllowEnv: gs.AllowEnv}
+	g := awsgate.Gate{Patterns: gs.Patterns, AllowPatterns: gs.Allow}
 	return func(argv []string) error {
 		token, pattern, denied := g.Check(argv)
 		if !denied {
 			return nil
 		}
-		return fmt.Errorf("read-only aws denied: %q matched the sensitive-read pattern %q (set %s=1 or add an allow glob to proceed deliberately)", token, pattern, gs.AllowEnv)
+		return fmt.Errorf("read-only aws denied: %q matched the sensitive-read pattern %q (add an allow glob to proceed deliberately)", token, pattern)
 	}
 }
 
@@ -238,9 +238,6 @@ func checkWhens(args []string, g Grant) error {
 // evalWhen resolves a guard's selector and applies its match rule: `when`
 // refuses on no match, `deny-when` on a match. See docs/execverb.md.
 func evalWhen(wc WhenClause, g Grant, args []string) error {
-	if wc.AllowEnv != "" && strings.TrimSpace(os.Getenv(wc.AllowEnv)) != "" {
-		return nil // deliberate per-invocation override
-	}
 	if wc.OnlyReads {
 		full := append(append([]string{}, g.Subcommand...), args...)
 		if !awsgate.IsReadOnly(full) {
@@ -251,12 +248,12 @@ func evalWhen(wc WhenClause, g Grant, args []string) error {
 	label := g.subcommandLabel()
 	if wc.Deny {
 		if matched {
-			return fmt.Errorf("`%s` denied: %s %q matched %q%s", label, wc.Selector, val, pat, escapeHint(wc))
+			return fmt.Errorf("`%s` denied: %s %q matched %q", label, wc.Selector, val, pat)
 		}
 		return nil
 	}
 	if !matched {
-		return fmt.Errorf("`%s` denied: %s did not match any allowed pattern %v%s", label, wc.Selector, wc.Patterns, escapeHint(wc))
+		return fmt.Errorf("`%s` denied: %s did not match any allowed pattern %v", label, wc.Selector, wc.Patterns)
 	}
 	return nil
 }
@@ -272,14 +269,6 @@ func firstMatch(values, patterns []string) (val, pat string, ok bool) {
 		}
 	}
 	return "", "", false
-}
-
-// escapeHint appends the env-escape note when the guard carries one.
-func escapeHint(wc WhenClause) string {
-	if wc.AllowEnv == "" {
-		return ""
-	}
-	return fmt.Sprintf(" (set %s=1 to proceed deliberately)", wc.AllowEnv)
 }
 
 // resolveSelector reads the argv slot a selector names: `any-arg`, `argN`, or

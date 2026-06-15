@@ -68,16 +68,12 @@ type Gate struct {
 
 	// AllowPatterns are globs naming tokens explicitly allowed through.
 	AllowPatterns []string
-
-	// AllowEnv, when set non-empty in the environment, is the one-shot
-	// per-invocation override for a deliberate read of a flagged resource.
-	AllowEnv string
 }
     Gate is one configured sensitive-read policy.
 
 func (g Gate) Check(argv []string) (token, pattern string, denied bool)
     Check returns a denial (token, pattern, denied=true) when argv is a
-    read-only aws invocation touching a sensitive token no escape allows.
+    read-only aws invocation touching a sensitive token no allow glob clears.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/catalog
@@ -404,7 +400,6 @@ type GateSpec struct {
 	Name     string   // registry key, e.g. "aws-read"
 	Patterns []string // gate-specific deny globs; empty = gate defaults
 	Allow    []string // explicit allow globs
-	AllowEnv string   // one-shot env-var escape hatch
 }
     GateSpec names a registered preflight gate plus its declarative config.
 
@@ -447,9 +442,6 @@ type WhenClause struct {
 
 	// OnlyReads scopes the guard to read-only aws operations.
 	OnlyReads bool
-
-	// AllowEnv, set non-empty, is the one-shot escape that skips the guard.
-	AllowEnv string
 }
     WhenClause is a `when` / `deny-when` argv guard in CLI vocabulary. Grammar
     and selector forms: docs/execverb.md.
