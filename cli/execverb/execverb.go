@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/awsgate"
@@ -183,6 +184,9 @@ func actionFor(gf *Guardfile, g Grant, gates []gateFunc, run Runner) cli.ActionF
 				return exitcode.New(exitcode.UserError, "user_error", err, "this call is refused by a Guardfile gate")
 			}
 		}
+		if err := checkWhens(args, g); err != nil {
+			return exitcode.New(exitcode.UserError, "user_error", err, "this call is refused by a Guardfile guard")
+		}
 		if err := checkFlagPolicy(args, g); err != nil {
 			return exitcode.New(exitcode.UserError, "user_error", err, "this flag is refused by the Guardfile policy")
 		}
@@ -218,6 +222,115 @@ func checkFlagPolicy(args []string, g Grant) error {
 		}
 	}
 	return nil
+}
+
+// checkWhens enforces the grant's `when` / `deny-when` guards over the caller
+// args. The first guard to refuse stops the call, before any exec happens.
+func checkWhens(args []string, g Grant) error {
+	for _, wc := range g.Whens {
+		if err := evalWhen(wc, g, args); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// evalWhen resolves a guard's selector and applies its match rule: `when`
+// refuses on no match, `deny-when` on a match. See docs/execverb.md.
+func evalWhen(wc WhenClause, g Grant, args []string) error {
+	if wc.AllowEnv != "" && strings.TrimSpace(os.Getenv(wc.AllowEnv)) != "" {
+		return nil // deliberate per-invocation override
+	}
+	if wc.OnlyReads {
+		full := append(append([]string{}, g.Subcommand...), args...)
+		if !awsgate.IsReadOnly(full) {
+			return nil // guard is scoped to reads; this is not one
+		}
+	}
+	val, pat, matched := firstMatch(resolveSelector(wc.Selector, args), wc.Patterns)
+	label := g.subcommandLabel()
+	if wc.Deny {
+		if matched {
+			return fmt.Errorf("`%s` denied: %s %q matched %q%s", label, wc.Selector, val, pat, escapeHint(wc))
+		}
+		return nil
+	}
+	if !matched {
+		return fmt.Errorf("`%s` denied: %s did not match any allowed pattern %v%s", label, wc.Selector, wc.Patterns, escapeHint(wc))
+	}
+	return nil
+}
+
+// firstMatch returns the first (value, pattern) pair where a selector value
+// matches a glob, case-insensitively, with the aws-read gate's `*` semantics.
+func firstMatch(values, patterns []string) (val, pat string, ok bool) {
+	for _, v := range values {
+		for _, p := range patterns {
+			if awsgate.GlobMatch(strings.ToLower(p), strings.ToLower(v)) {
+				return v, p, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+// escapeHint appends the env-escape note when the guard carries one.
+func escapeHint(wc WhenClause) string {
+	if wc.AllowEnv == "" {
+		return ""
+	}
+	return fmt.Sprintf(" (set %s=1 to proceed deliberately)", wc.AllowEnv)
+}
+
+// resolveSelector reads the argv slot a selector names: `any-arg`, `argN`, or
+// the `--<selector>` flag value. Selector forms: docs/execverb.md.
+func resolveSelector(sel string, args []string) []string {
+	switch {
+	case sel == "any-arg":
+		return awsgate.Positionals(args)
+	case strings.HasPrefix(sel, "arg") && isAllDigits(sel[len("arg"):]):
+		idx, _ := strconv.Atoi(sel[len("arg"):])
+		pos := awsgate.Positionals(args)
+		if idx >= 0 && idx < len(pos) {
+			return []string{pos[idx]}
+		}
+		return nil
+	default:
+		if v, ok := flagValue(args, "--"+sel); ok {
+			return []string{v}
+		}
+		return nil
+	}
+}
+
+// isAllDigits reports whether s is one or more ASCII digits (the `argN` index).
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// flagValue returns flag's value in args (`--flag value` or `--flag=value`).
+// The bool reports presence; a valueless `--flag` is present, empty.
+func flagValue(args []string, flag string) (string, bool) {
+	for i, a := range args {
+		if a == flag {
+			if i+1 < len(args) {
+				return args[i+1], true
+			}
+			return "", true
+		}
+		if strings.HasPrefix(a, flag+"=") {
+			return a[len(flag)+1:], true
+		}
+	}
+	return "", false
 }
 
 // leafUsage renders the one-line help: the real invocation plus the policy.

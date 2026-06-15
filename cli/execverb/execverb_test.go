@@ -223,6 +223,89 @@ func TestAWSReadGatePassesWritesAndEscapes(t *testing.T) {
 	}
 }
 
+// awsWhenGuardfile is the shipped shape: `gate aws-read` replaced by a
+// self-describing `deny-when` over the aws CLI's read convention.
+const awsWhenGuardfile = `wrap ward ops aws {
+	exec aws
+
+	can run "*" {
+		deny-when any-arg matches \
+			"*secret*" "*tfstate*" "arn:aws:iam::*:role/*admin*" \
+		{
+			only-reads
+			allow-env "WARD_AWS_ALLOW_SENSITIVE_READ"
+		}
+		describe "open aws passthrough; sensitive reads denied pre-send"
+	}
+}`
+
+// TestDenyWhenScopesToSensitiveReads proves the deny-when guard refuses a
+// sensitive read, passes writes (only-reads), and honors the env escape.
+func TestDenyWhenScopesToSensitiveReads(t *testing.T) {
+	var cp capture
+	err := runArgv(t, awsWhenGuardfile, &cp, "ops", "aws", "s3", "ls", "s3://prod-secrets-bucket")
+	if err == nil {
+		t.Fatal("expected the sensitive read to be denied, got nil")
+	}
+	if cp.bin != "" {
+		t.Errorf("denied invocation still executed: %s %v", cp.bin, cp.argv)
+	}
+	if !strings.Contains(err.Error(), "*secret*") {
+		t.Errorf("denial should name the matched pattern: %v", err)
+	}
+
+	// a write naming the same sensitive token passes: the guard is read-scoped
+	if err := runArgv(t, awsWhenGuardfile, &cp, "ops", "aws", "ssm", "put-parameter", "--name", "/x/secret-thing"); err != nil {
+		t.Fatalf("write verb must skip the read-scoped guard: %v", err)
+	}
+
+	// the env escape allows a deliberate sensitive read
+	t.Setenv("WARD_AWS_ALLOW_SENSITIVE_READ", "1")
+	if err := runArgv(t, awsWhenGuardfile, &cp, "ops", "aws", "s3", "ls", "s3://prod-secrets-bucket"); err != nil {
+		t.Fatalf("env escape must allow the read: %v", err)
+	}
+}
+
+// TestWhenKwargAllowGuard proves `when <flag> matches`: the call passes only
+// when the named kwarg's value matches an allowed glob.
+func TestWhenKwargAllowGuard(t *testing.T) {
+	const src = `wrap ward ops aws {
+		exec aws
+		can run secretsmanager get-secret-value {
+			when secret-id matches "readonly-*"
+		}
+	}`
+	var cp capture
+	if err := runArgv(t, src, &cp, "ops", "aws", "secretsmanager", "get-secret-value", "--secret-id", "readonly-keys"); err != nil {
+		t.Fatalf("allowed kwarg value refused: %v", err)
+	}
+	if got := strings.Join(cp.argv, " "); got != "secretsmanager get-secret-value --secret-id readonly-keys" {
+		t.Errorf("argv = %q, want the get-secret-value passthrough", got)
+	}
+	err := runArgv(t, src, &cp, "ops", "aws", "secretsmanager", "get-secret-value", "--secret-id", "prod-db")
+	if err == nil {
+		t.Fatal("expected a non-matching kwarg to be denied, got nil")
+	}
+}
+
+// TestWhenPositionalIndexSelector proves `argN` reads one positional by index,
+// over the caller args after the matched subcommand path.
+func TestWhenPositionalIndexSelector(t *testing.T) {
+	const src = `wrap ward ops aws {
+		exec aws
+		can run "s3 ls" {
+			when arg0 matches "s3://public-*"
+		}
+	}`
+	var cp capture
+	if err := runArgv(t, src, &cp, "ops", "aws", "s3", "ls", "s3://public-assets"); err != nil {
+		t.Fatalf("allowed positional refused: %v", err)
+	}
+	if err := runArgv(t, src, &cp, "ops", "aws", "s3", "ls", "s3://prod-secrets"); err == nil {
+		t.Fatal("expected a non-matching positional to be denied, got nil")
+	}
+}
+
 // TestUnknownGateFailsClosed proves a typo'd gate name refuses to build.
 func TestUnknownGateFailsClosed(t *testing.T) {
 	gf, err := Parse([]byte(`wrap ward ops aws {

@@ -24,7 +24,27 @@ type Grant struct {
 	AllowFlags []string // non-empty -> strict flag allowlist
 	DenyFlags  []string // default-allow minus these
 	Gates      []GateSpec
+	Whens      []WhenClause
 	Describe   string
+}
+
+// WhenClause is a `when` / `deny-when` argv guard in CLI vocabulary.
+// Grammar and selector forms: docs/execverb.md.
+type WhenClause struct {
+	// Selector names the argv slot: flag name, `any-arg`, or `argN`.
+	Selector string
+
+	// Patterns are globs matched case-insensitively against the value(s).
+	Patterns []string
+
+	// Deny is true for `deny-when` (refuse on match), false for `when`.
+	Deny bool
+
+	// OnlyReads scopes the guard to read-only aws operations.
+	OnlyReads bool
+
+	// AllowEnv, set non-empty, is the one-shot escape that skips the guard.
+	AllowEnv string
 }
 
 // GateSpec names a registered preflight gate plus its declarative config.
@@ -122,19 +142,65 @@ func parseGrant(n *kdl.Node) (Grant, error) {
 		g.Wildcard = true
 	}
 	for _, c := range n.Children().Nodes {
-		if c.Name() == "gate" {
-			gs, err := parseGate(c)
-			if err != nil {
-				return Grant{}, err
-			}
-			g.Gates = append(g.Gates, gs)
-			continue
-		}
-		if err := g.applyPolicyNode(c); err != nil {
+		if err := g.applyGrantChild(c); err != nil {
 			return Grant{}, err
 		}
 	}
 	return g, nil
+}
+
+// applyGrantChild dispatches one child of a `can run` grant: a gate, a
+// when/deny-when guard, or a flag-policy/describe node.
+func (g *Grant) applyGrantChild(c *kdl.Node) error {
+	switch c.Name() {
+	case "gate":
+		gs, err := parseGate(c)
+		if err != nil {
+			return err
+		}
+		g.Gates = append(g.Gates, gs)
+		return nil
+	case "when", "deny-when":
+		wc, err := parseWhen(c)
+		if err != nil {
+			return err
+		}
+		g.Whens = append(g.Whens, wc)
+		return nil
+	default:
+		return g.applyPolicyNode(c)
+	}
+}
+
+// parseWhen reads a `when|deny-when <selector> matches <glob...>` guard and its
+// optional `{ only-reads; allow-env "VAR" }` qualifier block.
+func parseWhen(c *kdl.Node) (WhenClause, error) {
+	args := c.Arguments()
+	if len(args) < 3 || args[1].String() != "matches" {
+		return WhenClause{}, fmt.Errorf("execverb: %q must read `%s <selector> matches <glob...>`", c.Name(), c.Name())
+	}
+	wc := WhenClause{Selector: args[0].String(), Deny: c.Name() == "deny-when"}
+	for _, a := range args[2:] {
+		wc.Patterns = append(wc.Patterns, a.String())
+	}
+	for _, n := range c.Children().Nodes {
+		switch n.Name() {
+		case "only-reads":
+			if len(n.Arguments()) != 0 {
+				return WhenClause{}, fmt.Errorf("execverb: %s: `only-reads` takes no value", c.Name())
+			}
+			wc.OnlyReads = true
+		case "allow-env":
+			na := n.Arguments()
+			if len(na) != 1 {
+				return WhenClause{}, fmt.Errorf("execverb: %s: `allow-env` expects exactly one value", c.Name())
+			}
+			wc.AllowEnv = na[0].String()
+		default:
+			return WhenClause{}, fmt.Errorf("execverb: %s: unknown qualifier %q (fail-closed)", c.Name(), n.Name())
+		}
+	}
+	return wc, nil
 }
 
 // parseGate reads a `gate <name> { pattern|allow|allow-env ... }` child.

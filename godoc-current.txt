@@ -414,6 +414,7 @@ type Grant struct {
 	AllowFlags []string // non-empty -> strict flag allowlist
 	DenyFlags  []string // default-allow minus these
 	Gates      []GateSpec
+	Whens      []WhenClause
 	Describe   string
 }
     Grant is one `can run <subcommand>` sentence plus its flag policy.
@@ -433,6 +434,25 @@ func Parse(src []byte) (*Guardfile, error)
 type Runner func(ctx context.Context, bin string, argv []string) error
     Runner fires the resolved command. Injected so tests capture argv; nil uses
     the real exec with inherited stdio.
+
+type WhenClause struct {
+	// Selector names the argv slot: flag name, `any-arg`, or `argN`.
+	Selector string
+
+	// Patterns are globs matched case-insensitively against the value(s).
+	Patterns []string
+
+	// Deny is true for `deny-when` (refuse on match), false for `when`.
+	Deny bool
+
+	// OnlyReads scopes the guard to read-only aws operations.
+	OnlyReads bool
+
+	// AllowEnv, set non-empty, is the one-shot escape that skips the guard.
+	AllowEnv string
+}
+    WhenClause is a `when` / `deny-when` argv guard in CLI vocabulary. Grammar
+    and selector forms: docs/execverb.md.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/gittree
