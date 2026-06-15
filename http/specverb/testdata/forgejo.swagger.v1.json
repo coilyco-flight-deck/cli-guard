@@ -97,6 +97,18 @@
         ],
         "responses": { "201": {} }
       }
+    },
+    "/repos/{owner}/{repo}/actions/tasks": {
+      "get": {
+        "operationId": "ListActionTasks",
+        "parameters": [
+          { "name": "owner", "in": "path", "required": true, "type": "string" },
+          { "name": "repo", "in": "path", "required": true, "type": "string" },
+          { "name": "page", "in": "query", "type": "integer" },
+          { "name": "limit", "in": "query", "type": "integer" }
+        ],
+        "responses": { "200": {} }
+      }
     }
   },
   "definitions": {

@@ -386,53 +386,69 @@ func (rt *runtime) previewHeaders(hasBody bool, contentType string) map[string]s
 // fire resolves the secret, sends the request, and renders the response.
 // Non-2xx becomes an UpstreamFailed coded error carrying the response body.
 func (rt *runtime) fire(ctx context.Context, method, url string, body []byte, contentType, query, output string) error {
+	_, respBody, status, err := rt.fireCapture(ctx, method, url, body, contentType)
+	if err != nil {
+		return err
+	}
+	rendered, rerr := respfmt.Render(respBody, query, output)
+	if rerr != nil {
+		return exitcode.New(exitcode.Internal, "internal", rerr, "the response was not valid JSON")
+	}
+	if len(rendered) == 0 {
+		// empty 2xx (204): confirm so the operator sees the call landed.
+		fmt.Printf("ok: %s %s -> %s\n", method, url, status)
+		return nil
+	}
+	fmt.Print(string(rendered))
+	return nil
+}
+
+// fireCapture sends one request and returns the decoded JSON value plus raw
+// body, rendering nothing: the "fire and capture" path complex actions feed on.
+func (rt *runtime) fireCapture(ctx context.Context, method, url string, body []byte, contentType string) (decoded any, raw []byte, status string, err error) {
 	if rt.token == nil {
-		return exitcode.New(exitcode.Internal, "internal",
+		return nil, nil, "", exitcode.New(exitcode.Internal, "internal",
 			fmt.Errorf("no token resolver configured"), "wire a TokenResolver into specverb.Config")
 	}
-	secret, err := rt.token(ctx, rt.auth.SSM)
-	if err != nil {
-		return exitcode.New(exitcode.Internal, "internal",
-			fmt.Errorf("resolve auth secret from %s: %w", rt.auth.SSM, err), "check the SSM path and credentials")
+	secret, terr := rt.token(ctx, rt.auth.SSM)
+	if terr != nil {
+		return nil, nil, "", exitcode.New(exitcode.Internal, "internal",
+			fmt.Errorf("resolve auth secret from %s: %w", rt.auth.SSM, terr), "check the SSM path and credentials")
 	}
 
 	var reqBody io.Reader
 	if body != nil {
 		reqBody = bytes.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
-	if err != nil {
-		return exitcode.New(exitcode.Internal, "internal", err, "")
+	req, rerr := http.NewRequestWithContext(ctx, method, url, reqBody)
+	if rerr != nil {
+		return nil, nil, "", exitcode.New(exitcode.Internal, "internal", rerr, "")
 	}
 	req.Header.Set(rt.auth.Header, rt.auth.Prefix+secret)
 	if body != nil {
 		req.Header.Set("Content-Type", contentType)
 	}
 
-	resp, err := rt.client.Do(req)
-	if err != nil {
-		return exitcode.New(exitcode.UpstreamFailed, "upstream_failed", err, "the API was unreachable")
+	resp, derr := rt.client.Do(req)
+	if derr != nil {
+		return nil, nil, "", exitcode.New(exitcode.UpstreamFailed, "upstream_failed", derr, "the API was unreachable")
 	}
 	defer func() { _ = resp.Body.Close() }()
 	respBody, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode >= 400 {
-		return exitcode.New(exitcode.UpstreamFailed, "upstream_failed",
+		return nil, nil, resp.Status, exitcode.New(exitcode.UpstreamFailed, "upstream_failed",
 			fmt.Errorf("%s %s -> %s: %s", method, url, resp.Status, strings.TrimSpace(string(respBody))),
 			"the API rejected the request")
 	}
 
-	rendered, err := respfmt.Render(respBody, query, output)
-	if err != nil {
-		return exitcode.New(exitcode.Internal, "internal", err, "the response was not valid JSON")
+	if len(bytes.TrimSpace(respBody)) == 0 {
+		return nil, respBody, resp.Status, nil
 	}
-	if len(rendered) == 0 {
-		// empty 2xx (204): confirm so the operator sees the call landed.
-		fmt.Printf("ok: %s %s -> %s\n", method, url, resp.Status)
-		return nil
+	if jerr := json.Unmarshal(respBody, &decoded); jerr != nil {
+		return nil, respBody, resp.Status, exitcode.New(exitcode.Internal, "internal", jerr, "the response was not valid JSON")
 	}
-	fmt.Print(string(rendered))
-	return nil
+	return decoded, respBody, resp.Status, nil
 }
 
 // stringifyFlag renders a set flag's value as a string for the policy gate

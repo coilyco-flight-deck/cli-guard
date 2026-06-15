@@ -1471,6 +1471,24 @@ specverb engine, into a typed model. KDL is parsed, never evaluated.
 
 TYPES
 
+type Action struct {
+	Name     string
+	Describe string
+	Inputs   []Input
+	Poll     *Poll
+	FailWhen string // JMESPath over the bindings; truthy => non-zero exit
+}
+    Action is a named composite verb inside a wrap block: sugar over the
+    allowlist. v1 carries one Poll plus an optional FailWhen exit predicate.
+
+type ArgBind struct {
+	Name  string
+	Value string // `$input` reference or a literal
+}
+    ArgBind is one `args { <name> <value> }` binding for the polled leaf.
+    A `$input` value references an Input; else it is a literal. See
+    specverb-actions.md.
+
 type Auth struct {
 	Scheme string
 	Header string
@@ -1504,12 +1522,35 @@ type Guardfile struct {
 	BaseURL string
 	Auth    Auth
 	Grants  []Grant
+	Actions []Action
 }
     Guardfile is the parsed form of one wrap block.
 
 func Parse(src []byte) (*Guardfile, error)
     Parse turns Guardfile source into a Guardfile. It fails closed: an unknown
     node, a missing required field, or a malformed sentence is an error.
+
+type Input struct {
+	Name       string
+	Positional bool   // true: a positional arg; false: a --flag
+	Required   bool   // enforced at invocation
+	Help       string // one-line help, "" if none
+}
+    Input is one parameter an Action declares (a positional arg or a flag).
+    Its name doubles as the JMESPath `$name` variable in `until`/`fail-when`.
+
+type Poll struct {
+	Verb     string
+	Resource string
+	Args     []ArgBind
+	Until    string // JMESPath; truthy ends the loop
+	Every    string // sample interval, e.g. "10s" (quoted: KDL rejects bare 10s)
+	Timeout  string // wall-clock bound, e.g. "30m"
+	As       string // binding name for the final response
+}
+    Poll re-fires a granted leaf (Verb+Resource) until Until settles or
+    Timeout elapses, sampling Every; the last response binds to As. See
+    specverb-actions.md.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt
@@ -1533,9 +1574,27 @@ const (
 
 FUNCTIONS
 
+func Eval(data any, expr string, vars map[string]any) (any, error)
+    Eval evaluates expr against decoded data, with vars injected as
+    native `$name` variables (keys are bare names; Eval adds the `$`).
+    See specverb-actions.md.
+
+func EvalBool(data any, expr string, vars map[string]any) (bool, error)
+    EvalBool evaluates expr and reports its JMESPath truthiness, the predicate
+    form `until` and `fail-when` need. A non-boolean result is reduced via
+    Truthy.
+
 func Render(raw []byte, query, output string) ([]byte, error)
     Render applies the optional JMESPath projection to raw and formats the
     result per output. Empty raw returns empty bytes, no error. Empty query
+
+func Truthy(v any) bool
+    Truthy reports JMESPath truthiness: null, false, "", [], and {} are false;
+    everything else (including the number 0) is true, per the JMESPath spec.
+
+func Validate(expr string) error
+    Validate reports whether expr parses as JMESPath, without evaluating it:
+    the build-time check that fails closed on a malformed `until`/`fail-when`.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specdrv
@@ -1695,6 +1754,21 @@ func Prune(spec []byte, gf *guardfile.Guardfile) ([]byte, error)
 
 TYPES
 
+type ActionInfo struct {
+	Name     string `json:"name"`                // envelope audit name, e.g. ward.ops.forgejo.action.ci-watch
+	Leaf     string `json:"leaf"`                // CLI leaf, e.g. ci-watch
+	Describe string `json:"describe,omitempty"`  // optional human note
+	Method   string `json:"method"`              // the polled leaf's HTTP method
+	Path     string `json:"path"`                // the polled leaf's path template
+	Grant    string `json:"grant"`               // the grant that authorizes the polled leaf
+	Every    string `json:"every"`               // sample interval
+	Timeout  string `json:"timeout"`             // wall-clock bound
+	Until    string `json:"until"`               // loop-ending JMESPath
+	FailWhen string `json:"fail_when,omitempty"` // non-zero-exit JMESPath
+}
+    ActionInfo is one mounted complex action for the describe surface:
+    its envelope name, the polled leaf, the bounds, and the conditions.
+
 type AuthInfo struct {
 	Scheme string `json:"scheme"`
 	Header string `json:"header"`
@@ -1737,10 +1811,11 @@ type ParamInfo struct {
     description.
 
 type Surface struct {
-	Group   []string   `json:"group"`    // command path, e.g. ["ward","ops","forgejo"]
-	BaseURL string     `json:"base_url"` // resolved request base, scheme defaulted
-	Auth    AuthInfo   `json:"auth"`     // how the engine authenticates
-	Verbs   []VerbInfo `json:"verbs"`    // every mounted leaf, in mount order
+	Group   []string     `json:"group"`             // command path, e.g. ["ward","ops","forgejo"]
+	BaseURL string       `json:"base_url"`          // resolved request base, scheme defaulted
+	Auth    AuthInfo     `json:"auth"`              // how the engine authenticates
+	Verbs   []VerbInfo   `json:"verbs"`             // every mounted leaf, in mount order
+	Actions []ActionInfo `json:"actions,omitempty"` // complex actions, in declaration order
 }
     Surface is the in-engine model of a mounted command surface: the structural
     truth shared by help, the describe verb, and (later) completions and the

@@ -122,8 +122,15 @@ func Build(cfg Config) (*cli.Command, error) {
 	if len(descs) == 0 {
 		return nil, fmt.Errorf("specverb: Guardfile mounted no verbs (no `can` grants resolved)")
 	}
+	actionDescs, err := resolveActions(spec, gf, grantedKeys(gf))
+	if err != nil {
+		return nil, err
+	}
 	groupCmds := rt.buildGroups(descs)
-	surface := buildSurface(gf, rt.baseURL, descs)
+	if ag := rt.buildActionGroup(actionDescs); ag != nil {
+		groupCmds = append(groupCmds, ag)
+	}
+	surface := buildSurface(gf, rt.baseURL, descs, actionDescs)
 	groupCmds = append(groupCmds, rt.buildDescribeLeaf(gf, surface))
 	root := &cli.Command{
 		Name:     gf.Group[len(gf.Group)-1],
@@ -194,6 +201,18 @@ func defaultHTTPClient() *http.Client {
 			return fmt.Errorf("specverb: refusing to follow a %s redirect to %s; a mutating verb must not be silently downgraded", via[0].Method, req.URL)
 		},
 	}
+}
+
+// grantedKeys is the set of (verb, resource) pairs a `can` grant authorizes; an
+// action may only poll a target in this set (granted-only).
+func grantedKeys(gf *guardfile.Guardfile) map[grantKey]bool {
+	keys := map[grantKey]bool{}
+	for _, g := range gf.Grants {
+		if g.Modal == "can" {
+			keys[grantKey{Verb: g.Verb, Resource: g.Resource}] = true
+		}
+	}
+	return keys
 }
 
 // resolveDescriptors resolves every `can` grant into a concrete descriptor, in

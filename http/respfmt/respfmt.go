@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jmespath/go-jmespath"
+	"github.com/jmespath-community/go-jmespath"
 	"github.com/olekukonko/tablewriter"
 	"gopkg.in/yaml.v3"
 )

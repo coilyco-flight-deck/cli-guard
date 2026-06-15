@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -101,6 +102,98 @@ func TestGrantProperties(t *testing.T) {
 	want := Grant{Modal: "can", Verb: "delete", Resource: "repos", Props: map[string]string{"org": "coilyco-flight-deck"}}
 	if len(gf.Grants) != 1 || !reflect.DeepEqual(gf.Grants[0], want) {
 		t.Errorf("grant with org property = %+v, want %+v", gf.Grants, want)
+	}
+}
+
+// TestParseAction asserts the complex-action grammar round-trips: inputs, the
+// poll primitive with its bounds, the multiline `until`, and `fail-when`.
+func TestParseAction(t *testing.T) {
+	src := []byte(`wrap ward ops forgejo {
+    spec s
+    auth header-token { header H; ssm S }
+    can list tasks
+
+    action ci-watch {
+        describe "Watch a CI run to completion."
+        input repo { positional; required; help "owner/name" }
+        input run  { flag; help "run number" }
+        poll list tasks {
+            args { owner-repo $repo }
+            until """
+                length([?run_number==$run && status!='success'
+                        && status!='failure']) == ` + "`0`" + `
+                """
+            every "10s"
+            timeout "30m"
+            as run_tasks
+        }
+        fail-when "length(run_tasks[?status=='failure']) > ` + "`0`" + `"
+    }
+}`)
+	gf, err := Parse(src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(gf.Actions) != 1 {
+		t.Fatalf("Actions = %d, want 1", len(gf.Actions))
+	}
+	act := gf.Actions[0]
+	if act.Name != "ci-watch" {
+		t.Errorf("Name = %q, want ci-watch", act.Name)
+	}
+	if act.Describe != "Watch a CI run to completion." {
+		t.Errorf("Describe = %q", act.Describe)
+	}
+	wantInputs := []Input{
+		{Name: "repo", Positional: true, Required: true, Help: "owner/name"},
+		{Name: "run", Positional: false, Required: false, Help: "run number"},
+	}
+	if !reflect.DeepEqual(act.Inputs, wantInputs) {
+		t.Errorf("Inputs = %+v, want %+v", act.Inputs, wantInputs)
+	}
+	if act.Poll == nil {
+		t.Fatal("Poll is nil")
+	}
+	if act.Poll.Verb != "list" || act.Poll.Resource != "tasks" {
+		t.Errorf("Poll target = %q %q, want list tasks", act.Poll.Verb, act.Poll.Resource)
+	}
+	wantArgs := []ArgBind{{Name: "owner-repo", Value: "$repo"}}
+	if !reflect.DeepEqual(act.Poll.Args, wantArgs) {
+		t.Errorf("Poll.Args = %+v, want %+v", act.Poll.Args, wantArgs)
+	}
+	if act.Poll.Every != "10s" || act.Poll.Timeout != "30m" || act.Poll.As != "run_tasks" {
+		t.Errorf("Poll bounds = every %q timeout %q as %q", act.Poll.Every, act.Poll.Timeout, act.Poll.As)
+	}
+	// The multiline `until` keeps its inner alignment, dedented to the close.
+	if !strings.Contains(act.Poll.Until, "length([?run_number==$run") || !strings.Contains(act.Poll.Until, "status!='failure'") {
+		t.Errorf("Until did not round-trip the multiline expression:\n%s", act.Poll.Until)
+	}
+	if act.FailWhen != "length(run_tasks[?status=='failure']) > `0`" {
+		t.Errorf("FailWhen = %q", act.FailWhen)
+	}
+}
+
+// TestParseActionFailsClosed asserts the action grammar rejects every malformed
+// or reserved shape, never silently dropping a node.
+func TestParseActionFailsClosed(t *testing.T) {
+	hdr := "wrap w {\n spec s\n auth header-token { header H; ssm S }\n"
+	cases := map[string]string{
+		"no poll":            hdr + `action a { describe "x" } }`,
+		"poll missing every": hdr + `action a { poll list tasks { until "x"; timeout "1m"; as r } } }`,
+		"poll missing until": hdr + `action a { poll list tasks { every "1s"; timeout "1m"; as r } } }`,
+		"poll missing as":    hdr + `action a { poll list tasks { until "x"; every "1s"; timeout "1m" } } }`,
+		"two polls":          hdr + `action a { poll list tasks { until "x"; every "1s"; timeout "1m"; as r }; poll list tasks { until "y"; every "1s"; timeout "1m"; as q } } }`,
+		"input no kind":      hdr + `action a { input repo { required }; poll list tasks { until "x"; every "1s"; timeout "1m"; as r } } }`,
+		"reserved each":      hdr + `action a { each "x" { }; poll list tasks { until "x"; every "1s"; timeout "1m"; as r } } }`,
+		"reserved emit":      hdr + `action a { poll list tasks { until "x"; every "1s"; timeout "1m"; as r; emit "x" } } }`,
+		"unknown poll node":  hdr + `action a { poll list tasks { until "x"; every "1s"; timeout "1m"; as r; bogus "x" } } }`,
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Parse([]byte(src)); err == nil {
+				t.Errorf("expected error for %s, got nil", name)
+			}
+		})
 	}
 }
 

@@ -18,10 +18,26 @@ import (
 // Surface is the in-engine model of a mounted command surface: the structural
 // truth shared by help, the describe verb, and (later) completions and the skill.
 type Surface struct {
-	Group   []string   `json:"group"`    // command path, e.g. ["ward","ops","forgejo"]
-	BaseURL string     `json:"base_url"` // resolved request base, scheme defaulted
-	Auth    AuthInfo   `json:"auth"`     // how the engine authenticates
-	Verbs   []VerbInfo `json:"verbs"`    // every mounted leaf, in mount order
+	Group   []string     `json:"group"`             // command path, e.g. ["ward","ops","forgejo"]
+	BaseURL string       `json:"base_url"`          // resolved request base, scheme defaulted
+	Auth    AuthInfo     `json:"auth"`              // how the engine authenticates
+	Verbs   []VerbInfo   `json:"verbs"`             // every mounted leaf, in mount order
+	Actions []ActionInfo `json:"actions,omitempty"` // complex actions, in declaration order
+}
+
+// ActionInfo is one mounted complex action for the describe surface: its
+// envelope name, the polled leaf, the bounds, and the conditions.
+type ActionInfo struct {
+	Name     string `json:"name"`                // envelope audit name, e.g. ward.ops.forgejo.action.ci-watch
+	Leaf     string `json:"leaf"`                // CLI leaf, e.g. ci-watch
+	Describe string `json:"describe,omitempty"`  // optional human note
+	Method   string `json:"method"`              // the polled leaf's HTTP method
+	Path     string `json:"path"`                // the polled leaf's path template
+	Grant    string `json:"grant"`               // the grant that authorizes the polled leaf
+	Every    string `json:"every"`               // sample interval
+	Timeout  string `json:"timeout"`             // wall-clock bound
+	Until    string `json:"until"`               // loop-ending JMESPath
+	FailWhen string `json:"fail_when,omitempty"` // non-zero-exit JMESPath
 }
 
 // AuthInfo is the auth scope a describe consumer sees: scheme, header, and the
@@ -75,16 +91,20 @@ func Describe(cfg Config) (*Surface, error) {
 	if err != nil {
 		return nil, err
 	}
+	actionDescs, err := resolveActions(spec, gf, grantedKeys(gf))
+	if err != nil {
+		return nil, err
+	}
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		baseURL = gf.BaseURL
 	}
-	return buildSurface(gf, defaultScheme(strings.TrimRight(baseURL, "/")), descs), nil
+	return buildSurface(gf, defaultScheme(strings.TrimRight(baseURL, "/")), descs, actionDescs), nil
 }
 
 // buildSurface assembles the model from the already-resolved descriptors, so the
 // description can never name a verb the runtime did not mount.
-func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor) *Surface {
+func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor, actions []actionDescriptor) *Surface {
 	s := &Surface{
 		Group:   gf.Group,
 		BaseURL: baseURL,
@@ -102,6 +122,20 @@ func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor)
 			Describe:    d.Describe,
 			Params:      paramsOf(d),
 			FixedBody:   d.FixedBody,
+		})
+	}
+	for _, a := range actions {
+		s.Actions = append(s.Actions, ActionInfo{
+			Name:     a.VerbName,
+			Leaf:     a.Name,
+			Describe: a.Describe,
+			Method:   a.Leaf.Method,
+			Path:     a.Leaf.Path,
+			Grant:    a.Leaf.Grant,
+			Every:    a.Every.String(),
+			Timeout:  a.Timeout.String(),
+			Until:    a.Until,
+			FailWhen: a.FailWhen,
 		})
 	}
 	return s
@@ -175,7 +209,26 @@ func renderProse(s *Surface) string {
 		}
 		writeParamSections(&b, v.Params)
 	}
+	writeActions(&b, prefix, s.Actions)
 	return b.String()
+}
+
+// writeActions renders the complex-action stanzas after the leaf verbs: the
+// polled leaf, the bounds, the until/fail-when conditions, and the grant.
+func writeActions(b *strings.Builder, prefix string, actions []ActionInfo) {
+	for _, a := range actions {
+		heading := fmt.Sprintf("## %s %s %s", prefix, actionGroup, a.Leaf)
+		if a.Describe != "" {
+			heading += " - " + a.Describe
+		}
+		fmt.Fprintf(b, "\n%s\n\n", heading)
+		fmt.Fprintf(b, "Complex action. Polls `%s %s` every %s, up to %s, until:\n\n", a.Method, a.Path, a.Every, a.Timeout)
+		fmt.Fprintf(b, "    %s\n\n", a.Until)
+		fmt.Fprintf(b, "Authorized by grant: %s.\n", a.Grant)
+		if a.FailWhen != "" {
+			fmt.Fprintf(b, "\nExits non-zero when:\n\n    %s\n", a.FailWhen)
+		}
+	}
 }
 
 // writeParamSections prints a verb's params as two blank-line-fronted Markdown
