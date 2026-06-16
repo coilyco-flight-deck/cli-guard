@@ -205,6 +205,10 @@ func TestDescribeShowsActions(t *testing.T) {
 	if !strings.Contains(md, "forgejo action ci-watch") || !strings.Contains(md, "Complex action") {
 		t.Errorf("prose missing the action stanza:\n%s", md)
 	}
+	// the dialect of `until`/`fail-when` must be named where a reader meets it
+	if !strings.Contains(md, "Condition language") || !strings.Contains(md, "Community Edition") {
+		t.Errorf("prose missing the condition-language note:\n%s", md)
+	}
 }
 
 // TestActionGrantedOnlyFailsClosed asserts an action that polls an op the

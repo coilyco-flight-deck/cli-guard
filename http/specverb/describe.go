@@ -213,9 +213,12 @@ func renderProse(s *Surface) string {
 	return b.String()
 }
 
-// writeActions renders the complex-action stanzas after the leaf verbs: the
-// polled leaf, the bounds, the until/fail-when conditions, and the grant.
+// writeActions renders the complex-action stanzas after the leaf verbs, then a
+// closing note naming the condition language - the one surface a reader meets it.
 func writeActions(b *strings.Builder, prefix string, actions []ActionInfo) {
+	if len(actions) == 0 {
+		return
+	}
 	for _, a := range actions {
 		heading := fmt.Sprintf("## %s %s %s", prefix, actionGroup, a.Leaf)
 		if a.Describe != "" {
@@ -229,7 +232,16 @@ func writeActions(b *strings.Builder, prefix string, actions []ActionInfo) {
 			fmt.Fprintf(b, "\nExits non-zero when:\n\n    %s\n", a.FailWhen)
 		}
 	}
+	b.WriteString(conditionLanguageNote)
 }
+
+// conditionLanguageNote names the until/fail-when dialect: JMESPath Community
+// Edition, not the original spec. See docs/specverb-actions.md for the why.
+const conditionLanguageNote = "\n## Condition language\n\n" +
+	"The `until` and `fail-when` expressions above are [JMESPath, Community Edition](https://jmespath.site), " +
+	"evaluated against the polled response as the root. A `$name` is a bound input or `as` capture, supplied " +
+	"through the Community Edition's variable scope - baseline JMESPath (https://jmespath.org) has no `$variable` syntax, " +
+	"so these expressions are not portable to an original-spec evaluator.\n"
 
 // writeParamSections prints a verb's params as two blank-line-fronted Markdown
 // lists, positional and options; a verb with neither says so, empties omitted.
