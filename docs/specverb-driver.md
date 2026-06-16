@@ -6,7 +6,7 @@
 
 A `--guardfile` selects a **binary**, not the whole build: the driver reads every `*.guardfile.kdl` in that file's directory sharing its `wrap <binary>` name (`Group[0]`) and merges them, each mounting as its own command group. With no `--guardfile`, the cwd must resolve to one binary, else the driver lists them and asks you to pick. A different wrap name is a **separate** binary, never merged in.
 
-Separate per guardfile: the spec lock and reference doc. Shared: the generated `main.go` and the one `specverb.lock`. The override env var is keyed on the full wrap group (e.g. `WARD_OPS_FORGEJO_SPEC`), so merged specs never collide.
+Separate per guardfile: the spec lock and reference doc. Shared: the generated `main.go` and the one `specverb.lock`. The override env var is keyed on the full wrap group (e.g. `WARD_OPS_FORGEJO_SPEC`), so merged specs never collide. Spec and exec members can share one binary - see [mixed transports](specverb-mixed-transports.md).
 
 ## The five verbs
 
@@ -18,7 +18,7 @@ Separate per guardfile: the spec lock and reference doc. Shared: the generated `
 
 ## Out-of-band materialization
 
-The merged `main.go`, the build's `go.mod`/`go.sum` (replayed from `specverb.lock`), every member's embed inputs, and the compiled binary live in a cache under `config.CacheDir()`, keyed by the **sorted set of member paths** so two repos sharing a binary name never collide - the analog of a venv, never in the consumer repo. A `.stamp.json` of input hashes (combined over all guardfiles and spec locks) makes the common path a no-op exec; a rebuild fires only when a Guardfile, any lock, or the driver version changed. `run` refuses without committed locks rather than silently locking, keeping the network step explicit.
+The merged `main.go`, the build's `go.mod`/`go.sum` (replayed from `specverb.lock`), every member's embed inputs, and the compiled binary live in a cache under `config.CacheDir()`, keyed by the **sorted set of member paths** so two repos sharing a binary name never collide. A `.stamp.json` of input hashes makes the common path a no-op exec; a rebuild fires only when a Guardfile, any lock, or the driver version changed. `run` refuses without committed locks rather than silently locking.
 
 ## The two locks
 

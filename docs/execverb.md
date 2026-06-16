@@ -50,10 +50,12 @@ A broad `can run "*"` funnel uses `any-arg` to net every positional; `only-reads
 
 `Run` is injectable for tests; nil execs for real with inherited stdio. Audit rows carry dotted names (`ward.git.commit`) identical to the hand-written verb pattern.
 
+## Driver integration
+
+`specverb-gen` generates exec consumers and merges them into a spec binary; `execverb.Describe` gives reference-doc parity. See [mixed transports](specverb-mixed-transports.md).
+
 ## Named follow-ups
 
 - env/egress policy blocks (compose with `cli/passthrough`'s options)
-- driver integration: `specverb-gen` dispatching on the transport to generate exec consumers
-- describe/reference-doc emission parity with specverb
 
 Design: [#130](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/130). Part of the security-pure-engine refactor ([#123](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/123)).

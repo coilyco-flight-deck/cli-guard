@@ -2,10 +2,14 @@ package specdrv
 
 import (
 	"errors"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen"
 )
 
 const guardfileFixture = `wrap ward-kdl ops forgejo {
@@ -15,6 +19,101 @@ const guardfileFixture = `wrap ward-kdl ops forgejo {
 	can read repos
 	can create repos
 }`
+
+// execFixture is an exec-dialect member sharing the ward-kdl binary with the
+// spec fixture above, so the two merge into one binary.
+const execFixture = `wrap ward-kdl ops aws {
+	exec aws
+	can run sts get-caller-identity
+	can run s3 ls {
+		deny-when arg0 matches "*tfstate*"
+	}
+}`
+
+func TestSniffTransport(t *testing.T) {
+	spec, err := sniffTransport([]byte(guardfileFixture))
+	if err != nil || spec != specgen.TransportSpec {
+		t.Errorf("spec fixture: got (%q, %v), want spec", spec, err)
+	}
+	ex, err := sniffTransport([]byte(execFixture))
+	if err != nil || ex != specgen.TransportExec {
+		t.Errorf("exec fixture: got (%q, %v), want exec", ex, err)
+	}
+}
+
+func TestReadMemberDispatchesExec(t *testing.T) {
+	dir := t.TempDir()
+	gfPath := filepath.Join(dir, "aws.guardfile.kdl")
+	if err := os.WriteFile(gfPath, []byte(execFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m, err := readMember(gfPath)
+	if err != nil {
+		t.Fatalf("readMember: %v", err)
+	}
+	if !m.isExec() {
+		t.Errorf("want exec member, got transport %q", m.Params.Transport)
+	}
+	if m.ExecGF == nil || m.GF != nil {
+		t.Errorf("exec member should carry ExecGF and no spec GF (GF=%v ExecGF=%v)", m.GF, m.ExecGF)
+	}
+	if m.Params.Binary != "ward-kdl" {
+		t.Errorf("binary: got %q want ward-kdl", m.Params.Binary)
+	}
+	if m.Params.SpecLockName != "" || m.Params.SpecURL != "" {
+		t.Errorf("exec member should have no spec lock/url, got %+v", m.Params)
+	}
+}
+
+func TestLoadGroupMergesSpecAndExec(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "forgejo.guardfile.kdl"), []byte(guardfileFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "aws.guardfile.kdl"), []byte(execFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	g, err := loadGroup(Options{GuardfilePath: filepath.Join(dir, "forgejo.guardfile.kdl")})
+	if err != nil {
+		t.Fatalf("loadGroup: %v", err)
+	}
+	if len(g.Members) != 2 {
+		t.Fatalf("want 2 merged members, got %d", len(g.Members))
+	}
+	main, err := g.render()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), "main.go", main, parser.AllErrors); err != nil {
+		t.Fatalf("merged main.go does not parse: %v\n%s", err, main)
+	}
+	src := string(main)
+	for _, want := range []string{"specverb.Mount(app", "execverb.Mount(app", "//go:embed aws.guardfile.kdl"} {
+		if !strings.Contains(src, want) {
+			t.Errorf("merged main.go missing %q", want)
+		}
+	}
+}
+
+func TestGenEmitsExecReferenceDoc(t *testing.T) {
+	dir := t.TempDir()
+	gfPath := filepath.Join(dir, "aws.guardfile.kdl")
+	if err := os.WriteFile(gfPath, []byte(execFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Gen(Options{GuardfilePath: gfPath, Out: filepath.Join(dir, "main.go")}); err != nil {
+		t.Fatalf("Gen: %v", err)
+	}
+	doc, err := os.ReadFile(filepath.Join(dir, "aws.guardfile.md"))
+	if err != nil {
+		t.Fatalf("read exec reference doc: %v", err)
+	}
+	for _, want := range []string{"# ward-kdl ops aws", "Exec-dialect CLI", "## ward-kdl ops aws s3 ls", "denies when arg0 matches"} {
+		if !strings.Contains(string(doc), want) {
+			t.Errorf("exec reference doc missing %q", want)
+		}
+	}
+}
 
 func TestDiffSpecsDetectsOperationDrift(t *testing.T) {
 	committed := []byte(`{

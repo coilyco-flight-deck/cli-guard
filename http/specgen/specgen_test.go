@@ -88,6 +88,84 @@ func TestRenderSetMergesIntoOneBinary(t *testing.T) {
 	}
 }
 
+func TestRenderParamsExecOnly(t *testing.T) {
+	out, err := RenderParams(SetParams{
+		Binary:  "ward-kdl",
+		HasExec: true,
+		Mounts:  []Params{{Transport: TransportExec, Binary: "ward-kdl", GuardfileName: "aws.guardfile.kdl"}},
+	})
+	if err != nil {
+		t.Fatalf("RenderParams: %v", err)
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), "main.go", out, parser.AllErrors); err != nil {
+		t.Fatalf("exec-only source does not parse: %v\n%s", err, out)
+	}
+	src := string(out)
+	for _, want := range []string{"//go:embed aws.guardfile.kdl", "execverb.Mount(app", "cli/execverb"} {
+		if !strings.Contains(src, want) {
+			t.Errorf("exec-only source missing %q", want)
+		}
+	}
+	// An exec-only binary must not pull in any spec-only seam, or Go rejects the
+	// unused import.
+	for _, absent := range []string{"specverb.Mount", "http/specverb", "ssmTokenResolver", "net/http", "embeddedSpec0"} {
+		if strings.Contains(src, absent) {
+			t.Errorf("exec-only source should not contain spec-only %q", absent)
+		}
+	}
+}
+
+func TestRenderParamsMixed(t *testing.T) {
+	out, err := RenderParams(SetParams{
+		Binary:  "ward-kdl",
+		HasSpec: true,
+		HasExec: true,
+		Mounts: []Params{
+			{Transport: TransportSpec, Binary: "ward-kdl", GuardfileName: "forgejo.guardfile.kdl", SpecLockName: "forgejo.swagger.lock.json", SpecURL: "https://forgejo.coilysiren.me/swagger.v1.json", SpecEnvVar: "WARD_KDL_OPS_FORGEJO_SPEC"},
+			{Transport: TransportExec, Binary: "ward-kdl", GuardfileName: "aws.guardfile.kdl"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("RenderParams: %v", err)
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), "main.go", out, parser.AllErrors); err != nil {
+		t.Fatalf("mixed source does not parse: %v\n%s", err, out)
+	}
+	src := string(out)
+	for _, want := range []string{
+		"specverb.Mount(app", "execverb.Mount(app",
+		"//go:embed forgejo.swagger.lock.json", "//go:embed aws.guardfile.kdl", "ssmTokenResolver",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("mixed source missing %q", want)
+		}
+	}
+	// The spec member (index 0) embeds a spec lock; the exec member (index 1) must not.
+	if !strings.Contains(src, "embeddedSpec0") {
+		t.Error("spec member (index 0) should have a spec-lock embed")
+	}
+	if strings.Contains(src, "embeddedSpec1") {
+		t.Error("exec member (index 1) should not have a spec-lock embed")
+	}
+}
+
+func TestPlanExecDerivesParams(t *testing.T) {
+	p, err := PlanExec([]string{"ward-kdl", "ops", "aws"}, "aws.guardfile.kdl")
+	if err != nil {
+		t.Fatalf("PlanExec: %v", err)
+	}
+	want := Params{Transport: TransportExec, Binary: "ward-kdl", GuardfileName: "aws.guardfile.kdl"}
+	if p != want {
+		t.Errorf("PlanExec = %+v, want %+v", p, want)
+	}
+}
+
+func TestPlanExecRejectsEmptyGroup(t *testing.T) {
+	if _, err := PlanExec(nil, "x.kdl"); err == nil {
+		t.Fatal("expected error for an exec Guardfile with no group")
+	}
+}
+
 func TestRenderSetRejectsBinaryMismatch(t *testing.T) {
 	const other = `wrap other ops aws {
 		spec aws.swagger.v1.json
@@ -134,6 +212,7 @@ func TestPlanDerivesParams(t *testing.T) {
 		t.Fatalf("Plan: %v", err)
 	}
 	want := Params{
+		Transport:     TransportSpec,
 		Binary:        "ward-kdl",
 		GuardfileName: "forgejo.guardfile.kdl",
 		SpecLockName:  "forgejo.swagger.lock.json",

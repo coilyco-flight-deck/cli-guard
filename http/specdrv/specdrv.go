@@ -14,9 +14,11 @@ import (
 	"strings"
 	"time"
 
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/execverb"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specverb"
+	kdl "github.com/calico32/kdl-go"
 )
 
 // Options are the inputs shared by every driver verb.
@@ -35,14 +37,18 @@ var ErrNoLock = errors.New("missing committed lock; run 'specverb-gen lock' firs
 // ErrSkew is returned by skew when the committed spec lock drifts from upstream.
 var ErrSkew = errors.New("spec skew detected")
 
-// member is one guardfile in a merged build: its parsed policy, derived params,
-// and raw bytes (embedded verbatim and hashed for staleness).
+// member is one guardfile in a merged build. A spec member carries GF (with a
+// spec lock + doc); an exec member carries ExecGF (policy only). See driver doc.
 type member struct {
 	Path   string
-	GF     *guardfile.Guardfile
+	GF     *guardfile.Guardfile // spec dialect; nil for exec members
+	ExecGF *execverb.Guardfile  // exec dialect; nil for spec members
 	Params specgen.Params
 	Bytes  []byte
 }
+
+// isExec reports whether the member speaks the exec dialect.
+func (m member) isExec() bool { return m.Params.Transport == specgen.TransportExec }
 
 // group is the set of guardfiles that compose one merged binary - every
 // *.guardfile.kdl in a directory that shares a wrap binary name (Group[0]).
@@ -52,11 +58,46 @@ type group struct {
 	Members []member // sorted by Path for a deterministic embed/build order
 }
 
-// readMember reads, parses, and plans a single guardfile.
+// sniffTransport reads a guardfile's dialect: an `exec` child of the `wrap`
+// block is exec, otherwise spec. Lets the driver pick the right parser.
+func sniffTransport(src []byte) (string, error) {
+	doc, err := kdl.ParseString(string(src))
+	if err != nil {
+		return "", fmt.Errorf("specdrv: parse KDL: %w", err)
+	}
+	wrap := doc.GetNode("wrap")
+	if wrap == nil {
+		return "", fmt.Errorf("specdrv: missing top-level `wrap` node")
+	}
+	for _, n := range wrap.Children().Nodes {
+		if n.Name() == "exec" {
+			return specgen.TransportExec, nil
+		}
+	}
+	return specgen.TransportSpec, nil
+}
+
+// readMember reads a single guardfile, sniffs its transport, and parses+plans
+// it with the matching dialect.
 func readMember(path string) (member, error) {
 	b, err := os.ReadFile(path) //nolint:gosec // operator-supplied policy input
 	if err != nil {
 		return member{}, fmt.Errorf("specdrv: read guardfile: %w", err)
+	}
+	transport, err := sniffTransport(b)
+	if err != nil {
+		return member{}, fmt.Errorf("specdrv: sniff %s: %w", path, err)
+	}
+	if transport == specgen.TransportExec {
+		egf, err := execverb.Parse(b)
+		if err != nil {
+			return member{}, fmt.Errorf("specdrv: parse exec guardfile %s: %w", path, err)
+		}
+		p, err := specgen.PlanExec(egf.Group, filepath.Base(path))
+		if err != nil {
+			return member{}, err
+		}
+		return member{Path: path, ExecGF: egf, Params: p, Bytes: b}, nil
 	}
 	gf, err := guardfile.Parse(b)
 	if err != nil {
@@ -119,15 +160,31 @@ func loadGroup(opts Options) (*group, error) {
 	return &group{Dir: dir, Binary: selector, Members: members}, nil
 }
 
-// render emits the merged main.go embedding every member's guardfile + spec lock.
+// render emits the merged main.go from the members' pre-planned params, mixing
+// spec and exec mounts onto the one binary.
 func (g *group) render() ([]byte, error) {
-	gfs := make([]*guardfile.Guardfile, len(g.Members))
-	names := make([]string, len(g.Members))
-	for i, m := range g.Members {
-		gfs[i] = m.GF
-		names[i] = m.Params.GuardfileName
+	sp := specgen.SetParams{Binary: g.Binary}
+	for _, m := range g.Members {
+		sp.Mounts = append(sp.Mounts, m.Params)
+		if m.isExec() {
+			sp.HasExec = true
+		} else {
+			sp.HasSpec = true
+		}
 	}
-	return specgen.RenderSet(gfs, names)
+	return specgen.RenderParams(sp)
+}
+
+// orderedSpecs returns the spec-member spec bytes in member order, the
+// deterministic input to the staleness hash. Exec members contribute nothing.
+func orderedSpecs(mems []member, byPath map[string][]byte) [][]byte {
+	var out [][]byte
+	for _, m := range mems {
+		if b, ok := byPath[m.Path]; ok {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 // Gen renders the merged consumer main.go (cache, or --out for inspection) and
@@ -157,10 +214,34 @@ func Gen(opts Options) error {
 	}
 	fmt.Fprintf(os.Stderr, "specverb-gen: wrote %s\n", out)
 	for _, m := range g.Members {
+		if m.isExec() {
+			if err := emitExecReferenceDoc(g.Dir, m); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := emitReferenceDocFromLock(g.Dir, m); err != nil {
 			return err
 		}
 	}
+	return nil
+}
+
+// refDocName is the committed reference-doc filename for a member: the
+// guardfile name with its extension swapped for .md.
+func refDocName(m member) string {
+	return strings.TrimSuffix(m.Params.GuardfileName, filepath.Ext(m.Params.GuardfileName)) + ".md"
+}
+
+// emitExecReferenceDoc writes an exec member's reference doc from its parsed
+// policy (execverb.Describe), since it has no upstream spec to render from.
+func emitExecReferenceDoc(dir string, m member) error {
+	surface := execverb.Describe(m.ExecGF)
+	path := filepath.Join(dir, refDocName(m))
+	if err := os.WriteFile(path, []byte(surface.Markdown()), 0o644); err != nil { //nolint:gosec // human-facing committed reference
+		return fmt.Errorf("specdrv: write exec reference doc: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "specverb-gen: wrote %s (%d grants)\n", path, len(surface.Grants))
 	return nil
 }
 
@@ -185,8 +266,7 @@ func writeReferenceDoc(dir string, m member, specBytes []byte) error {
 	if err != nil {
 		return fmt.Errorf("specdrv: build reference surface: %w", err)
 	}
-	name := strings.TrimSuffix(m.Params.GuardfileName, filepath.Ext(m.Params.GuardfileName)) + ".md"
-	path := filepath.Join(dir, name)
+	path := filepath.Join(dir, refDocName(m))
 	if err := os.WriteFile(path, []byte(surface.Markdown()), 0o644); err != nil { //nolint:gosec // human-facing committed reference
 		return fmt.Errorf("specdrv: write reference doc: %w", err)
 	}
@@ -194,11 +274,14 @@ func writeReferenceDoc(dir string, m member, specBytes []byte) error {
 	return nil
 }
 
-// lockSpecs fetches each member's upstream spec, prunes it to the granted
-// surface, writes the per-member spec lock, and returns the pruned bytes.
-func lockSpecs(g *group) ([][]byte, error) {
-	specs := make([][]byte, len(g.Members))
-	for i, m := range g.Members {
+// lockSpecs fetches each spec member's upstream spec, prunes it, writes the
+// per-member lock, and returns the pruned bytes by path. Exec members skipped.
+func lockSpecs(g *group) (map[string][]byte, error) {
+	specs := map[string][]byte{}
+	for _, m := range g.Members {
+		if m.isExec() {
+			continue
+		}
 		full, err := fetchSpec(m.Params.SpecURL)
 		if err != nil {
 			return nil, fmt.Errorf("specdrv: fetch spec %s: %w", m.Params.GuardfileName, err)
@@ -213,7 +296,7 @@ func lockSpecs(g *group) ([][]byte, error) {
 		if err := os.WriteFile(specLockPath, specBytes, 0o644); err != nil { //nolint:gosec // committed spec snapshot, not a secret
 			return nil, fmt.Errorf("specdrv: write spec lock: %w", err)
 		}
-		specs[i] = specBytes
+		specs[m.Path] = specBytes
 		fmt.Fprintf(os.Stderr, "specverb-gen: locked %s (%d bytes, pruned from %d)\n", m.Params.SpecLockName, len(specBytes), len(full))
 	}
 	return specs, nil
@@ -251,8 +334,14 @@ func Lock(opts Options) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "specverb-gen: locked %s (cli-guard %s)\n", LockName, dl.CLIGuard)
-	for i, m := range g.Members {
-		if err := writeReferenceDoc(g.Dir, m, specs[i]); err != nil {
+	for _, m := range g.Members {
+		if m.isExec() {
+			if err := emitExecReferenceDoc(g.Dir, m); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := writeReferenceDoc(g.Dir, m, specs[m.Path]); err != nil {
 			return err
 		}
 	}
@@ -268,6 +357,9 @@ func Skew(opts Options) error {
 	}
 	var drift []string
 	for _, m := range g.Members {
+		if m.isExec() {
+			continue // exec members have no upstream spec to drift against
+		}
 		committed, err := os.ReadFile(filepath.Join(g.Dir, m.Params.SpecLockName)) //nolint:gosec // committed spec snapshot
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -341,8 +433,11 @@ func materialize(opts Options) (string, *group, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	specs := make([][]byte, len(g.Members))
-	for i, m := range g.Members {
+	specByPath := map[string][]byte{}
+	for _, m := range g.Members {
+		if m.isExec() {
+			continue
+		}
 		specBytes, err := os.ReadFile(filepath.Join(g.Dir, m.Params.SpecLockName)) //nolint:gosec // committed spec snapshot
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -350,7 +445,7 @@ func materialize(opts Options) (string, *group, error) {
 			}
 			return "", g, fmt.Errorf("specdrv: read spec lock: %w", err)
 		}
-		specs[i] = specBytes
+		specByPath[m.Path] = specBytes
 	}
 	depLockPath := filepath.Join(g.Dir, LockName)
 	depRaw, err := os.ReadFile(depLockPath) //nolint:gosec // committed dep lock
@@ -375,12 +470,12 @@ func materialize(opts Options) (string, *group, error) {
 	binPath := filepath.Join(cdir, "bin", g.Binary)
 	want := stamp{
 		GuardfileHash:    hashMembers(g.Members),
-		SpecLockHash:     hashConcat(specs...),
+		SpecLockHash:     hashConcat(orderedSpecs(g.Members, specByPath)...),
 		DepLockHash:      hashBytes(depRaw),
 		GeneratorVersion: generatorVersion(),
 		BuiltAt:          time.Now().UTC().Format(time.RFC3339),
 	}
-	if err := materializeIfStale(cdir, binPath, main, g.Members, specs, dl, want); err != nil {
+	if err := materializeIfStale(cdir, binPath, main, g.Members, specByPath, dl, want); err != nil {
 		return "", g, err
 	}
 	return binPath, g, nil
@@ -446,7 +541,7 @@ func copyExecutable(src, dest string) error {
 
 // materializeIfStale rebuilds the binary under the cache lock when its inputs
 // changed, releasing the lock before return so Run can exec the fresh image.
-func materializeIfStale(cdir, binPath string, main []byte, mems []member, specs [][]byte, dl *DepLock, want stamp) error {
+func materializeIfStale(cdir, binPath string, main []byte, mems []member, specByPath map[string][]byte, dl *DepLock, want stamp) error {
 	if err := os.MkdirAll(cdir, 0o750); err != nil {
 		return fmt.Errorf("specdrv: create cache dir: %w", err)
 	}
@@ -463,7 +558,7 @@ func materializeIfStale(cdir, binPath string, main []byte, mems []member, specs 
 	if !stale(cdir, binPath, want) {
 		return nil
 	}
-	if err := materializeModuleDir(cdir, main, mems, specs); err != nil {
+	if err := materializeModuleDir(cdir, main, mems, specByPath); err != nil {
 		return err
 	}
 	if err := writeModuleFiles(cdir, dl); err != nil {
@@ -478,16 +573,18 @@ func materializeIfStale(cdir, binPath string, main []byte, mems []member, specs 
 	return writeStamp(cdir, want)
 }
 
-// materializeModuleDir writes the build module's inputs into dir: the rendered
-// main.go plus each member's two //go:embed files. mems and specs are parallel.
-func materializeModuleDir(dir string, main []byte, mems []member, specs [][]byte) error {
+// materializeModuleDir writes the build inputs into dir: the rendered main.go
+// plus each member's embeds (guardfile always, spec lock for spec members).
+func materializeModuleDir(dir string, main []byte, mems []member, specByPath map[string][]byte) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("specdrv: create module dir: %w", err)
 	}
 	files := map[string][]byte{"main.go": main}
-	for i, m := range mems {
+	for _, m := range mems {
 		files[m.Params.GuardfileName] = m.Bytes
-		files[m.Params.SpecLockName] = specs[i]
+		if !m.isExec() {
+			files[m.Params.SpecLockName] = specByPath[m.Path]
+		}
 	}
 	for name, b := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), b, 0o600); err != nil {
