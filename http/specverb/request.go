@@ -29,11 +29,12 @@ const redacted = "<redacted>"
 
 // runtime carries the per-tree request dependencies shared by every leaf.
 type runtime struct {
-	baseURL string
-	auth    guardfile.Auth
-	token   TokenResolver
-	client  *http.Client
-	wrap    func(verb.Spec) cli.ActionFunc
+	baseURL  string
+	auth     guardfile.Auth
+	token    TokenResolver
+	client   *http.Client
+	wrap     func(verb.Spec) cli.ActionFunc
+	restrict []guardfile.Restriction
 }
 
 // universal flag names every mounted leaf carries.
@@ -144,6 +145,9 @@ func (rt *runtime) actionFor(desc opDescriptor) cli.ActionFunc {
 			return exitcode.New(exitcode.UserError, "user_error",
 				fmt.Errorf("%s takes %d positional arg(s) %v, got %d", desc.Leaf, len(desc.PathParams), desc.PathParams, len(positional)),
 				"supply exactly the path parameters this verb names")
+		}
+		if err := rt.checkRestrictions(desc.PathParams, positional); err != nil {
+			return err
 		}
 		url := rt.baseURL + fillPath(desc.Path, positional) + assembleQuery(c, desc.QueryFlags)
 		var body []byte

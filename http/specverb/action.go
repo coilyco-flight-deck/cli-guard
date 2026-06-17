@@ -296,6 +296,9 @@ func (rt *runtime) buildLeafRequest(ad actionDescriptor, strVars map[string]stri
 	if berr := b.requireAllPaths(); berr != nil {
 		return "", "", nil, "", berr
 	}
+	if rerr := rt.checkRestrictions(leaf.PathParams, b.pathVals); rerr != nil {
+		return "", "", nil, "", rerr
+	}
 	pathVals, query, bodyObj := b.pathVals, b.query, b.bodyObj
 
 	qs := ""

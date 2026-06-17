@@ -18,12 +18,20 @@ import (
 // Surface is the in-engine model of a mounted command surface: the structural
 // truth shared by help, the describe verb, and (later) completions and the skill.
 type Surface struct {
-	Group   []string     `json:"group"`             // command path, e.g. ["ward","ops","forgejo"]
-	BaseURL string       `json:"base_url"`          // resolved request base, scheme defaulted
-	Auth    AuthInfo     `json:"auth"`              // how the engine authenticates
-	Verbs   []VerbInfo   `json:"verbs"`             // every mounted leaf, in mount order
-	Actions []ActionInfo `json:"actions,omitempty"` // complex actions, in declaration order
-	Denied  []DenyInfo   `json:"denied,omitempty"`  // blocked classes, in declaration order
+	Group    []string          `json:"group"`              // command path, e.g. ["ward","ops","forgejo"]
+	BaseURL  string            `json:"base_url"`           // resolved request base, scheme defaulted
+	Auth     AuthInfo          `json:"auth"`               // how the engine authenticates
+	Verbs    []VerbInfo        `json:"verbs"`              // every mounted leaf, in mount order
+	Actions  []ActionInfo      `json:"actions,omitempty"`  // complex actions, in declaration order
+	Denied   []DenyInfo        `json:"denied,omitempty"`   // blocked classes, in declaration order
+	Restrict []RestrictionInfo `json:"restrict,omitempty"` // wrap-level scope allowlists
+}
+
+// RestrictionInfo is one wrap-level restrict clause for the describe surface: the
+// path param it gates and the globs an argument must match.
+type RestrictionInfo struct {
+	Param string   `json:"param"`
+	Globs []string `json:"globs"`
 }
 
 // DenyInfo is one blocked (verb,resource) class for the describe surface: its CLI
@@ -151,6 +159,9 @@ func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor,
 	for _, d := range denyDescriptors(gf) {
 		s.Denied = append(s.Denied, DenyInfo{Name: d.VerbName, Group: d.Group, Leaf: d.Leaf, Message: d.Message})
 	}
+	for _, r := range gf.Restrict {
+		s.Restrict = append(s.Restrict, RestrictionInfo{Param: r.Param, Globs: r.Globs})
+	}
 	return s
 }
 
@@ -223,8 +234,22 @@ func renderProse(s *Surface) string {
 		writeParamSections(&b, v.Params)
 	}
 	writeActions(&b, prefix, s.Actions)
+	writeRestrictions(&b, s.Restrict)
 	writeDenied(&b, prefix, s.Denied)
 	return b.String()
+}
+
+// writeRestrictions renders the wrap-level scope allowlists: each gated param and
+// the globs an argument must match, so the reference names the enforced scope.
+func writeRestrictions(b *strings.Builder, restrict []RestrictionInfo) {
+	if len(restrict) == 0 {
+		return
+	}
+	b.WriteString("\n## Scope restrictions\n\n")
+	b.WriteString("Every verb whose path carries one of these parameters must supply a value matching a glob below, or it fails closed.\n")
+	for _, r := range restrict {
+		fmt.Fprintf(b, "\n- `%s` must match: %s\n", r.Param, strings.Join(r.Globs, ", "))
+	}
 }
 
 // writeDenied renders the blocked-class stanzas: one heading per deny with its

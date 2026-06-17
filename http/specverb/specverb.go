@@ -101,11 +101,12 @@ func Build(cfg Config) (*cli.Command, error) {
 	}
 
 	rt := &runtime{
-		baseURL: defaultScheme(strings.TrimRight(baseURL, "/")),
-		auth:    gf.Auth,
-		token:   cfg.Token,
-		client:  cfg.HTTPClient,
-		wrap:    cfg.Wrap,
+		baseURL:  defaultScheme(strings.TrimRight(baseURL, "/")),
+		auth:     gf.Auth,
+		token:    cfg.Token,
+		client:   cfg.HTTPClient,
+		wrap:     cfg.Wrap,
+		restrict: gf.Restrict,
 	}
 	if rt.client == nil {
 		rt.client = defaultHTTPClient()

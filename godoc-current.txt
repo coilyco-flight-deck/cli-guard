@@ -1927,13 +1927,21 @@ type ParamInfo struct {
     the structure the engine knows even where the upstream spec carries no
     description.
 
+type RestrictionInfo struct {
+	Param string   `json:"param"`
+	Globs []string `json:"globs"`
+}
+    RestrictionInfo is one wrap-level restrict clause for the describe surface:
+    the path param it gates and the globs an argument must match.
+
 type Surface struct {
-	Group   []string     `json:"group"`             // command path, e.g. ["ward","ops","forgejo"]
-	BaseURL string       `json:"base_url"`          // resolved request base, scheme defaulted
-	Auth    AuthInfo     `json:"auth"`              // how the engine authenticates
-	Verbs   []VerbInfo   `json:"verbs"`             // every mounted leaf, in mount order
-	Actions []ActionInfo `json:"actions,omitempty"` // complex actions, in declaration order
-	Denied  []DenyInfo   `json:"denied,omitempty"`  // blocked classes, in declaration order
+	Group    []string          `json:"group"`              // command path, e.g. ["ward","ops","forgejo"]
+	BaseURL  string            `json:"base_url"`           // resolved request base, scheme defaulted
+	Auth     AuthInfo          `json:"auth"`               // how the engine authenticates
+	Verbs    []VerbInfo        `json:"verbs"`              // every mounted leaf, in mount order
+	Actions  []ActionInfo      `json:"actions,omitempty"`  // complex actions, in declaration order
+	Denied   []DenyInfo        `json:"denied,omitempty"`   // blocked classes, in declaration order
+	Restrict []RestrictionInfo `json:"restrict,omitempty"` // wrap-level scope allowlists
 }
     Surface is the in-engine model of a mounted command surface: the structural
     truth shared by help, the describe verb, and (later) completions and the
