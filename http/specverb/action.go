@@ -41,7 +41,22 @@ type actionDescriptor struct {
 	Timeout  time.Duration // wall-clock bound, > 0
 	As       string        // binding name for the final response
 	FailWhen string        // JMESPath over the final response + bindings; truthy => non-zero exit
+
+	// Calls is the resolved multi-call sequence; non-empty marks a call action,
+	// mutually exclusive with the poll fields above.
+	Calls []callStep
 }
+
+// callStep is one resolved step of a multi-call action: a granted leaf, its arg
+// bindings, and the optional `as` name its response binds to for later steps.
+type callStep struct {
+	Leaf opDescriptor
+	Args []guardfile.ArgBind
+	As   string
+}
+
+// isCall reports whether ad is a multi-call action (vs a poll).
+func (ad actionDescriptor) isCall() bool { return len(ad.Calls) > 0 }
 
 // resolveActions resolves every Guardfile action into a descriptor, failing
 // closed at each gate; granted is the (verb, resource) set the Guardfile grants.
@@ -58,10 +73,9 @@ func resolveActions(spec *swaggerSpec, gf *guardfile.Guardfile, granted map[gran
 }
 
 func resolveAction(spec *swaggerSpec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant, a guardfile.Action) (actionDescriptor, error) {
-	// Multi-call (`call`) execution lands in its own pass; poll is the only shape
-	// the engine runs today. Parser guarantees exactly one of Poll/Calls is set.
-	if a.Poll == nil {
-		return actionDescriptor{}, fmt.Errorf("specverb: action %q: multi-call (`call`) actions are parsed but not yet executed by the engine", a.Name)
+	// Parser guarantees exactly one of Poll/Calls is set.
+	if len(a.Calls) > 0 {
+		return resolveCallAction(spec, gf, granted, a)
 	}
 	p := a.Poll
 	// Granted-only: an action may only poll an op the same Guardfile grants.
@@ -212,13 +226,16 @@ func actionArgsFunc(ad actionDescriptor) func(*cli.Command) (map[string]string, 
 	}
 }
 
-// runAction binds inputs, builds the leaf request, then prints the plan
-// (--dry-run) or runs the bounded poll loop with the fail-when exit predicate.
+// runAction binds inputs, then runs the action: a multi-call sequence, or the
+// poll path (build the request, then print the plan or run the bounded loop).
 func (rt *runtime) runAction(ad actionDescriptor) cli.ActionFunc {
 	return func(ctx context.Context, c *cli.Command) error {
 		strVars, jmesVars, err := bindInputs(ad, c)
 		if err != nil {
 			return err
+		}
+		if ad.isCall() {
+			return rt.runCallAction(ctx, c, ad, strVars)
 		}
 		method, url, body, contentType, err := rt.buildLeafRequest(ad, strVars)
 		if err != nil {
@@ -281,10 +298,17 @@ func coerceScalar(s string) any {
 // buildLeafRequest assembles the polled leaf's HTTP request from the arg
 // bindings, using the same path/query machinery a directly-invoked leaf uses.
 func (rt *runtime) buildLeafRequest(ad actionDescriptor, strVars map[string]string) (method, url string, body []byte, contentType string, err error) {
-	leaf := ad.Leaf
+	return rt.buildCallRequest(ad.Leaf, ad.Args, func(v string) (string, error) {
+		return resolveArgValue(v, strVars)
+	})
+}
+
+// buildCallRequest assembles one leaf's HTTP request from arg bindings, resolving
+// each arg value through resolve (a poll uses inputs; a call adds $step.field).
+func (rt *runtime) buildCallRequest(leaf opDescriptor, args []guardfile.ArgBind, resolve func(string) (string, error)) (method, url string, body []byte, contentType string, err error) {
 	b := newArgBinder(leaf)
-	for _, arg := range ad.Args {
-		val, rerr := resolveArgValue(arg.Value, strVars)
+	for _, arg := range args {
+		val, rerr := resolve(arg.Value)
 		if rerr != nil {
 			return "", "", nil, "", exitcode.New(exitcode.UserError, "user_error",
 				fmt.Errorf("action arg %q: %w", arg.Name, rerr), "supply the input this arg references")
@@ -544,6 +568,9 @@ func actionUsage(ad actionDescriptor) string {
 	if ad.Describe != "" {
 		return ad.Describe
 	}
+	if ad.isCall() {
+		return fmt.Sprintf("complex action: a %d-call sequence", len(ad.Calls))
+	}
 	return fmt.Sprintf("complex action polling %s %s", ad.Leaf.Method, ad.Leaf.Path)
 }
 
@@ -553,8 +580,19 @@ func actionDescription(ad actionDescriptor) string {
 	if ad.Describe != "" {
 		fmt.Fprintf(&b, "%s\n\n", ad.Describe)
 	}
-	fmt.Fprintf(&b, "Polls %s %s every %s, up to %s, until:\n  %s\n", ad.Leaf.Method, ad.Leaf.Path, ad.Every, ad.Timeout, ad.Until)
-	fmt.Fprintf(&b, "\nAuthorized by grant: %s.\n", ad.Leaf.Grant)
+	if ad.isCall() {
+		b.WriteString("Runs this sequence of granted calls, threading $step.field data between them:\n")
+		for i, s := range ad.Calls {
+			fmt.Fprintf(&b, "  %d. %s %s", i+1, s.Leaf.Method, s.Leaf.Path)
+			if s.As != "" {
+				fmt.Fprintf(&b, " (as %s)", s.As)
+			}
+			b.WriteString("\n")
+		}
+	} else {
+		fmt.Fprintf(&b, "Polls %s %s every %s, up to %s, until:\n  %s\n", ad.Leaf.Method, ad.Leaf.Path, ad.Every, ad.Timeout, ad.Until)
+		fmt.Fprintf(&b, "\nAuthorized by grant: %s.\n", ad.Leaf.Grant)
+	}
 	if ad.FailWhen != "" {
 		fmt.Fprintf(&b, "\nExits non-zero when: %s\n", ad.FailWhen)
 	}

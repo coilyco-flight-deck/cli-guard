@@ -1861,6 +1861,14 @@ func Prune(spec []byte, gf *guardfile.Guardfile) ([]byte, error)
 
 TYPES
 
+type ActionCallInfo struct {
+	Method string `json:"method"`
+	Path   string `json:"path"`
+	Grant  string `json:"grant"`
+	As     string `json:"as,omitempty"`
+}
+    ActionCallInfo is one step of a multi-call action for the describe surface.
+
 type ActionInfo struct {
 	Name     string `json:"name"`                // envelope audit name, e.g. ward.ops.forgejo.action.ci-watch
 	Leaf     string `json:"leaf"`                // CLI leaf, e.g. ci-watch
@@ -1872,6 +1880,9 @@ type ActionInfo struct {
 	Timeout  string `json:"timeout"`             // wall-clock bound
 	Until    string `json:"until"`               // loop-ending JMESPath
 	FailWhen string `json:"fail_when,omitempty"` // non-zero-exit JMESPath
+
+	// Calls is the resolved step sequence for a multi-call action; empty for a poll.
+	Calls []ActionCallInfo `json:"calls,omitempty"`
 }
     ActionInfo is one mounted complex action for the describe surface:
     its envelope name, the polled leaf, the bounds, and the conditions.

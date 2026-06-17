@@ -56,6 +56,17 @@ type ActionInfo struct {
 	Timeout  string `json:"timeout"`             // wall-clock bound
 	Until    string `json:"until"`               // loop-ending JMESPath
 	FailWhen string `json:"fail_when,omitempty"` // non-zero-exit JMESPath
+
+	// Calls is the resolved step sequence for a multi-call action; empty for a poll.
+	Calls []ActionCallInfo `json:"calls,omitempty"`
+}
+
+// ActionCallInfo is one step of a multi-call action for the describe surface.
+type ActionCallInfo struct {
+	Method string `json:"method"`
+	Path   string `json:"path"`
+	Grant  string `json:"grant"`
+	As     string `json:"as,omitempty"`
 }
 
 // AuthInfo is the auth scope a describe consumer sees: scheme, header, and the
@@ -143,18 +154,16 @@ func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor,
 		})
 	}
 	for _, a := range actions {
-		s.Actions = append(s.Actions, ActionInfo{
-			Name:     a.VerbName,
-			Leaf:     a.Name,
-			Describe: a.Describe,
-			Method:   a.Leaf.Method,
-			Path:     a.Leaf.Path,
-			Grant:    a.Leaf.Grant,
-			Every:    a.Every.String(),
-			Timeout:  a.Timeout.String(),
-			Until:    a.Until,
-			FailWhen: a.FailWhen,
-		})
+		info := ActionInfo{Name: a.VerbName, Leaf: a.Name, Describe: a.Describe, FailWhen: a.FailWhen}
+		if a.isCall() {
+			for _, step := range a.Calls {
+				info.Calls = append(info.Calls, ActionCallInfo{Method: step.Leaf.Method, Path: step.Leaf.Path, Grant: step.Leaf.Grant, As: step.As})
+			}
+		} else {
+			info.Method, info.Path, info.Grant = a.Leaf.Method, a.Leaf.Path, a.Leaf.Grant
+			info.Every, info.Timeout, info.Until = a.Every.String(), a.Timeout.String(), a.Until
+		}
+		s.Actions = append(s.Actions, info)
 	}
 	for _, d := range denyDescriptors(gf) {
 		s.Denied = append(s.Denied, DenyInfo{Name: d.VerbName, Group: d.Group, Leaf: d.Leaf, Message: d.Message})
@@ -277,14 +286,31 @@ func writeActions(b *strings.Builder, prefix string, actions []ActionInfo) {
 			heading += " - " + a.Describe
 		}
 		fmt.Fprintf(b, "\n%s\n\n", heading)
-		fmt.Fprintf(b, "Complex action. Polls `%s %s` every %s, up to %s, until:\n\n", a.Method, a.Path, a.Every, a.Timeout)
-		fmt.Fprintf(b, "    %s\n\n", a.Until)
-		fmt.Fprintf(b, "Authorized by grant: %s.\n", a.Grant)
+		if len(a.Calls) > 0 {
+			writeCallAction(b, a)
+		} else {
+			fmt.Fprintf(b, "Complex action. Polls `%s %s` every %s, up to %s, until:\n\n", a.Method, a.Path, a.Every, a.Timeout)
+			fmt.Fprintf(b, "    %s\n\n", a.Until)
+			fmt.Fprintf(b, "Authorized by grant: %s.\n", a.Grant)
+		}
 		if a.FailWhen != "" {
 			fmt.Fprintf(b, "\nExits non-zero when:\n\n    %s\n", a.FailWhen)
 		}
 	}
 	b.WriteString(conditionLanguageNote)
+}
+
+// writeCallAction renders a multi-call action stanza: the ordered call sequence,
+// each step's method/path, the grant that authorizes it, and its `as` binding.
+func writeCallAction(b *strings.Builder, a ActionInfo) {
+	fmt.Fprintf(b, "Complex action. Runs %d granted calls in order, threading $step.field data between them:\n\n", len(a.Calls))
+	for i, s := range a.Calls {
+		line := fmt.Sprintf("%d. `%s %s`", i+1, s.Method, s.Path)
+		if s.As != "" {
+			line += fmt.Sprintf(" - binds the response as `%s`", s.As)
+		}
+		fmt.Fprintf(b, "%s\n", line)
+	}
 }
 
 // conditionLanguageNote names the until/fail-when dialect: JMESPath Community
