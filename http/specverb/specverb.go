@@ -43,6 +43,10 @@ type Config struct {
 
 	// BaseURL overrides the Guardfile base-url. "" uses the Guardfile value.
 	BaseURL string
+
+	// BaseURLFn resolves the base-url lazily at request time for a `base-url { ssm }`
+	// host, nil keeps the static value. Consulted once and cached. See specverb-policy.md.
+	BaseURLFn func(ctx context.Context) (string, error)
 }
 
 // opDescriptor is the tiny per-operation payload the generic action binds to,
@@ -101,12 +105,14 @@ func Build(cfg Config) (*cli.Command, error) {
 	}
 
 	rt := &runtime{
-		baseURL:  defaultScheme(strings.TrimRight(baseURL, "/")),
-		auth:     gf.Auth,
-		token:    cfg.Token,
-		client:   cfg.HTTPClient,
-		wrap:     cfg.Wrap,
-		restrict: gf.Restrict,
+		baseURL:    defaultScheme(strings.TrimRight(baseURL, "/")),
+		auth:       gf.Auth,
+		token:      cfg.Token,
+		client:     cfg.HTTPClient,
+		wrap:       cfg.Wrap,
+		restrict:   gf.Restrict,
+		baseURLFn:  cfg.BaseURLFn,
+		baseURLSSM: gf.BaseURLSSM,
 	}
 	if rt.client == nil {
 		rt.client = defaultHTTPClient()
@@ -132,7 +138,7 @@ func Build(cfg Config) (*cli.Command, error) {
 	if ag := rt.buildActionGroup(actionDescs); ag != nil {
 		groupCmds = append(groupCmds, ag)
 	}
-	surface := buildSurface(gf, rt.baseURL, descs, actionDescs)
+	surface := buildSurface(gf, baseURLDisplay(gf, rt.baseURL), descs, actionDescs)
 	groupCmds = append(groupCmds, rt.buildDescribeLeaf(gf, surface))
 	root := &cli.Command{
 		Name:     gf.Group[len(gf.Group)-1],
@@ -176,6 +182,15 @@ func findOrCreateGroup(parent *cli.Command, name string) *cli.Command {
 	g := &cli.Command{Name: name, Usage: name + " operations"}
 	parent.Commands = append(parent.Commands, g)
 	return g
+}
+
+// baseURLDisplay is the base-url describe shows: the SSM path for an SSM-resolved
+// host (stays offline), else the resolved static base.
+func baseURLDisplay(gf *guardfile.Guardfile, static string) string {
+	if gf.BaseURLSSM != "" {
+		return "(resolved from SSM " + gf.BaseURLSSM + ")"
+	}
+	return static
 }
 
 // defaultScheme prepends https:// to a base-url that carries no scheme, so a

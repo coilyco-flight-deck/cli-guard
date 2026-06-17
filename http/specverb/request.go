@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
@@ -35,6 +36,39 @@ type runtime struct {
 	client   *http.Client
 	wrap     func(verb.Spec) cli.ActionFunc
 	restrict []guardfile.Restriction
+
+	// baseURLFn (nil = static baseURL) resolves the host from SSM once, caching it.
+	// baseURLSSM names the path for errors. See specverb-policy.md.
+	baseURLFn   func(ctx context.Context) (string, error)
+	baseURLSSM  string
+	baseURLOnce sync.Once
+	baseURLVal  string
+	baseURLErr  error
+}
+
+// baseForRequest returns the request base-url: the static base, or (for a
+// `base-url { ssm }` host) a once-resolved SSM value. Dry-run stays offline.
+func (rt *runtime) baseForRequest(ctx context.Context, dry bool) (string, error) {
+	if rt.baseURLFn == nil {
+		return rt.baseURL, nil
+	}
+	if dry {
+		return "{base-url:ssm " + rt.baseURLSSM + "}", nil
+	}
+	rt.baseURLOnce.Do(func() {
+		v, err := rt.baseURLFn(ctx)
+		if err != nil {
+			rt.baseURLErr = err
+			return
+		}
+		rt.baseURLVal = defaultScheme(strings.TrimRight(v, "/"))
+	})
+	if rt.baseURLErr != nil {
+		return "", exitcode.New(exitcode.Internal, "internal",
+			fmt.Errorf("resolve base-url from ssm %s: %w", rt.baseURLSSM, rt.baseURLErr),
+			"check the SSM path and credentials")
+	}
+	return rt.baseURLVal, nil
 }
 
 // universal flag names every mounted leaf carries.
@@ -149,9 +183,12 @@ func (rt *runtime) actionFor(desc opDescriptor) cli.ActionFunc {
 		if err := rt.checkRestrictions(desc.PathParams, positional); err != nil {
 			return err
 		}
-		url := rt.baseURL + fillPath(desc.Path, positional) + assembleQuery(c, desc.QueryFlags)
+		base, err := rt.baseForRequest(ctx, c.Bool(flagDryRun))
+		if err != nil {
+			return err
+		}
+		url := base + fillPath(desc.Path, positional) + assembleQuery(c, desc.QueryFlags)
 		var body []byte
-		var err error
 		contentType := contentTypeJSON
 		var preview any
 		switch {

@@ -237,7 +237,7 @@ func (rt *runtime) runAction(ad actionDescriptor) cli.ActionFunc {
 		if ad.isCall() {
 			return rt.runCallAction(ctx, c, ad, strVars)
 		}
-		method, url, body, contentType, err := rt.buildLeafRequest(ad, strVars)
+		method, url, body, contentType, err := rt.buildLeafRequest(ctx, c.Bool(flagDryRun), ad, strVars)
 		if err != nil {
 			return err
 		}
@@ -297,15 +297,15 @@ func coerceScalar(s string) any {
 
 // buildLeafRequest assembles the polled leaf's HTTP request from the arg
 // bindings, using the same path/query machinery a directly-invoked leaf uses.
-func (rt *runtime) buildLeafRequest(ad actionDescriptor, strVars map[string]string) (method, url string, body []byte, contentType string, err error) {
-	return rt.buildCallRequest(ad.Leaf, ad.Args, func(v string) (string, error) {
+func (rt *runtime) buildLeafRequest(ctx context.Context, dry bool, ad actionDescriptor, strVars map[string]string) (method, url string, body []byte, contentType string, err error) {
+	return rt.buildCallRequest(ctx, dry, ad.Leaf, ad.Args, func(v string) (string, error) {
 		return resolveArgValue(v, strVars)
 	})
 }
 
 // buildCallRequest assembles one leaf's HTTP request from arg bindings, resolving
-// each arg value through resolve (a poll uses inputs; a call adds $step.field).
-func (rt *runtime) buildCallRequest(leaf opDescriptor, args []guardfile.ArgBind, resolve func(string) (string, error)) (method, url string, body []byte, contentType string, err error) {
+// each arg through resolve. ctx and dry feed base-url resolution (dry stays offline).
+func (rt *runtime) buildCallRequest(ctx context.Context, dry bool, leaf opDescriptor, args []guardfile.ArgBind, resolve func(string) (string, error)) (method, url string, body []byte, contentType string, err error) {
 	b := newArgBinder(leaf)
 	for _, arg := range args {
 		val, rerr := resolve(arg.Value)
@@ -329,7 +329,11 @@ func (rt *runtime) buildCallRequest(leaf opDescriptor, args []guardfile.ArgBind,
 	if len(query) > 0 {
 		qs = "?" + query.Encode()
 	}
-	url = rt.baseURL + fillPath(leaf.Path, pathVals) + qs
+	base, berr := rt.baseForRequest(ctx, dry)
+	if berr != nil {
+		return "", "", nil, "", berr
+	}
+	url = base + fillPath(leaf.Path, pathVals) + qs
 	contentType = contentTypeJSON
 	switch {
 	case len(leaf.FixedBody) > 0:

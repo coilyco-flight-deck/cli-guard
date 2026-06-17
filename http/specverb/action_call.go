@@ -121,7 +121,7 @@ func (rt *runtime) runCallAction(ctx context.Context, c *cli.Command, ad actionD
 			}
 			return resolveCallArg(v, strVars, bindings)
 		}
-		method, url, body, contentType, err := rt.buildCallRequest(step.Leaf, step.Args, resolve)
+		method, url, body, contentType, err := rt.buildCallRequest(ctx, dry, step.Leaf, step.Args, resolve)
 		if err != nil {
 			return err
 		}

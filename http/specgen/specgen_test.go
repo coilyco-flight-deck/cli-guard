@@ -243,3 +243,36 @@ func TestPlanRejectsEmptyGroup(t *testing.T) {
 		t.Fatal("expected error for a Guardfile with no group")
 	}
 }
+
+// TestPlanBaseURLSSM proves a base-url-from-SSM member plans with an empty
+// SpecURL (its spec is vendored, read locally at lock) and no error.
+func TestPlanBaseURLSSM(t *testing.T) {
+	gf, err := guardfile.Parse([]byte(`wrap ward-kdl ops open-webui {
+		spec open-webui.openapi.json
+		base-url { ssm "/coilysiren/open-webui/url" }
+		auth bearer { ssm "/coilysiren/open-webui/api-key" }
+		can get session { op "get_session_user_api_v1_auths__get" }
+	}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	p, err := Plan(gf, "ward-kdl.open-webui.guardfile.kdl")
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if p.SpecURL != "" {
+		t.Errorf("SpecURL = %q, want empty (no derivable host)", p.SpecURL)
+	}
+	if p.SpecLockName != "open-webui.openapi.lock.json" {
+		t.Errorf("SpecLockName = %q", p.SpecLockName)
+	}
+}
+
+// TestPlanRejectsNoBase proves a spec member with neither base-url form is a
+// fail-closed error: requests would have no host.
+func TestPlanRejectsNoBase(t *testing.T) {
+	gf := &guardfile.Guardfile{Group: []string{"ward-kdl", "ops", "x"}, Spec: "x.openapi.json"}
+	if _, err := Plan(gf, "x.kdl"); err == nil {
+		t.Fatal("expected error for a spec member with no base-url")
+	}
+}

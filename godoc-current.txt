@@ -1587,13 +1587,16 @@ type Grant struct {
     operationId. See docs/specverb.md.
 
 type Guardfile struct {
-	Group    []string // command path, e.g. ["ward", "ops", "forgejo"]
-	Spec     string
-	BaseURL  string
-	Auth     Auth
-	Grants   []Grant
-	Restrict []Restriction
-	Actions  []Action
+	Group   []string // command path, e.g. ["ward", "ops", "forgejo"]
+	Spec    string
+	BaseURL string
+	// BaseURLSSM is the SSM path the base-url resolves from, set by the block
+	// form `base-url { ssm "..." }`, exclusive with BaseURL. See specverb-policy.md.
+	BaseURLSSM string
+	Auth       Auth
+	Grants     []Grant
+	Restrict   []Restriction
+	Actions    []Action
 }
     Guardfile is the parsed form of one wrap block.
 
@@ -1915,6 +1918,10 @@ type Config struct {
 
 	// BaseURL overrides the Guardfile base-url. "" uses the Guardfile value.
 	BaseURL string
+
+	// BaseURLFn resolves the base-url lazily at request time for a `base-url { ssm }`
+	// host, nil keeps the static value. Consulted once and cached. See specverb-policy.md.
+	BaseURLFn func(ctx context.Context) (string, error)
 }
     Config is everything the engine needs to build a command tree.
 

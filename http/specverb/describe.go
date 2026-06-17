@@ -128,7 +128,8 @@ func Describe(cfg Config) (*Surface, error) {
 	if baseURL == "" {
 		baseURL = gf.BaseURL
 	}
-	return buildSurface(gf, defaultScheme(strings.TrimRight(baseURL, "/")), descs, actionDescs), nil
+	display := baseURLDisplay(gf, defaultScheme(strings.TrimRight(baseURL, "/")))
+	return buildSurface(gf, display, descs, actionDescs), nil
 }
 
 // buildSurface assembles the model from the already-resolved descriptors, so the

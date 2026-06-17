@@ -37,9 +37,19 @@ func Plan(gf *guardfile.Guardfile, guardfileName string) (Params, error) {
 	if gf == nil || len(gf.Group) == 0 {
 		return Params{}, fmt.Errorf("specgen: Guardfile has no command group")
 	}
-	specURL, err := deriveSpecURL(gf.BaseURL)
-	if err != nil {
-		return Params{}, err
+	// A base-url-from-SSM member has no committed host to derive a fetch URL from.
+	// Its vendored spec is read locally at lock, so an empty SpecURL is correct.
+	var specURL string
+	switch {
+	case gf.BaseURL != "":
+		var err error
+		if specURL, err = deriveSpecURL(gf.BaseURL); err != nil {
+			return Params{}, err
+		}
+	case gf.BaseURLSSM != "":
+		specURL = ""
+	default:
+		return Params{}, fmt.Errorf("specgen: guardfile %q needs a `base-url` or `base-url { ssm ... }`", guardfileName)
 	}
 	binary := gf.Group[0]
 	return Params{
@@ -250,11 +260,19 @@ func mountSpec(app *cli.Command, wrap func(verb.Spec) cli.ActionFunc, gfBytes, s
 	if err != nil {
 		return fmt.Errorf("resolve spec: %w", err)
 	}
+	// base-url-from-SSM resolves lazily at request time, like the auth token, so
+	// mounting never touches AWS. nil keeps the static guardfile base-url.
+	var baseURLFn func(context.Context) (string, error)
+	if gf.BaseURLSSM != "" {
+		ssmPath := gf.BaseURLSSM
+		baseURLFn = func(ctx context.Context) (string, error) { return ssmTokenResolver(ctx, ssmPath) }
+	}
 	return specverb.Mount(app, specverb.Config{
 		Guardfile: gf,
 		Spec:      spec,
 		Wrap:      wrap,
 		Token:     ssmTokenResolver,
+		BaseURLFn: baseURLFn,
 	})
 }
 

@@ -228,6 +228,36 @@ func TestParseAuthSchemes(t *testing.T) {
 	}
 }
 
+// TestParseBaseURLForms covers both base-url shapes: the committed string and the
+// `{ ssm }` block for an opaque host resolved at request time.
+func TestParseBaseURLForms(t *testing.T) {
+	str, err := Parse([]byte(`wrap w ops forgejo {
+		spec s
+		base-url "forgejo.coilysiren.me/api/v1"
+		auth bearer { ssm "/x" }
+		can get session { op o }
+	}`))
+	if err != nil {
+		t.Fatalf("string base-url parse: %v", err)
+	}
+	if str.BaseURL != "forgejo.coilysiren.me/api/v1" || str.BaseURLSSM != "" {
+		t.Errorf("string form: BaseURL=%q BaseURLSSM=%q", str.BaseURL, str.BaseURLSSM)
+	}
+
+	ssm, err := Parse([]byte(`wrap w ops owui {
+		spec s
+		base-url { ssm "/coilysiren/open-webui/url" }
+		auth bearer { ssm "/x" }
+		can get session { op o }
+	}`))
+	if err != nil {
+		t.Fatalf("ssm base-url parse: %v", err)
+	}
+	if ssm.BaseURL != "" || ssm.BaseURLSSM != "/coilysiren/open-webui/url" {
+		t.Errorf("ssm form: BaseURL=%q BaseURLSSM=%q", ssm.BaseURL, ssm.BaseURLSSM)
+	}
+}
+
 // TestParseActionFailsClosed asserts the action grammar rejects every malformed
 // or reserved shape, never silently dropping a node.
 func TestParseActionFailsClosed(t *testing.T) {
@@ -292,6 +322,25 @@ func TestParseFailsClosed(t *testing.T) {
 			spec s
 			auth header-token { header H; ssm S }
 			can delete repos { explain "nope" }
+		}`,
+		"base-url block unknown field": `wrap ward ops owui {
+			spec s
+			base-url { host "h" }
+			auth bearer { ssm S }
+			can get session { op o }
+		}`,
+		"base-url block needs ssm": `wrap ward ops owui {
+			spec s
+			base-url { }
+			auth bearer { ssm S }
+			can get session { op o }
+		}`,
+		"base-url both forms": `wrap ward ops owui {
+			spec s
+			base-url "h"
+			base-url { ssm "/x" }
+			auth bearer { ssm S }
+			can get session { op o }
 		}`,
 	}
 	for name, src := range cases {

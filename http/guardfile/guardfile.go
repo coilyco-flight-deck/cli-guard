@@ -114,13 +114,16 @@ type Action struct {
 
 // Guardfile is the parsed form of one wrap block.
 type Guardfile struct {
-	Group    []string // command path, e.g. ["ward", "ops", "forgejo"]
-	Spec     string
-	BaseURL  string
-	Auth     Auth
-	Grants   []Grant
-	Restrict []Restriction
-	Actions  []Action
+	Group   []string // command path, e.g. ["ward", "ops", "forgejo"]
+	Spec    string
+	BaseURL string
+	// BaseURLSSM is the SSM path the base-url resolves from, set by the block
+	// form `base-url { ssm "..." }`, exclusive with BaseURL. See specverb-policy.md.
+	BaseURLSSM string
+	Auth       Auth
+	Grants     []Grant
+	Restrict   []Restriction
+	Actions    []Action
 }
 
 // modals is the closed set of grant verbs; anything else fails closed.
@@ -169,9 +172,7 @@ func (gf *Guardfile) applyNode(n *kdl.Node) error {
 		gf.Spec = v
 		return err
 	case "base-url":
-		v, err := singleArg(n)
-		gf.BaseURL = v
-		return err
+		return gf.applyBaseURL(n)
 	case "auth":
 		a, err := parseAuth(n)
 		gf.Auth = a
@@ -198,6 +199,34 @@ func (gf *Guardfile) applyNode(n *kdl.Node) error {
 	}
 }
 
+// applyBaseURL reads the base-url node: a bare string, or a `{ ssm "..." }` block
+// for an opaque host resolved at request time. See specverb-policy.md.
+func (gf *Guardfile) applyBaseURL(n *kdl.Node) error {
+	children := n.Children().Nodes
+	if len(children) == 0 {
+		v, err := singleArg(n)
+		if err != nil {
+			return err
+		}
+		gf.BaseURL = v
+		return nil
+	}
+	for _, c := range children {
+		v, err := singleArg(c)
+		if err != nil {
+			return fmt.Errorf("guardfile: base-url %s: %w", c.Name(), err)
+		}
+		if c.Name() != "ssm" {
+			return fmt.Errorf("guardfile: base-url: unknown field %q (want ssm; fail-closed)", c.Name())
+		}
+		gf.BaseURLSSM = v
+	}
+	if gf.BaseURLSSM == "" {
+		return fmt.Errorf("guardfile: base-url block requires `ssm`")
+	}
+	return nil
+}
+
 // reservedActionKeywords are the forward-design slots v1 does not implement;
 // parsing one is a fail-closed error, not a silent no-op. See specverb-actions.md.
 var reservedActionKeywords = map[string]bool{
@@ -214,6 +243,9 @@ func (gf *Guardfile) validate() error {
 	}
 	if gf.Auth.Scheme == "" {
 		return fmt.Errorf("guardfile: `auth` block is required")
+	}
+	if gf.BaseURL != "" && gf.BaseURLSSM != "" {
+		return fmt.Errorf("guardfile: base-url set both as a string and a `{ ssm }` block; pick one")
 	}
 	return nil
 }
