@@ -23,6 +23,16 @@ type Surface struct {
 	Auth    AuthInfo     `json:"auth"`              // how the engine authenticates
 	Verbs   []VerbInfo   `json:"verbs"`             // every mounted leaf, in mount order
 	Actions []ActionInfo `json:"actions,omitempty"` // complex actions, in declaration order
+	Denied  []DenyInfo   `json:"denied,omitempty"`  // blocked classes, in declaration order
+}
+
+// DenyInfo is one blocked (verb,resource) class for the describe surface: its CLI
+// placement and the teaching message an operator sees when they reach for it.
+type DenyInfo struct {
+	Name    string `json:"name"`    // dotted audit name, e.g. ward.ops.forgejo.orgs.create
+	Group   string `json:"group"`   // CLI noun, e.g. orgs
+	Leaf    string `json:"leaf"`    // CLI verb, e.g. create
+	Message string `json:"message"` // the teaching error
 }
 
 // ActionInfo is one mounted complex action for the describe surface: its
@@ -138,6 +148,9 @@ func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor,
 			FailWhen: a.FailWhen,
 		})
 	}
+	for _, d := range denyDescriptors(gf) {
+		s.Denied = append(s.Denied, DenyInfo{Name: d.VerbName, Group: d.Group, Leaf: d.Leaf, Message: d.Message})
+	}
 	return s
 }
 
@@ -210,7 +223,21 @@ func renderProse(s *Surface) string {
 		writeParamSections(&b, v.Params)
 	}
 	writeActions(&b, prefix, s.Actions)
+	writeDenied(&b, prefix, s.Denied)
 	return b.String()
+}
+
+// writeDenied renders the blocked-class stanzas: one heading per deny with its
+// teaching message, so the reference documents what the guardrail forbids and why.
+func writeDenied(b *strings.Builder, prefix string, denied []DenyInfo) {
+	if len(denied) == 0 {
+		return
+	}
+	b.WriteString("\n## Denied operations\n")
+	for _, d := range denied {
+		fmt.Fprintf(b, "\n### %s %s %s (denied)\n\n", prefix, d.Group, d.Leaf)
+		fmt.Fprintf(b, "%s\n", d.Message)
+	}
 }
 
 // writeActions renders the complex-action stanzas after the leaf verbs, then a

@@ -126,7 +126,8 @@ func Build(cfg Config) (*cli.Command, error) {
 	if err != nil {
 		return nil, err
 	}
-	groupCmds := rt.buildGroups(descs)
+	denies := denyDescriptors(gf)
+	groupCmds := rt.buildGroups(descs, denies)
 	if ag := rt.buildActionGroup(actionDescs); ag != nil {
 		groupCmds = append(groupCmds, ag)
 	}
@@ -217,23 +218,32 @@ var destructiveVerbs = map[string]bool{"delete": true}
 // grantedGrants maps each `can` grant by its (verb, resource) placement, so an
 // action can recover the grant - and its op - for a leaf it polls or calls.
 func grantedGrants(gf *guardfile.Guardfile) map[grantKey]guardfile.Grant {
+	denied := deniedKeys(gf)
 	keys := map[grantKey]guardfile.Grant{}
 	for _, g := range gf.Grants {
-		if g.Modal == "can" {
-			keys[grantKey{Verb: g.Verb, Resource: g.Resource}] = g
+		if g.Modal != "can" {
+			continue
 		}
+		k := grantKey{Verb: g.Verb, Resource: g.Resource}
+		if _, blocked := denied[k]; blocked {
+			continue // a denied leaf is not pollable by an action
+		}
+		keys[k] = g
 	}
 	return keys
 }
 
 // resolveDescriptors resolves every `can` grant into a concrete descriptor, in
-// first-seen order. Unresolvable = fail-closed error, never a dropped verb.
+// first-seen order, dropping any `can` a deny also names (deny beats allow).
 func resolveDescriptors(spec *swaggerSpec, gf *guardfile.Guardfile) ([]opDescriptor, error) {
+	denied := deniedKeys(gf)
 	var descs []opDescriptor
 	for _, g := range gf.Grants {
-		// cannot/never are explicit denials; overlap-removal is an M2 concern.
 		if g.Modal != "can" {
 			continue
+		}
+		if _, blocked := denied[grantKey{Verb: g.Verb, Resource: g.Resource}]; blocked {
+			continue // a cannot/never for this class beats the allow
 		}
 		desc, err := resolveDescriptor(spec, gf.Group, g)
 		if err != nil {
@@ -245,18 +255,26 @@ func resolveDescriptors(spec *swaggerSpec, gf *guardfile.Guardfile) ([]opDescrip
 }
 
 // buildGroups buckets the descriptors into resource-group commands in first-seen
-// order, mounting each as a guarded leaf under its noun.
-func (rt *runtime) buildGroups(descs []opDescriptor) []*cli.Command {
+// order. Deny leaves mount beside the allowed leaves. See docs/specverb.md.
+func (rt *runtime) buildGroups(descs []opDescriptor, denies []denyDescriptor) []*cli.Command {
 	groups := map[string]*cli.Command{}
 	var order []string
-	for _, desc := range descs {
-		grp, ok := groups[desc.Group]
+	groupFor := func(name string) *cli.Command {
+		grp, ok := groups[name]
 		if !ok {
-			grp = &cli.Command{Name: desc.Group, Usage: fmt.Sprintf("%s operations", desc.Group)}
-			groups[desc.Group] = grp
-			order = append(order, desc.Group)
+			grp = &cli.Command{Name: name, Usage: fmt.Sprintf("%s operations", name)}
+			groups[name] = grp
+			order = append(order, name)
 		}
+		return grp
+	}
+	for _, desc := range descs {
+		grp := groupFor(desc.Group)
 		grp.Commands = append(grp.Commands, rt.buildLeaf(desc))
+	}
+	for _, d := range denies {
+		grp := groupFor(d.Group)
+		grp.Commands = append(grp.Commands, rt.buildDenyLeaf(d))
 	}
 	out := make([]*cli.Command, 0, len(order))
 	for _, name := range order {

@@ -1906,6 +1906,16 @@ type Config struct {
 }
     Config is everything the engine needs to build a command tree.
 
+type DenyInfo struct {
+	Name    string `json:"name"`    // dotted audit name, e.g. ward.ops.forgejo.orgs.create
+	Group   string `json:"group"`   // CLI noun, e.g. orgs
+	Leaf    string `json:"leaf"`    // CLI verb, e.g. create
+	Message string `json:"message"` // the teaching error
+}
+    DenyInfo is one blocked (verb,resource) class for the describe surface:
+    its CLI placement and the teaching message an operator sees when they reach
+    for it.
+
 type ParamInfo struct {
 	Name     string `json:"name"`
 	Kind     string `json:"kind"`           // "path" | "query" | "body" | "form"
@@ -1923,6 +1933,7 @@ type Surface struct {
 	Auth    AuthInfo     `json:"auth"`              // how the engine authenticates
 	Verbs   []VerbInfo   `json:"verbs"`             // every mounted leaf, in mount order
 	Actions []ActionInfo `json:"actions,omitempty"` // complex actions, in declaration order
+	Denied  []DenyInfo   `json:"denied,omitempty"`  // blocked classes, in declaration order
 }
     Surface is the in-engine model of a mounted command surface: the structural
     truth shared by help, the describe verb, and (later) completions and the

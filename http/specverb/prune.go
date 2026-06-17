@@ -87,10 +87,14 @@ func pruneSwagger2(spec []byte, gf *guardfile.Guardfile) ([]byte, error) {
 // grantedPathMethods resolves each `can` grant to its (path, lowercase method),
 // failing closed like the engine so the lock holds exactly the buildable surface.
 func grantedPathMethods(spec *swaggerSpec, gf *guardfile.Guardfile) (map[string]map[string]bool, error) {
+	denied := deniedKeys(gf)
 	keep := map[string]map[string]bool{}
 	for _, g := range gf.Grants {
 		if g.Modal != "can" {
 			continue
+		}
+		if _, blocked := denied[grantKey{Verb: g.Verb, Resource: g.Resource}]; blocked {
+			continue // deny beats allow: keep the blocked op out of the lock too
 		}
 		if g.Op == "" {
 			return nil, fmt.Errorf("specverb: prune: grant %q %q has no `op` binding (deny-by-default)", g.Verb, g.Resource)
