@@ -186,6 +186,20 @@ func TestRenderRejectsEmptyGroup(t *testing.T) {
 	}
 }
 
+func TestDeriveLockName(t *testing.T) {
+	cases := map[string]string{
+		"forgejo.swagger.v1.json": "forgejo.swagger.lock.json",
+		"trello.openapi.json":     "trello.openapi.lock.json",
+		"tailscale.openapi.yaml":  "tailscale.openapi.lock.json",
+		"weird.spec":              "weird.spec.lock",
+	}
+	for in, want := range cases {
+		if got := deriveLockName(in); got != want {
+			t.Errorf("deriveLockName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestDeriveSpecURL(t *testing.T) {
 	cases := map[string]string{
 		"forgejo.coilysiren.me/api/v1":         "https://forgejo.coilysiren.me/swagger.v1.json",

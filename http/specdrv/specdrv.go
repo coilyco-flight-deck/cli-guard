@@ -282,9 +282,9 @@ func lockSpecs(g *group) (map[string][]byte, error) {
 		if m.isExec() {
 			continue
 		}
-		full, err := fetchSpec(m.Params.SpecURL)
+		full, err := loadFullSpec(g.Dir, m)
 		if err != nil {
-			return nil, fmt.Errorf("specdrv: fetch spec %s: %w", m.Params.GuardfileName, err)
+			return nil, fmt.Errorf("specdrv: load spec %s: %w", m.Params.GuardfileName, err)
 		}
 		// Commit only the granted slice, not the full upstream dump: the lock
 		// becomes the consumer's own contract. See docs/specverb-driver.md.
@@ -300,6 +300,19 @@ func lockSpecs(g *group) (map[string][]byte, error) {
 		fmt.Fprintf(os.Stderr, "specverb-gen: locked %s (%d bytes, pruned from %d)\n", m.Params.SpecLockName, len(specBytes), len(full))
 	}
 	return specs, nil
+}
+
+// loadFullSpec returns the member's full upstream spec: a spec vendored beside
+// the guardfile is read directly, else fetched from the derived URL.
+func loadFullSpec(dir string, m member) ([]byte, error) {
+	if m.GF != nil && m.GF.Spec != "" {
+		local := filepath.Join(dir, m.GF.Spec)
+		if b, rerr := os.ReadFile(local); rerr == nil { //nolint:gosec // operator-vendored spec beside the guardfile
+			fmt.Fprintf(os.Stderr, "specverb-gen: read vendored spec %s\n", m.GF.Spec)
+			return b, nil
+		}
+	}
+	return fetchSpec(m.Params.SpecURL)
 }
 
 // Lock refreshes both committed locks: each member's pruned spec lock and the

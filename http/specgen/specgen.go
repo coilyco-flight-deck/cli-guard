@@ -140,11 +140,16 @@ func RenderParams(sp SetParams) ([]byte, error) {
 	return out, nil
 }
 
-// deriveLockName maps the Guardfile spec filename to the committed lock name:
-// forgejo.swagger.v1.json -> forgejo.swagger.lock.json (a distinct, tracked name).
+// deriveLockName maps the Guardfile spec filename to the committed lock name (a
+// distinct tracked name; the pruned lock is always JSON). See specverb-driver.md.
 func deriveLockName(spec string) string {
 	if strings.HasSuffix(spec, ".v1.json") {
 		return strings.TrimSuffix(spec, ".v1.json") + ".lock.json"
+	}
+	for _, sfx := range []string{".openapi.json", ".openapi.yaml", ".openapi.yml"} {
+		if strings.HasSuffix(spec, sfx) {
+			return strings.TrimSuffix(spec, sfx) + ".openapi.lock.json"
+		}
 	}
 	return spec + ".lock"
 }
