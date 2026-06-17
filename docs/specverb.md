@@ -8,7 +8,7 @@ Three layers:
 - **L1 - policy IR.** The compiled operation set. A grant's verb+resource resolve to an operation by convention; an explicit `op` overrides. No API-specific table in the engine.
 - **L2 - KDL Guardfile.** The human authoring layer. Pure data, parsed never evaluated, compiling to L1.
 
-The engine carries no upstream knowledge, so one engine drives every spec without code changes.
+The engine carries no upstream knowledge, so one engine drives every spec, no code changes.
 
 ## guardfile (L2)
 
@@ -18,7 +18,7 @@ The engine carries no upstream knowledge, so one engine drives every spec withou
 wrap ward ops forgejo {
     spec forgejo.swagger.v1.json
     base-url "forgejo.coilysiren.me/api/v1"
-    auth header-token { header Authorization; prefix "token "; ssm "/forgejo/api-token" }
+    auth header-token { header Authorization; prefix "token "; value ssm "/forgejo/api-token" }
 
     can get repo                          // convention: GET /repos/{owner}/{repo}
     can list repo { op "repoSearch" }     // irregular: pin it

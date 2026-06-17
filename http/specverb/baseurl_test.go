@@ -10,30 +10,30 @@ import (
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
 )
 
-// baseURLSSMFixture parses a bearer guardfile whose host comes from SSM (no
-// committed base-url), over the tailscale 3.1 spec.
-func baseURLSSMFixture(t *testing.T) (*guardfile.Guardfile, []byte) {
+// baseURLValueFixture parses a bearer guardfile whose host comes from a value
+// provider (no committed base-url), over the tailscale 3.1 spec.
+func baseURLValueFixture(t *testing.T) (*guardfile.Guardfile, []byte) {
 	t.Helper()
 	spec := readSpec(t, "tailscale.openapi.yaml")
 	gf, err := guardfile.Parse([]byte(`wrap ward ops tailscale {
 		spec tailscale.openapi.yaml
-		base-url { ssm "/coilysiren/open-webui/url" }
-		auth bearer { ssm "/tailscale/api-key" }
+		base-url { value ssm "/coilysiren/open-webui/url" }
+		auth bearer { value ssm "/tailscale/api-key" }
 		can list devices { op "listTailnetDevices" }
 	}`))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if gf.BaseURL != "" || gf.BaseURLSSM != "/coilysiren/open-webui/url" {
-		t.Fatalf("base-url parse: BaseURL=%q BaseURLSSM=%q", gf.BaseURL, gf.BaseURLSSM)
+	if gf.BaseURL != "" || gf.BaseURLValue != (guardfile.ValueSource{Provider: "ssm", Address: "/coilysiren/open-webui/url"}) {
+		t.Fatalf("base-url parse: BaseURL=%q BaseURLValue=%+v", gf.BaseURL, gf.BaseURLValue)
 	}
 	return gf, spec
 }
 
-// TestBaseURLFromSSMLive proves a real request resolves the host from BaseURLFn
-// (the SSM seam) and that the resolver is consulted exactly once.
-func TestBaseURLFromSSMLive(t *testing.T) {
-	gf, spec := baseURLSSMFixture(t)
+// TestBaseURLFromValueLive proves a real request resolves the host through the
+// value provider and that the host resolver is consulted exactly once (cached).
+func TestBaseURLFromValueLive(t *testing.T) {
+	gf, spec := baseURLValueFixture(t)
 	var hits int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits++
@@ -42,10 +42,15 @@ func TestBaseURLFromSSMLive(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	var resolved int
+	var resolvedHost int
 	cfg := Config{Guardfile: gf, Spec: spec,
-		Token:     func(context.Context, string) (string, error) { return "tskey-abc", nil },
-		BaseURLFn: func(context.Context) (string, error) { resolved++; return srv.URL, nil },
+		Providers: map[string]Provider{"ssm": func(_ context.Context, addr string) (string, error) {
+			if addr == "/coilysiren/open-webui/url" {
+				resolvedHost++
+				return srv.URL, nil
+			}
+			return "tskey-abc", nil
+		}},
 	}
 	if _, err := runTree(t, cfg, "tailscale", "devices", "list", "my-tailnet", "--output", "json"); err != nil {
 		t.Fatalf("run: %v", err)
@@ -53,44 +58,40 @@ func TestBaseURLFromSSMLive(t *testing.T) {
 	if hits != 1 {
 		t.Errorf("server hits = %d, want 1 (base-url did not resolve to the live host)", hits)
 	}
-	if resolved != 1 {
-		t.Errorf("BaseURLFn calls = %d, want 1 (lazy, cached once)", resolved)
+	if resolvedHost != 1 {
+		t.Errorf("host resolver calls = %d, want 1 (lazy, cached once)", resolvedHost)
 	}
 }
 
-// TestBaseURLFromSSMDryRunOffline proves --dry-run never resolves the host from
-// SSM (offline) and shows the SSM path symbolically.
-func TestBaseURLFromSSMDryRunOffline(t *testing.T) {
-	gf, spec := baseURLSSMFixture(t)
+// TestBaseURLFromValueDryRunOffline proves --dry-run never resolves the host
+// (offline) and shows the value source symbolically.
+func TestBaseURLFromValueDryRunOffline(t *testing.T) {
+	gf, spec := baseURLValueFixture(t)
 	cfg := Config{Guardfile: gf, Spec: spec,
 		HTTPClient: &http.Client{Transport: failingTransport{t}},
-		Token: func(context.Context, string) (string, error) {
-			t.Fatal("dry-run must not resolve an auth secret")
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) {
+			t.Fatal("dry-run must not resolve a value")
 			return "", nil
-		},
-		BaseURLFn: func(context.Context) (string, error) {
-			t.Fatal("dry-run must not resolve the base-url from SSM")
-			return "", nil
-		},
+		}},
 	}
 	out, err := runTree(t, cfg, "tailscale", "devices", "list", "my-tailnet", "--dry-run", "--output", "json")
 	if err != nil {
 		t.Fatalf("dry-run: %v", err)
 	}
 	if !strings.Contains(out, "base-url:ssm /coilysiren/open-webui/url") {
-		t.Errorf("dry-run preview missing the symbolic SSM base marker:\n%s", out)
+		t.Errorf("dry-run preview missing the symbolic base marker:\n%s", out)
 	}
 }
 
-// TestBaseURLSSMDescribeNamesPath proves the describe surface names the SSM path
-// for the host rather than resolving it.
-func TestBaseURLSSMDescribeNamesPath(t *testing.T) {
-	gf, spec := baseURLSSMFixture(t)
+// TestBaseURLValueDescribeNamesSource proves the describe surface names the value
+// source for the host rather than resolving it.
+func TestBaseURLValueDescribeNamesSource(t *testing.T) {
+	gf, spec := baseURLValueFixture(t)
 	surface, err := Describe(Config{Guardfile: gf, Spec: spec})
 	if err != nil {
 		t.Fatalf("Describe: %v", err)
 	}
 	if !strings.Contains(surface.BaseURL, "/coilysiren/open-webui/url") {
-		t.Errorf("describe base-url = %q, want the SSM path named", surface.BaseURL)
+		t.Errorf("describe base-url = %q, want the value address named", surface.BaseURL)
 	}
 }

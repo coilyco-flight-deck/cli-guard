@@ -3,6 +3,7 @@ package specgen
 import (
 	"go/parser"
 	"go/token"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -12,7 +13,7 @@ import (
 const fixture = `wrap ward-kdl ops forgejo {
 	spec forgejo.swagger.v1.json
 	base-url "forgejo.coilysiren.me/api/v1"
-	auth header-token { header Authorization; prefix "token "; ssm "/forgejo/api-token" }
+	auth header-token { header Authorization; prefix "token "; value ssm "/forgejo/api-token" }
 	can read repos { op "repoGet" }
 	can create repos { op "createCurrentUserRepo" }
 	can delete repos { op "repoDelete" }
@@ -51,7 +52,7 @@ func TestRenderSetMergesIntoOneBinary(t *testing.T) {
 	const awsFixture = `wrap ward-kdl ops aws {
 		spec aws.swagger.v1.json
 		base-url "aws.example.com/api/v1"
-		auth header-token { header Authorization; prefix "token "; ssm "/aws/api-token" }
+		auth header-token { header Authorization; prefix "token "; value ssm "/aws/api-token" }
 		can list buckets { op "ListBuckets" }
 	}`
 	fj, err := guardfile.Parse([]byte(fixture))
@@ -121,7 +122,7 @@ func TestRenderParamsMixed(t *testing.T) {
 		HasSpec: true,
 		HasExec: true,
 		Mounts: []Params{
-			{Transport: TransportSpec, Binary: "ward-kdl", GuardfileName: "forgejo.guardfile.kdl", SpecLockName: "forgejo.swagger.lock.json", SpecURL: "https://forgejo.coilysiren.me/swagger.v1.json", SpecEnvVar: "WARD_KDL_OPS_FORGEJO_SPEC"},
+			{Transport: TransportSpec, Binary: "ward-kdl", GuardfileName: "forgejo.guardfile.kdl", SpecLockName: "forgejo.swagger.lock.json", SpecURL: "https://forgejo.coilysiren.me/swagger.v1.json", SpecEnvVar: "WARD_KDL_OPS_FORGEJO_SPEC", Providers: []string{"ssm"}},
 			{Transport: TransportExec, Binary: "ward-kdl", GuardfileName: "aws.guardfile.kdl"},
 		},
 	})
@@ -155,7 +156,7 @@ func TestPlanExecDerivesParams(t *testing.T) {
 		t.Fatalf("PlanExec: %v", err)
 	}
 	want := Params{Transport: TransportExec, Binary: "ward-kdl", GuardfileName: "aws.guardfile.kdl"}
-	if p != want {
+	if !reflect.DeepEqual(p, want) {
 		t.Errorf("PlanExec = %+v, want %+v", p, want)
 	}
 }
@@ -170,7 +171,7 @@ func TestRenderSetRejectsBinaryMismatch(t *testing.T) {
 	const other = `wrap other ops aws {
 		spec aws.swagger.v1.json
 		base-url "aws.example.com/api/v1"
-		auth header-token { header Authorization; prefix "token "; ssm "/aws/api-token" }
+		auth header-token { header Authorization; prefix "token "; value ssm "/aws/api-token" }
 		can list buckets { op "ListBuckets" }
 	}`
 	a, _ := guardfile.Parse([]byte(fixture))
@@ -232,8 +233,9 @@ func TestPlanDerivesParams(t *testing.T) {
 		SpecLockName:  "forgejo.swagger.lock.json",
 		SpecURL:       "https://forgejo.coilysiren.me/swagger.v1.json",
 		SpecEnvVar:    "WARD_KDL_OPS_FORGEJO_SPEC",
+		Providers:     []string{"ssm"},
 	}
-	if p != want {
+	if !reflect.DeepEqual(p, want) {
 		t.Errorf("Plan = %+v, want %+v", p, want)
 	}
 }
@@ -244,13 +246,13 @@ func TestPlanRejectsEmptyGroup(t *testing.T) {
 	}
 }
 
-// TestPlanBaseURLSSM proves a base-url-from-SSM member plans with an empty
+// TestPlanBaseURLSSM proves a base-url-from-value member plans with an empty
 // SpecURL (its spec is vendored, read locally at lock) and no error.
 func TestPlanBaseURLSSM(t *testing.T) {
 	gf, err := guardfile.Parse([]byte(`wrap ward-kdl ops open-webui {
 		spec open-webui.openapi.json
-		base-url { ssm "/coilysiren/open-webui/url" }
-		auth bearer { ssm "/coilysiren/open-webui/api-key" }
+		base-url { value ssm "/coilysiren/open-webui/url" }
+		auth bearer { value ssm "/coilysiren/open-webui/api-key" }
 		can get session { op "get_session_user_api_v1_auths__get" }
 	}`))
 	if err != nil {
@@ -274,5 +276,38 @@ func TestPlanRejectsNoBase(t *testing.T) {
 	gf := &guardfile.Guardfile{Group: []string{"ward-kdl", "ops", "x"}, Spec: "x.openapi.json"}
 	if _, err := Plan(gf, "x.kdl"); err == nil {
 		t.Fatal("expected error for a spec member with no base-url")
+	}
+}
+
+// TestRenderWiresProvidersByUsage proves the codegen wires only the resolvers in
+// use: a tailscale base-url + env token pulls in tailscale, no ssm/AWS SDK.
+func TestRenderWiresProvidersByUsage(t *testing.T) {
+	gf, err := guardfile.Parse([]byte(`wrap ward-kdl ops owui {
+		spec owui.openapi.json
+		base-url { value tailscale "open-webui" }
+		auth bearer { value env "OWUI_TOKEN" }
+		can get session { op "get_session" }
+	}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	out, err := Render(gf, "owui.guardfile.kdl")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), "main.go", out, parser.AllErrors); err != nil {
+		t.Fatalf("generated source does not parse: %v\n%s", err, out)
+	}
+	src := string(out)
+	for _, want := range []string{"providerRegistry", "tailscaleResolver", `"tailscale": tailscaleResolver`} {
+		if !strings.Contains(src, want) {
+			t.Errorf("generated source missing %q", want)
+		}
+	}
+	// env is a cli-guard built-in: no codegen, and no store SDK in use.
+	for _, absent := range []string{"ssmTokenResolver", "aws-sdk-go-v2", `"ssm":`} {
+		if strings.Contains(src, absent) {
+			t.Errorf("generated source should not contain %q (no ssm in use)", absent)
+		}
 	}
 }

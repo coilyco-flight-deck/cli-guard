@@ -29,6 +29,10 @@ type Params struct {
 	SpecLockName  string // committed, embedded spec lock filename, e.g. forgejo.swagger.lock.json
 	SpecURL       string // upstream Swagger URL; the `specverb-gen lock` source and bootstrap fallback
 	SpecEnvVar    string // env var overriding the embedded lock, e.g. WARD_KDL_SPEC
+
+	// Providers are the value-source provider names this member's guardfile uses,
+	// so the codegen wires exactly the resolvers in play. Empty for an exec member.
+	Providers []string
 }
 
 // Plan derives the per-consumer Params from gf without rendering, the shared
@@ -37,7 +41,7 @@ func Plan(gf *guardfile.Guardfile, guardfileName string) (Params, error) {
 	if gf == nil || len(gf.Group) == 0 {
 		return Params{}, fmt.Errorf("specgen: Guardfile has no command group")
 	}
-	// A base-url-from-SSM member has no committed host to derive a fetch URL from.
+	// A base-url-from-value member has no committed host to derive a fetch URL from.
 	// Its vendored spec is read locally at lock, so an empty SpecURL is correct.
 	var specURL string
 	switch {
@@ -46,10 +50,10 @@ func Plan(gf *guardfile.Guardfile, guardfileName string) (Params, error) {
 		if specURL, err = deriveSpecURL(gf.BaseURL); err != nil {
 			return Params{}, err
 		}
-	case gf.BaseURLSSM != "":
+	case !gf.BaseURLValue.IsZero():
 		specURL = ""
 	default:
-		return Params{}, fmt.Errorf("specgen: guardfile %q needs a `base-url` or `base-url { ssm ... }`", guardfileName)
+		return Params{}, fmt.Errorf("specgen: guardfile %q needs a `base-url` or `base-url { value ... }`", guardfileName)
 	}
 	binary := gf.Group[0]
 	return Params{
@@ -61,6 +65,7 @@ func Plan(gf *guardfile.Guardfile, guardfileName string) (Params, error) {
 		// Keyed on the full wrap group, not the binary, so two specs merged
 		// into one binary get distinct overrides (see docs/specverb-driver.md).
 		SpecEnvVar: strings.ToUpper(strings.ReplaceAll(strings.Join(gf.Group, "_"), "-", "_")) + "_SPEC",
+		Providers:  gf.Providers(),
 	}, nil
 }
 
@@ -84,6 +89,10 @@ type SetParams struct {
 	Mounts  []Params
 	HasSpec bool
 	HasExec bool
+	// HasSSM / HasTailscale gate the consumer-side resolver blocks (and the AWS SDK
+	// import) the template emits, derived from the members' Providers by RenderParams.
+	HasSSM       bool
+	HasTailscale bool
 }
 
 // PlanSet derives the merged params for guardfiles that share a binary name. It
@@ -138,6 +147,18 @@ func RenderSet(gfs []*guardfile.Guardfile, names []string) ([]byte, error) {
 func RenderParams(sp SetParams) ([]byte, error) {
 	if len(sp.Mounts) == 0 {
 		return nil, fmt.Errorf("specgen: no mounts to render")
+	}
+	// Derive which consumer-side resolvers to wire from the members' providers, so
+	// a hand-assembled SetParams (the driver) and a planned one agree.
+	for _, m := range sp.Mounts {
+		for _, prov := range m.Providers {
+			switch prov {
+			case "ssm":
+				sp.HasSSM = true
+			case "tailscale":
+				sp.HasTailscale = true
+			}
+		}
 	}
 	var buf bytes.Buffer
 	if err := mainTemplate.Execute(&buf, sp); err != nil {
@@ -194,8 +215,10 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
-{{if .HasSpec}}	"errors"
-	"io"
+{{if .HasTailscale}}	"os/exec"
+	"strings"
+{{end}}{{if .HasSSM}}	"errors"
+{{end}}{{if .HasSpec}}	"io"
 	"net/http"
 	"time"
 {{end}}
@@ -206,7 +229,7 @@ import (
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specverb"
 {{end}}{{if .HasExec}}	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/execverb"
 {{end}}	"github.com/urfave/cli/v3"
-{{if .HasSpec}}	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+{{if .HasSSM}}	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 {{end}})
 
@@ -240,7 +263,8 @@ func main() {
 // path, dispatching on transport. The audit writer is built once and reused.
 func mountOps(app *cli.Command) error {
 	wrap := wrapWith(auditWriter())
-{{range $i, $m := .Mounts}}{{if eq $m.Transport "spec"}}	if err := mountSpec(app, wrap, embeddedGuardfile{{$i}}, embeddedSpec{{$i}}, "{{$m.SpecURL}}", "{{$m.SpecEnvVar}}"); err != nil {
+{{if .HasSpec}}	provs := providerRegistry()
+{{end}}{{range $i, $m := .Mounts}}{{if eq $m.Transport "spec"}}	if err := mountSpec(app, wrap, provs, embeddedGuardfile{{$i}}, embeddedSpec{{$i}}, "{{$m.SpecURL}}", "{{$m.SpecEnvVar}}"); err != nil {
 		return err
 	}
 {{else}}	if err := mountExec(app, wrap, embeddedGuardfile{{$i}}); err != nil {
@@ -250,8 +274,8 @@ func mountOps(app *cli.Command) error {
 }
 {{if .HasSpec}}
 // mountSpec parses one spec member's policy, resolves its spec, and mounts the
-// specverb command tree onto app.
-func mountSpec(app *cli.Command, wrap func(verb.Spec) cli.ActionFunc, gfBytes, specLock []byte, specURL, specEnv string) error {
+// specverb tree onto app. The value providers resolve lazily at request time.
+func mountSpec(app *cli.Command, wrap func(verb.Spec) cli.ActionFunc, provs map[string]specverb.Provider, gfBytes, specLock []byte, specURL, specEnv string) error {
 	gf, err := guardfile.Parse(gfBytes)
 	if err != nil {
 		return fmt.Errorf("parse guardfile: %w", err)
@@ -260,20 +284,21 @@ func mountSpec(app *cli.Command, wrap func(verb.Spec) cli.ActionFunc, gfBytes, s
 	if err != nil {
 		return fmt.Errorf("resolve spec: %w", err)
 	}
-	// base-url-from-SSM resolves lazily at request time, like the auth token, so
-	// mounting never touches AWS. nil keeps the static guardfile base-url.
-	var baseURLFn func(context.Context) (string, error)
-	if gf.BaseURLSSM != "" {
-		ssmPath := gf.BaseURLSSM
-		baseURLFn = func(ctx context.Context) (string, error) { return ssmTokenResolver(ctx, ssmPath) }
-	}
 	return specverb.Mount(app, specverb.Config{
 		Guardfile: gf,
 		Spec:      spec,
 		Wrap:      wrap,
-		Token:     ssmTokenResolver,
-		BaseURLFn: baseURLFn,
+		Providers: provs,
 	})
+}
+
+// providerRegistry wires the store-backed resolvers in use; cli-guard merges its
+// no-SDK built-ins (env, file, literal) underneath.
+func providerRegistry() map[string]specverb.Provider {
+	return map[string]specverb.Provider{
+{{if .HasSSM}}		"ssm": ssmTokenResolver,
+{{end}}{{if .HasTailscale}}		"tailscale": tailscaleResolver,
+{{end}}	}
 }
 
 // resolveSpec prefers the override, then the embedded lock, then a live-fetch
@@ -329,7 +354,21 @@ func auditWriter() *audit.Writer {
 func wrapWith(w *audit.Writer) func(verb.Spec) cli.ActionFunc {
 	return func(s verb.Spec) cli.ActionFunc { return verb.Wrap(s, w) }
 }
-{{if .HasSpec}}
+{{if .HasTailscale}}
+// tailscaleResolver resolves a tailnet device name to its IPv4 via the local
+// tailscaled, so a base-url or host need not be committed. Read-only.
+func tailscaleResolver(ctx context.Context, device string) (string, error) {
+	out, err := exec.CommandContext(ctx, "tailscale", "ip", "-4", device).Output()
+	if err != nil {
+		return "", fmt.Errorf("tailscale ip -4 %s: %w", device, err)
+	}
+	ip := strings.TrimSpace(string(out))
+	if ip == "" {
+		return "", fmt.Errorf("tailscale returned no address for %q", device)
+	}
+	return ip, nil
+}
+{{end}}{{if .HasSSM}}
 func ssmTokenResolver(ctx context.Context, ssmPath string) (string, error) {
 	val, err := getSSMParam(ctx, ssmPath)
 	if err == nil {

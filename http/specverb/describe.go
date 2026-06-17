@@ -70,11 +70,11 @@ type ActionCallInfo struct {
 }
 
 // AuthInfo is the auth scope a describe consumer sees: scheme, header, and the
-// SSM token path. The secret value itself never appears here.
+// value source (provider + address). The secret value itself never appears here.
 type AuthInfo struct {
 	Scheme string `json:"scheme"`
 	Header string `json:"header"`
-	SSM    string `json:"ssm"` // token path, not the token
+	Source string `json:"source"` // value source (provider + address), not the secret
 }
 
 // VerbInfo is one mounted leaf: its CLI placement, the HTTP op it drives, its
@@ -138,7 +138,7 @@ func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor,
 	s := &Surface{
 		Group:   gf.Group,
 		BaseURL: baseURL,
-		Auth:    AuthInfo{Scheme: gf.Auth.Scheme, Header: gf.Auth.Header, SSM: authSSMDisplay(gf.Auth)},
+		Auth:    AuthInfo{Scheme: gf.Auth.Scheme, Header: gf.Auth.Header, Source: authSourceDisplay(gf.Auth)},
 	}
 	for _, d := range descs {
 		s.Verbs = append(s.Verbs, VerbInfo{
@@ -370,29 +370,37 @@ func fixedBodySentence(fixed map[string]any) string {
 	return fmt.Sprintf("Always sends the fixed body {%s}; takes no body flags.", strings.Join(parts, ", "))
 }
 
-// authSSMDisplay renders the SSM path(s) a describe surface shows: the single
-// secret for the header schemes, or `name=path` pairs for the query-param scheme.
-func authSSMDisplay(a guardfile.Auth) string {
+// authSourceDisplay renders the value source(s) a describe surface shows: a single
+// `provider address`, or `name=provider address` pairs for the query-param scheme.
+func authSourceDisplay(a guardfile.Auth) string {
 	if a.Scheme != "query-param" {
-		return a.SSM
+		return valueSourceDisplay(a.Value)
 	}
 	parts := make([]string, len(a.Params))
 	for i, p := range a.Params {
-		parts[i] = p.Name + "=" + p.SSM
+		parts[i] = p.Name + "=" + valueSourceDisplay(p.Value)
 	}
 	return strings.Join(parts, ", ")
 }
 
+// valueSourceDisplay renders one source as `provider address`, or "" when unset.
+func valueSourceDisplay(vs guardfile.ValueSource) string {
+	if vs.IsZero() {
+		return ""
+	}
+	return vs.Provider + " " + vs.Address
+}
+
 // authSentence states how the engine authenticates in plain language, naming the
-// SSM path(s) but never the secret(s) they hold.
+// value source(s) but never the secret(s) they hold.
 func authSentence(a AuthInfo) string {
 	switch a.Scheme {
 	case "":
 		return "No authentication is configured."
 	case "query-param":
-		return fmt.Sprintf("Authenticates with query parameters (scheme %s), reading each secret from SSM at %s. The secret values are never shown.", a.Scheme, a.SSM)
+		return fmt.Sprintf("Authenticates with query parameters (scheme %s), reading each secret from %s. The secret values are never shown.", a.Scheme, a.Source)
 	default:
-		return fmt.Sprintf("Authenticates with the %q header (scheme %s), reading the token from SSM at %s. The token value is never shown.", a.Header, a.Scheme, a.SSM)
+		return fmt.Sprintf("Authenticates with the %q header (scheme %s), reading the token from %s. The token value is never shown.", a.Header, a.Scheme, a.Source)
 	}
 }
 

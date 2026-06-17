@@ -1537,7 +1537,7 @@ type Auth struct {
 	Scheme string
 	Header string
 	Prefix string // trailing space is significant, e.g. "token "
-	SSM    string
+	Value  ValueSource
 
 	// Params are the query-param scheme's ordered secrets, each injected as a
 	// query parameter (Trello's ?key=&token=). Empty for the header schemes.
@@ -1590,19 +1590,23 @@ type Guardfile struct {
 	Group   []string // command path, e.g. ["ward", "ops", "forgejo"]
 	Spec    string
 	BaseURL string
-	// BaseURLSSM is the SSM path the base-url resolves from, set by the block
-	// form `base-url { ssm "..." }`, exclusive with BaseURL. See specverb-policy.md.
-	BaseURLSSM string
-	Auth       Auth
-	Grants     []Grant
-	Restrict   []Restriction
-	Actions    []Action
+	// BaseURLValue resolves the base-url at request time (block form
+	// `base-url { value ... }`), exclusive with BaseURL. See specverb-policy.md.
+	BaseURLValue ValueSource
+	Auth         Auth
+	Grants       []Grant
+	Restrict     []Restriction
+	Actions      []Action
 }
     Guardfile is the parsed form of one wrap block.
 
 func Parse(src []byte) (*Guardfile, error)
     Parse turns Guardfile source into a Guardfile. It fails closed: an unknown
     node, a missing required field, or a malformed sentence is an error.
+
+func (gf *Guardfile) Providers() []string
+    Providers returns the distinct provider names every value source in gf
+    names, so a consumer (or the codegen) can wire exactly the resolvers in use.
 
 type Input struct {
 	Name       string
@@ -1627,11 +1631,11 @@ type Poll struct {
     specverb-actions.md.
 
 type QueryAuthParam struct {
-	Name string
-	SSM  string
+	Name  string
+	Value ValueSource
 }
     QueryAuthParam is one secret of the query-param scheme: a query parameter
-    Name whose value is the secret read from SSM.
+    Name whose value is read from the named value source.
 
 type Restriction struct {
 	Param string
@@ -1640,6 +1644,17 @@ type Restriction struct {
     Restriction is a wrap-level `restrict <param> matches "<glob>"...`
     allowlist: a {Param}-carrying leaf must match a Glob or fail closed.
     See docs/specverb.md.
+
+type ValueSource struct {
+	Provider string
+	Address  string
+}
+    ValueSource names where a config value is read at request time:
+    a Provider (ssm, tailscale, env, ...) and the Address it interprets.
+    See specverb-policy.md.
+
+func (v ValueSource) IsZero() bool
+    IsZero reports whether the source is unset (no provider named).
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt
@@ -1811,6 +1826,10 @@ type Params struct {
 	SpecLockName  string // committed, embedded spec lock filename, e.g. forgejo.swagger.lock.json
 	SpecURL       string // upstream Swagger URL; the `specverb-gen lock` source and bootstrap fallback
 	SpecEnvVar    string // env var overriding the embedded lock, e.g. WARD_KDL_SPEC
+
+	// Providers are the value-source provider names this member's guardfile uses,
+	// so the codegen wires exactly the resolvers in play. Empty for an exec member.
+	Providers []string
 }
     Params is the per-consumer data the template binds to, derived from
     the Guardfile. The spec-lock fields are empty for an exec member. See
@@ -1830,6 +1849,10 @@ type SetParams struct {
 	Mounts  []Params
 	HasSpec bool
 	HasExec bool
+	// HasSSM / HasTailscale gate the consumer-side resolver blocks (and the AWS SDK
+	// import) the template emits, derived from the members' Providers by RenderParams.
+	HasSSM       bool
+	HasTailscale bool
 }
     SetParams binds the merged-binary template: one shared Binary and N mounts.
     HasSpec/HasExec gate the per-transport imports the template emits.
@@ -1894,10 +1917,11 @@ type ActionInfo struct {
 type AuthInfo struct {
 	Scheme string `json:"scheme"`
 	Header string `json:"header"`
-	SSM    string `json:"ssm"` // token path, not the token
+	Source string `json:"source"` // value source (provider + address), not the secret
 }
     AuthInfo is the auth scope a describe consumer sees: scheme, header,
-    and the SSM token path. The secret value itself never appears here.
+    and the value source (provider + address). The secret value itself never
+    appears here.
 
 type Config struct {
 	// Guardfile is the parsed L2 policy: the command path, auth, and grants.
@@ -1910,18 +1934,15 @@ type Config struct {
 	// pipeline). nil mounts the bare action, for doc rendering only.
 	Wrap func(verb.Spec) cli.ActionFunc
 
-	// Token resolves the auth secret. nil is tolerated for a dry-run-only tree.
-	Token TokenResolver
+	// Providers registers the value resolvers a `value <provider>` source names;
+	// cli-guard merges its built-ins (env, file, literal). See specverb-policy.md.
+	Providers map[string]Provider
 
 	// HTTPClient fires the live request. nil uses http.DefaultClient.
 	HTTPClient *http.Client
 
 	// BaseURL overrides the Guardfile base-url. "" uses the Guardfile value.
 	BaseURL string
-
-	// BaseURLFn resolves the base-url lazily at request time for a `base-url { ssm }`
-	// host, nil keeps the static value. Consulted once and cached. See specverb-policy.md.
-	BaseURLFn func(ctx context.Context) (string, error)
 }
     Config is everything the engine needs to build a command tree.
 
@@ -1945,6 +1966,11 @@ type ParamInfo struct {
     ParamInfo is one input to a verb, tagged by kind so help can always show
     the structure the engine knows even where the upstream spec carries no
     description.
+
+type Provider func(ctx context.Context, address string) (string, error)
+    Provider resolves the value at address for one named value source.
+    Registered by the consumer so the engine imports no store SDK. See
+    specverb-policy.md.
 
 type RestrictionInfo struct {
 	Param string   `json:"param"`
@@ -1975,10 +2001,6 @@ func (s *Surface) Markdown() string
     Markdown renders the surface as the readable reference doc: the same
     artifact the describe verb prints and the driver writes beside the Guardfile
     at build time.
-
-type TokenResolver func(ctx context.Context, ssmPath string) (string, error)
-    TokenResolver fetches the auth secret named by an SSM path. Injected so the
-    AWS SDK stays out of cli-guard; nil is only valid for dry-run-only use.
 
 type VerbInfo struct {
 	Name        string         `json:"name"`                 // dotted audit name, e.g. ward.ops.forgejo.repo.create

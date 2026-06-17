@@ -18,7 +18,7 @@ func restrictFixture(t *testing.T) (*guardfile.Guardfile, []byte) {
 	_, spec := loadFixtures(t)
 	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
 		spec forgejo.swagger.v1.json
-		auth header-token { header Authorization; prefix "token "; ssm "/forgejo/api-token" }
+		auth header-token { header Authorization; prefix "token "; value ssm "/forgejo/api-token" }
 		restrict owner matches "coily*" "coilyco-*"
 		can get repo { op "repoGet" }
 		can delete repo { op "repoDelete" }
@@ -41,7 +41,7 @@ func TestRestrictAllowsInScope(t *testing.T) {
 	}))
 	defer srv.Close()
 	cfg := Config{Guardfile: gf, Spec: spec, BaseURL: srv.URL,
-		Token: func(context.Context, string) (string, error) { return "x", nil }}
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "x", nil }}}
 	if _, err := runTree(t, cfg, "forgejo", "repo", "get", "coilyco-flight-deck", "demo", "--output", "json"); err != nil {
 		t.Fatalf("in-scope run: %v", err)
 	}
@@ -55,10 +55,10 @@ func TestRestrictAllowsInScope(t *testing.T) {
 func TestRestrictFailsClosedOutOfScope(t *testing.T) {
 	gf, spec := restrictFixture(t)
 	cfg := Config{Guardfile: gf, Spec: spec, HTTPClient: &http.Client{Transport: failingTransport{t}},
-		Token: func(context.Context, string) (string, error) {
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) {
 			t.Fatal("an out-of-scope arg must not reach the wire")
 			return "", nil
-		}}
+		}}}
 	_, err := runTree(t, cfg, "forgejo", "repo", "get", "someone-else", "demo")
 	if err == nil {
 		t.Fatal("expected an out-of-scope deny, got nil")

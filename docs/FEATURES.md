@@ -4,7 +4,7 @@ Inventory of what cli-guard does today. Scope changes land in the same commit th
 
 ## Framework primitives
 
-Packages are grouped by **guarded surface** plus a shared `pkg/` core; `cli/`, `http/`, `mcp/` depend downward on `pkg/`, never on each other. See [architecture.md](architecture.md) for the surface model and import rule, [features-detail.md](features-detail.md) for per-primitive depth.
+Packages are grouped by **guarded surface** plus a shared `pkg/` core; `cli/`, `http/`, `mcp/` depend downward on `pkg/`, never on each other. See [architecture.md](architecture.md) for the surface model and import rule.
 
 ### CLI passthrough surface (`cli/`)
 
@@ -14,20 +14,20 @@ Packages are grouped by **guarded surface** plus a shared `pkg/` core; `cli/`, `
 - **verb** - Middleware around every `*cli.Command.Action`.
 - **shell** / **sandbox** - Subprocess execution + seccomp/namespace jail (Linux), the execve boundary.
 - **gittree** - Clean+synced gate for repo-shaped verbs.
-- **repocfg** / **allowlist** - Per-repo command allowlist from a configurable YAML, validated against the repo Makefile.
+- **repocfg** / **allowlist** - Per-repo command allowlist from a YAML, validated against the Makefile.
 - **catalog** - Assert a repo's config YAML carries a `catalog:` block with the required keys.
 - **hook** / **hookcfg** - Claude Code PreToolUse engine and the `repocfg.Security` -> `hook.Protected` mapping.
 - **shim** - PATH shim per protected binary (UX shadowing, not enforcement). See [deny-by-structure.md](deny-by-structure.md).
 - **doctor** - Verify the deny-by-structure floor (no passwordless sudo, real binary not agent-executable, no credential env).
 - **sudo** - Policy-free interactive sudo plumbing over any stdin-piping transport.
 - **dispatch** - Fire `claude` against a real open issue; consumer swaps the resolver via `Config.IssueFetcher`.
-- **lockdown** / **profiles** / **profile** / **decision** - Permission-file writer, per-host profile registry + type, per-call evaluator.
+- **lockdown** / **profiles** / **profile** / **decision** - Permission-file writer, per-host profile registry, per-call evaluator.
 - **cmd/cli-guard-hook** - Buildable PreToolUse binary for shell-only consumers.
 
 ### HTTP request surface (`http/`)
 
 - **egress** - Per-invocation CONNECT proxy with consumer allowlist.
-- **guardfile** / **specverb** / **specgen** / **specdrv** - Spec-driven verbs from a Guardfile + `action`s; each `can` resolves its op by convention, across Swagger 2 / OpenAPI 3. See [specverb.md](specverb.md).
+- **guardfile** / **specverb** / **specgen** / **specdrv** - Spec-driven verbs from a Guardfile + `action`s; each `can` resolves its op by convention, across Swagger 2 / OpenAPI 3; pluggable `value <provider>` sources. See [specverb.md](specverb.md).
 - **respfmt** - JSON response renderer with JMESPath + five output formats.
 - **ghcache** / **ghidcache** / **ghratelimit** / **stscache** - Forgejo/GitHub response, id, rate-limit, and STS credential caches.
 

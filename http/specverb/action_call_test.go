@@ -20,7 +20,7 @@ func callActionGuardfile(t *testing.T) *guardfile.Guardfile {
 	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
 		spec forgejo.swagger.v1.json
 		base-url "https://forgejo.coilysiren.me/api/v1"
-		auth header-token { header Authorization; prefix "token "; ssm "/forgejo/api-token" }
+		auth header-token { header Authorization; prefix "token "; value ssm "/forgejo/api-token" }
 		can create issue { op "issueCreateIssue" }
 		can close issue { op "issueEditIssue"; body state="closed" }
 		action seal {
@@ -62,7 +62,7 @@ func TestCallActionDataFlow(t *testing.T) {
 	defer srv.Close()
 
 	cfg := Config{Guardfile: callActionGuardfile(t), Spec: actionSpec(t), BaseURL: srv.URL,
-		Token: func(context.Context, string) (string, error) { return "x", nil }}
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "x", nil }}}
 	out, err := runTree(t, cfg, "forgejo", "action", "seal", "kai/demo", "--output", "json")
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -89,10 +89,10 @@ func TestCallActionDataFlow(t *testing.T) {
 func TestCallActionDryRunPlan(t *testing.T) {
 	cfg := Config{Guardfile: callActionGuardfile(t), Spec: actionSpec(t),
 		HTTPClient: &http.Client{Transport: failingTransport{t}},
-		Token: func(context.Context, string) (string, error) {
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) {
 			t.Fatal("dry-run must not fire or resolve a secret")
 			return "", nil
-		}}
+		}}}
 	out, err := runTree(t, cfg, "forgejo", "action", "seal", "kai/demo", "--dry-run", "--output", "json")
 	if err != nil {
 		t.Fatalf("dry-run: %v", err)

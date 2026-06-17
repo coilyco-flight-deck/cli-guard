@@ -17,7 +17,7 @@ func denyFixture(t *testing.T) (*guardfile.Guardfile, []byte) {
 	_, spec := loadFixtures(t)
 	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
 		spec forgejo.swagger.v1.json
-		auth header-token { header Authorization; prefix "token "; ssm "/forgejo/api-token" }
+		auth header-token { header Authorization; prefix "token "; value ssm "/forgejo/api-token" }
 		can create repo { op "createCurrentUserRepo" }
 		can delete repo { op "repoDelete" }
 		never delete repo {
@@ -63,10 +63,10 @@ func TestDenyBeatsAllow(t *testing.T) {
 func TestDeniedLeafFailsClosed(t *testing.T) {
 	gf, spec := denyFixture(t)
 	cfg := Config{Guardfile: gf, Spec: spec, HTTPClient: &http.Client{Transport: failingTransport{t}},
-		Token: func(context.Context, string) (string, error) {
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) {
 			t.Fatal("a denied leaf must not resolve a secret")
 			return "", nil
-		}}
+		}}}
 	_, err := runTree(t, cfg, "forgejo", "repo", "delete", "kai", "demo")
 	if err == nil {
 		t.Fatal("expected a deny error, got nil")

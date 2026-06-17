@@ -27,7 +27,7 @@ retiring the hand-written poll loop in ward's `scripts/watch-ci.sh`. See
 wrap ward ops forgejo {
     spec forgejo.swagger.v1.json
     base-url "forgejo.coilysiren.me/api/v1"
-    auth header-token { header Authorization; prefix "token "; ssm "/forgejo/api-token" }
+    auth header-token { header Authorization; prefix "token "; value ssm "/forgejo/api-token" }
 
     can list tasks                       // the action may only poll a granted leaf
 

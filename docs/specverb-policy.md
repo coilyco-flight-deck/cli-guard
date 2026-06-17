@@ -2,25 +2,30 @@
 
 The policy surface a Guardfile authors on top of the `op`-bound grants. See [specverb.md](specverb.md) for the engine and layering.
 
+## Value sources
+
+A secret or opaque host is named, never committed: `value <provider> "<address>"`. The provider names a store; the address is whatever it interprets (an SSM path, a tailnet device name, an env var). cli-guard never reads the store - a registered `specverb.Provider` does, so store clients stay in the consumer. It ships three no-SDK built-ins (`env`, `file`, `literal`); a consumer registers the rest via `Config.Providers` (the generated binary wires `ssm`, `tailscale`). An unregistered provider fails closed at request time, never a silent empty secret; an offline build/describe/mount needs nothing wired.
+
 ## Auth schemes
 
 Three schemes, named on the `auth` node, each redacting its secret(s) in `--dry-run`:
 
-- `header-token { header; prefix; ssm }` - Forgejo's `Authorization: token <key>`. The trailing space in `prefix "token "` is significant.
-- `bearer { ssm }` - Tailscale. Implies the `Authorization` header with a `Bearer ` prefix.
-- `query-param { param key { ssm }; param token { ssm } }` - Trello's dual-secret form: each named secret is injected as a query parameter (`?key=&token=`), resolved from its own SSM path.
+- `header-token { header; prefix; value <provider> "addr" }` - Forgejo's `Authorization: token <key>`. The trailing space in `prefix "token "` is significant.
+- `bearer { value <provider> "addr" }` - Tailscale. Implies the `Authorization` header with a `Bearer ` prefix.
+- `query-param { param key { value <provider> "addr" }; param token { value <provider> "addr" } }` - Trello's dual-secret form: each named secret is injected as a query parameter (`?key=&token=`), read from its own value source.
 
-The request builder resolves the scheme's secret(s) and applies them as a header or query parameters. The describe surface names the scheme and its SSM path(s), never the value.
+The request builder resolves the scheme's secret(s) and applies them as a header or query parameters. The describe surface names the scheme and its value source(s) (`provider address`), never the value.
 
-## base-url from SSM
+## base-url from a value source
 
-`base-url` takes either a committed string (`base-url "host/api/v1"`) or a block that resolves the host from SSM at request time:
+`base-url` takes either a committed string (`base-url "host/api/v1"`) or a block that resolves the host through a value provider at request time:
 
 ```kdl
-base-url { ssm "/coilysiren/open-webui/url" }
+base-url { value ssm "/coilysiren/open-webui/url" }     // opaque host stashed in SSM
+base-url { value tailscale "open-webui" }               // tailnet host resolved live
 ```
 
-The block form exists for a tailnet-only or otherwise opaque host that must not be committed to a public repo. It resolves lazily, on the first real request, through the same SSM resolver as the auth token, and caches the result: mounting the tree (and so `--help` and any unrelated merged member) never touches AWS. A `--dry-run` preview stays offline like the redacted secret, showing the host symbolically as `{base-url:ssm <path>}`, and the describe surface names the SSM path rather than resolving it. The two forms are mutually exclusive, and a spec member must carry one of them. Because the host is not committed, no spec fetch URL is derivable, so the spec must be vendored beside the guardfile (read locally at `lock`).
+The block form exists for a tailnet-only or otherwise opaque host that must not be committed (the `tailscale` provider resolves a device name to its IPv4 live, so no FQDN is stashed). It resolves lazily on the first real request, through the same provider registry as the auth token, and caches the result: mounting the tree (and so `--help`) never touches the store. A `--dry-run` preview stays offline, showing the host symbolically as `{base-url:<provider> <address>}`, and describe names the value source rather than resolving it. The two forms are mutually exclusive, and a spec member must carry one. Because the host is not committed, no spec fetch URL is derivable, so the spec is vendored beside the guardfile (read locally at `lock`).
 
 ## Deny: a deny beats an allow
 

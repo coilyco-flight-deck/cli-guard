@@ -8,7 +8,7 @@ wrap ward ops forgejo {
     auth header-token {
         header Authorization
         prefix "token "
-        ssm "/forgejo/api-token"
+        value ssm "/forgejo/api-token"
     }
 
     can get repo

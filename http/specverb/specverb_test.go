@@ -110,7 +110,7 @@ func TestDenyByDefault(t *testing.T) {
 	// rather than silently drop the verb.
 	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
 		spec forgejo.swagger.v1.json
-		auth header-token { header Authorization; ssm "/forgejo/api-token" }
+		auth header-token { header Authorization; value ssm "/forgejo/api-token" }
 		can read webhooks { op "repoListWebhooks" }
 	}`))
 	if err != nil {
@@ -127,10 +127,10 @@ func TestDryRunCreate(t *testing.T) {
 		Guardfile:  gf,
 		Spec:       spec,
 		HTTPClient: &http.Client{Transport: failingTransport{t}},
-		Token: func(context.Context, string) (string, error) {
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) {
 			t.Fatal("dry-run must not resolve the auth secret")
 			return "", nil
-		},
+		}},
 	}
 	out, err := runTree(t, cfg, "forgejo", "repo", "create", "--name", "demo", "--private", "--dry-run")
 	if err != nil {
@@ -164,7 +164,7 @@ func TestLiveCreate(t *testing.T) {
 		Guardfile: gf,
 		Spec:      spec,
 		BaseURL:   srv.URL,
-		Token:     func(context.Context, string) (string, error) { return "sekret", nil },
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "sekret", nil }},
 	}
 	out, err := runTree(t, cfg, "forgejo", "repo", "create", "--name", "demo", "--output", "json")
 	if err != nil {
@@ -202,7 +202,7 @@ func TestLiveDeleteFillsPathParams(t *testing.T) {
 		Guardfile: gf,
 		Spec:      spec,
 		BaseURL:   srv.URL,
-		Token:     func(context.Context, string) (string, error) { return "sekret", nil },
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "sekret", nil }},
 	}
 	out, err := runTree(t, cfg, "forgejo", "repo", "delete", "kai", "demo")
 	if err != nil {
@@ -222,7 +222,7 @@ func TestPositionalArgCountValidated(t *testing.T) {
 		Guardfile: gf,
 		Spec:      spec,
 		BaseURL:   "http://127.0.0.1:0",
-		Token:     func(context.Context, string) (string, error) { return "x", nil },
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "x", nil }},
 	}
 	// delete wants <owner> <repo>; one positional is a user error before any wire call.
 	if _, err := runTree(t, cfg, "forgejo", "repo", "delete", "kai"); err == nil {
@@ -245,7 +245,7 @@ func TestComposesWithVerbWrap(t *testing.T) {
 		Spec:       spec,
 		Wrap:       func(s verb.Spec) cli.ActionFunc { return verb.Wrap(s, w) },
 		HTTPClient: &http.Client{Transport: failingTransport{t}},
-		Token:      func(context.Context, string) (string, error) { return "x", nil },
+		Providers:  map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "x", nil }},
 	}
 	if _, err := runTree(t, cfg, "forgejo", "repo", "create", "--name", "demo", "--dry-run"); err != nil {
 		t.Fatalf("run through verb.Wrap: %v", err)
@@ -312,8 +312,8 @@ func TestDescribeModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Describe: %v", err)
 	}
-	if got, want := surface.Auth.SSM, "/forgejo/api-token"; got != want {
-		t.Errorf("auth ssm = %q, want %q", got, want)
+	if got, want := surface.Auth.Source, "ssm /forgejo/api-token"; got != want {
+		t.Errorf("auth source = %q, want %q", got, want)
 	}
 	if surface.Auth.Header != "Authorization" {
 		t.Errorf("auth header = %q, want Authorization", surface.Auth.Header)
@@ -407,7 +407,7 @@ func issuesFixtures(t *testing.T) (*guardfile.Guardfile, []byte) {
 	_, spec := loadFixtures(t)
 	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
 		spec forgejo.swagger.v1.json
-		auth header-token { header Authorization; ssm "/forgejo/api-token" }
+		auth header-token { header Authorization; value ssm "/forgejo/api-token" }
 		can list issue { op "issueListIssues" }
 		can create issue { op "issueCreateIssue" }
 	}`))
@@ -452,7 +452,7 @@ func TestArrayBodyFlags(t *testing.T) {
 
 	cfg := Config{
 		Guardfile: gf, Spec: spec, BaseURL: srv.URL,
-		Token: func(context.Context, string) (string, error) { return "x", nil },
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "x", nil }},
 	}
 	_, err := runTree(t, cfg, "forgejo", "issue", "create", "kai", "demo",
 		"--title", "t", "--assignees", "a", "--assignees", "b", "--labels", "7", "--labels", "9")
@@ -495,7 +495,7 @@ func TestBodyFileExclusiveWithFlags(t *testing.T) {
 		t.Fatalf("write body file: %v", err)
 	}
 	cfg := Config{Guardfile: gf, Spec: spec, BaseURL: "http://127.0.0.1:0",
-		Token: func(context.Context, string) (string, error) { return "x", nil }}
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "x", nil }}}
 	if _, err := runTree(t, cfg, "forgejo", "issue", "create", "kai", "demo", "--body-file", path, "--title", "y", "--dry-run"); err == nil {
 		t.Fatal("expected a mutual-exclusion error, got nil")
 	}
@@ -506,7 +506,7 @@ func TestBodyFileExclusiveWithFlags(t *testing.T) {
 func TestRequiredBodyFieldEnforced(t *testing.T) {
 	gf, spec := issuesFixtures(t)
 	cfg := Config{Guardfile: gf, Spec: spec, BaseURL: "http://127.0.0.1:0",
-		Token: func(context.Context, string) (string, error) { return "x", nil }}
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "x", nil }}}
 	_, err := runTree(t, cfg, "forgejo", "issue", "create", "kai", "demo", "--body", "no title", "--dry-run")
 	if err == nil {
 		t.Fatal("expected a required-field error, got nil")
@@ -542,7 +542,7 @@ func TestStateToggleSendsFixedBody(t *testing.T) {
 	_, spec := loadFixtures(t)
 	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
 		spec forgejo.swagger.v1.json
-		auth header-token { header Authorization; ssm "/forgejo/api-token" }
+		auth header-token { header Authorization; value ssm "/forgejo/api-token" }
 		can close issue { op "issueEditIssue"; body state="closed" }
 	}`))
 	if err != nil {
@@ -560,7 +560,7 @@ func TestStateToggleSendsFixedBody(t *testing.T) {
 	defer srv.Close()
 
 	cfg := Config{Guardfile: gf, Spec: spec, BaseURL: srv.URL,
-		Token: func(context.Context, string) (string, error) { return "x", nil }}
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "x", nil }}}
 	if _, err := runTree(t, cfg, "forgejo", "issue", "close", "kai", "demo", "7"); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -598,7 +598,7 @@ func TestUntypedArrayTakesNames(t *testing.T) {
 	_, spec := loadFixtures(t)
 	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
 		spec forgejo.swagger.v1.json
-		auth header-token { header Authorization; ssm "/forgejo/api-token" }
+		auth header-token { header Authorization; value ssm "/forgejo/api-token" }
 		can add issue-label { op "issueAddLabel" }
 	}`))
 	if err != nil {
@@ -613,7 +613,7 @@ func TestUntypedArrayTakesNames(t *testing.T) {
 	}))
 	defer srv.Close()
 	cfg := Config{Guardfile: gf, Spec: spec, BaseURL: srv.URL,
-		Token: func(context.Context, string) (string, error) { return "x", nil }}
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "x", nil }}}
 	if _, err := runTree(t, cfg, "forgejo", "issue-label", "add", "kai", "demo", "7", "--labels", "bug", "--labels", "P3"); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -628,7 +628,7 @@ func TestMultipartUpload(t *testing.T) {
 	_, spec := loadFixtures(t)
 	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
 		spec forgejo.swagger.v1.json
-		auth header-token { header Authorization; ssm "/forgejo/api-token" }
+		auth header-token { header Authorization; value ssm "/forgejo/api-token" }
 		can upload-asset release { op "repoCreateReleaseAttachment" }
 	}`))
 	if err != nil {
@@ -658,7 +658,7 @@ func TestMultipartUpload(t *testing.T) {
 	}))
 	defer srv.Close()
 	cfg := Config{Guardfile: gf, Spec: spec, BaseURL: srv.URL,
-		Token: func(context.Context, string) (string, error) { return "x", nil }}
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "x", nil }}}
 	if _, err := runTree(t, cfg, "forgejo", "release", "upload-asset", "kai", "demo", "5", "--attachment", asset, "--name", "asset.bin"); err != nil {
 		t.Fatalf("run: %v", err)
 	}

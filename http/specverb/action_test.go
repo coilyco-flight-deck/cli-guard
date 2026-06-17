@@ -25,7 +25,7 @@ func ciWatchGuardfile(t *testing.T) *guardfile.Guardfile {
 	src := []byte("wrap ward ops forgejo {\n" +
 		"    spec forgejo.swagger.v1.json\n" +
 		"    base-url \"https://forgejo.coilysiren.me/api/v1\"\n" +
-		"    auth header-token { header Authorization; prefix \"token \"; ssm \"/forgejo/api-token\" }\n" +
+		"    auth header-token { header Authorization; prefix \"token \"; value ssm \"/forgejo/api-token\" }\n" +
 		"    can list tasks { op \"ListActionTasks\" }\n" +
 		"    action ci-watch {\n" +
 		"        describe \"Watch a CI run to completion.\"\n" +
@@ -68,7 +68,7 @@ func TestActionDryRunIsAPlan(t *testing.T) {
 		Guardfile:  ciWatchGuardfile(t),
 		Spec:       actionSpec(t),
 		HTTPClient: &http.Client{Transport: failingTransport{t}}, // any wire call fails the test
-		Token:      func(context.Context, string) (string, error) { return "x", nil },
+		Providers:  map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "x", nil }},
 	}
 	out, err := runTree(t, cfg, "forgejo", "action", "ci-watch", "kai/demo", "--run", "5", "--dry-run", "--output", "json")
 	if err != nil {
@@ -111,7 +111,7 @@ func TestActionPollUntilTerminal(t *testing.T) {
 		Guardfile: ciWatchGuardfile(t),
 		Spec:      actionSpec(t),
 		BaseURL:   srv.URL,
-		Token:     func(context.Context, string) (string, error) { return "sekret", nil },
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "sekret", nil }},
 	}
 	out, err := runTree(t, cfg, "forgejo", "action", "ci-watch", "kai/demo", "--run", "5", "--output", "json")
 	if err != nil {
@@ -138,7 +138,7 @@ func TestActionFailWhenSetsExit(t *testing.T) {
 		Guardfile: ciWatchGuardfile(t),
 		Spec:      actionSpec(t),
 		BaseURL:   srv.URL,
-		Token:     func(context.Context, string) (string, error) { return "x", nil },
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "x", nil }},
 	}
 	out, err := runTree(t, cfg, "forgejo", "action", "ci-watch", "kai/demo", "--run", "5", "--output", "json")
 	if err == nil {
@@ -167,7 +167,7 @@ func TestActionTimesOut(t *testing.T) {
 		Guardfile: gf,
 		Spec:      actionSpec(t),
 		BaseURL:   srv.URL,
-		Token:     func(context.Context, string) (string, error) { return "x", nil },
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "x", nil }},
 	}
 	_, err := runTree(t, cfg, "forgejo", "action", "ci-watch", "kai/demo", "--run", "5")
 	if err == nil {
@@ -247,7 +247,7 @@ func TestActionWritesPerCallAndEnvelopeAudit(t *testing.T) {
 		Spec:      actionSpec(t),
 		BaseURL:   srv.URL,
 		Wrap:      func(s verb.Spec) cli.ActionFunc { return verb.Wrap(s, w) },
-		Token:     func(context.Context, string) (string, error) { return "x", nil },
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "x", nil }},
 	}
 	if _, err := runTree(t, cfg, "forgejo", "action", "ci-watch", "kai/demo", "--run", "5", "--output", "json"); err != nil {
 		t.Fatalf("audited run: %v", err)

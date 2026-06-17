@@ -30,33 +30,32 @@ const redacted = "<redacted>"
 
 // runtime carries the per-tree request dependencies shared by every leaf.
 type runtime struct {
-	baseURL  string
-	auth     guardfile.Auth
-	token    TokenResolver
-	client   *http.Client
-	wrap     func(verb.Spec) cli.ActionFunc
-	restrict []guardfile.Restriction
+	baseURL   string
+	auth      guardfile.Auth
+	providers map[string]Provider
+	client    *http.Client
+	wrap      func(verb.Spec) cli.ActionFunc
+	restrict  []guardfile.Restriction
 
-	// baseURLFn (nil = static baseURL) resolves the host from SSM once, caching it.
-	// baseURLSSM names the path for errors. See specverb-policy.md.
-	baseURLFn   func(ctx context.Context) (string, error)
-	baseURLSSM  string
-	baseURLOnce sync.Once
-	baseURLVal  string
-	baseURLErr  error
+	// baseURLValue (zero = static baseURL) resolves the host through a provider
+	// once, caching it. See specverb-policy.md.
+	baseURLValue guardfile.ValueSource
+	baseURLOnce  sync.Once
+	baseURLVal   string
+	baseURLErr   error
 }
 
 // baseForRequest returns the request base-url: the static base, or (for a
-// `base-url { ssm }` host) a once-resolved SSM value. Dry-run stays offline.
+// `base-url { value }` host) a once-resolved provider value. Dry-run stays offline.
 func (rt *runtime) baseForRequest(ctx context.Context, dry bool) (string, error) {
-	if rt.baseURLFn == nil {
+	if rt.baseURLValue.IsZero() {
 		return rt.baseURL, nil
 	}
 	if dry {
-		return "{base-url:ssm " + rt.baseURLSSM + "}", nil
+		return "{base-url:" + rt.baseURLValue.Provider + " " + rt.baseURLValue.Address + "}", nil
 	}
 	rt.baseURLOnce.Do(func() {
-		v, err := rt.baseURLFn(ctx)
+		v, err := rt.resolveValue(ctx, rt.baseURLValue)
 		if err != nil {
 			rt.baseURLErr = err
 			return
@@ -64,9 +63,7 @@ func (rt *runtime) baseForRequest(ctx context.Context, dry bool) (string, error)
 		rt.baseURLVal = defaultScheme(strings.TrimRight(v, "/"))
 	})
 	if rt.baseURLErr != nil {
-		return "", exitcode.New(exitcode.Internal, "internal",
-			fmt.Errorf("resolve base-url from ssm %s: %w", rt.baseURLSSM, rt.baseURLErr),
-			"check the SSM path and credentials")
+		return "", rt.baseURLErr
 	}
 	return rt.baseURLVal, nil
 }
@@ -451,7 +448,7 @@ func (rt *runtime) authorize(ctx context.Context, req *http.Request) error {
 	if rt.auth.Scheme == "query-param" {
 		q := req.URL.Query()
 		for _, p := range rt.auth.Params {
-			secret, err := rt.resolveSecret(ctx, p.SSM)
+			secret, err := rt.resolveValue(ctx, p.Value)
 			if err != nil {
 				return err
 			}
@@ -460,7 +457,7 @@ func (rt *runtime) authorize(ctx context.Context, req *http.Request) error {
 		req.URL.RawQuery = q.Encode()
 		return nil
 	}
-	secret, err := rt.resolveSecret(ctx, rt.auth.SSM)
+	secret, err := rt.resolveValue(ctx, rt.auth.Value)
 	if err != nil {
 		return err
 	}
@@ -468,14 +465,22 @@ func (rt *runtime) authorize(ctx context.Context, req *http.Request) error {
 	return nil
 }
 
-// resolveSecret reads one secret from SSM through the configured resolver.
-func (rt *runtime) resolveSecret(ctx context.Context, ssmPath string) (string, error) {
-	secret, err := rt.token(ctx, ssmPath)
+// resolveValue reads one value through the named provider. A missing provider or
+// a resolver error is a coded Internal failure: fail closed, never leak.
+func (rt *runtime) resolveValue(ctx context.Context, vs guardfile.ValueSource) (string, error) {
+	p := rt.providers[vs.Provider]
+	if p == nil {
+		return "", exitcode.New(exitcode.Internal, "internal",
+			fmt.Errorf("no provider registered for %q", vs.Provider),
+			"register the value provider via specverb.Config.Providers")
+	}
+	v, err := p(ctx, vs.Address)
 	if err != nil {
 		return "", exitcode.New(exitcode.Internal, "internal",
-			fmt.Errorf("resolve auth secret from %s: %w", ssmPath, err), "check the SSM path and credentials")
+			fmt.Errorf("resolve value from %s %s: %w", vs.Provider, vs.Address, err),
+			"check the value provider address and credentials")
 	}
-	return secret, nil
+	return v, nil
 }
 
 // fire resolves the secret, sends the request, and renders the response.
@@ -501,11 +506,6 @@ func (rt *runtime) fire(ctx context.Context, method, url string, body []byte, co
 // fireCapture sends one request and returns the decoded JSON value plus raw
 // body, rendering nothing: the "fire and capture" path complex actions feed on.
 func (rt *runtime) fireCapture(ctx context.Context, method, url string, body []byte, contentType string) (decoded any, raw []byte, status string, err error) {
-	if rt.token == nil {
-		return nil, nil, "", exitcode.New(exitcode.Internal, "internal",
-			fmt.Errorf("no token resolver configured"), "wire a TokenResolver into specverb.Config")
-	}
-
 	var reqBody io.Reader
 	if body != nil {
 		reqBody = bytes.NewReader(body)

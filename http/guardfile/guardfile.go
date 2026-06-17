@@ -8,13 +8,23 @@ import (
 	kdl "github.com/calico32/kdl-go"
 )
 
+// ValueSource names where a config value is read at request time: a Provider
+// (ssm, tailscale, env, ...) and the Address it interprets. See specverb-policy.md.
+type ValueSource struct {
+	Provider string
+	Address  string
+}
+
+// IsZero reports whether the source is unset (no provider named).
+func (v ValueSource) IsZero() bool { return v.Provider == "" }
+
 // Auth describes how the engine authenticates to the target API. Three schemes:
 // header-token, bearer, query-param (dual-secret). See docs/specverb.md.
 type Auth struct {
 	Scheme string
 	Header string
 	Prefix string // trailing space is significant, e.g. "token "
-	SSM    string
+	Value  ValueSource
 
 	// Params are the query-param scheme's ordered secrets, each injected as a
 	// query parameter (Trello's ?key=&token=). Empty for the header schemes.
@@ -22,10 +32,10 @@ type Auth struct {
 }
 
 // QueryAuthParam is one secret of the query-param scheme: a query parameter Name
-// whose value is the secret read from SSM.
+// whose value is read from the named value source.
 type QueryAuthParam struct {
-	Name string
-	SSM  string
+	Name  string
+	Value ValueSource
 }
 
 // Grant is one policy sentence: modal verb resource [qualifiers...] [key=value...].
@@ -117,13 +127,13 @@ type Guardfile struct {
 	Group   []string // command path, e.g. ["ward", "ops", "forgejo"]
 	Spec    string
 	BaseURL string
-	// BaseURLSSM is the SSM path the base-url resolves from, set by the block
-	// form `base-url { ssm "..." }`, exclusive with BaseURL. See specverb-policy.md.
-	BaseURLSSM string
-	Auth       Auth
-	Grants     []Grant
-	Restrict   []Restriction
-	Actions    []Action
+	// BaseURLValue resolves the base-url at request time (block form
+	// `base-url { value ... }`), exclusive with BaseURL. See specverb-policy.md.
+	BaseURLValue ValueSource
+	Auth         Auth
+	Grants       []Grant
+	Restrict     []Restriction
+	Actions      []Action
 }
 
 // modals is the closed set of grant verbs; anything else fails closed.
@@ -199,8 +209,8 @@ func (gf *Guardfile) applyNode(n *kdl.Node) error {
 	}
 }
 
-// applyBaseURL reads the base-url node: a bare string, or a `{ ssm "..." }` block
-// for an opaque host resolved at request time. See specverb-policy.md.
+// applyBaseURL reads the base-url node: a bare string, or a `{ value ... }` block
+// for a host resolved at request time. See specverb-policy.md.
 func (gf *Guardfile) applyBaseURL(n *kdl.Node) error {
 	children := n.Children().Nodes
 	if len(children) == 0 {
@@ -212,19 +222,53 @@ func (gf *Guardfile) applyBaseURL(n *kdl.Node) error {
 		return nil
 	}
 	for _, c := range children {
-		v, err := singleArg(c)
+		if c.Name() != "value" {
+			return fmt.Errorf("guardfile: base-url: unknown field %q (want value; fail-closed)", c.Name())
+		}
+		vs, err := parseValueSource(c)
 		if err != nil {
-			return fmt.Errorf("guardfile: base-url %s: %w", c.Name(), err)
+			return fmt.Errorf("guardfile: base-url: %w", err)
 		}
-		if c.Name() != "ssm" {
-			return fmt.Errorf("guardfile: base-url: unknown field %q (want ssm; fail-closed)", c.Name())
-		}
-		gf.BaseURLSSM = v
+		gf.BaseURLValue = vs
 	}
-	if gf.BaseURLSSM == "" {
-		return fmt.Errorf("guardfile: base-url block requires `ssm`")
+	if gf.BaseURLValue.IsZero() {
+		return fmt.Errorf("guardfile: base-url block requires `value <provider> \"...\"`")
 	}
 	return nil
+}
+
+// parseValueSource reads a `value <provider> "<address>"` node into a
+// ValueSource: exactly two arguments, the provider name then the address.
+func parseValueSource(n *kdl.Node) (ValueSource, error) {
+	args := n.Arguments()
+	if len(args) != 2 {
+		return ValueSource{}, fmt.Errorf("value needs a provider and an address, e.g. `value ssm \"/forgejo/api-token\"` (got %d arg(s))", len(args))
+	}
+	vs := ValueSource{Provider: args[0].String(), Address: args[1].String()}
+	if vs.Provider == "" || vs.Address == "" {
+		return ValueSource{}, fmt.Errorf("value needs a non-empty provider and address")
+	}
+	return vs, nil
+}
+
+// Providers returns the distinct provider names every value source in gf names,
+// so a consumer (or the codegen) can wire exactly the resolvers in use.
+func (gf *Guardfile) Providers() []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(vs ValueSource) {
+		if vs.Provider == "" || seen[vs.Provider] {
+			return
+		}
+		seen[vs.Provider] = true
+		out = append(out, vs.Provider)
+	}
+	add(gf.Auth.Value)
+	for _, p := range gf.Auth.Params {
+		add(p.Value)
+	}
+	add(gf.BaseURLValue)
+	return out
 }
 
 // reservedActionKeywords are the forward-design slots v1 does not implement;
@@ -244,8 +288,8 @@ func (gf *Guardfile) validate() error {
 	if gf.Auth.Scheme == "" {
 		return fmt.Errorf("guardfile: `auth` block is required")
 	}
-	if gf.BaseURL != "" && gf.BaseURLSSM != "" {
-		return fmt.Errorf("guardfile: base-url set both as a string and a `{ ssm }` block; pick one")
+	if gf.BaseURL != "" && !gf.BaseURLValue.IsZero() {
+		return fmt.Errorf("guardfile: base-url set both as a string and a `{ value }` block; pick one")
 	}
 	return nil
 }
@@ -269,53 +313,61 @@ func parseAuth(n *kdl.Node) (Auth, error) {
 	}
 }
 
-// parseHeaderTokenAuth reads `header-token { header H; prefix "..."; ssm S }`.
+// parseHeaderTokenAuth reads `header-token { header H; prefix "..."; value P A }`.
 func parseHeaderTokenAuth(n *kdl.Node) (Auth, error) {
 	a := Auth{Scheme: "header-token"}
 	for _, c := range n.Children().Nodes {
-		v, ferr := singleArg(c)
-		if ferr != nil {
-			return Auth{}, fmt.Errorf("guardfile: auth %s: %w", c.Name(), ferr)
-		}
 		switch c.Name() {
 		case "header":
+			v, ferr := singleArg(c)
+			if ferr != nil {
+				return Auth{}, fmt.Errorf("guardfile: auth header: %w", ferr)
+			}
 			a.Header = v
 		case "prefix":
+			v, ferr := singleArg(c)
+			if ferr != nil {
+				return Auth{}, fmt.Errorf("guardfile: auth prefix: %w", ferr)
+			}
 			a.Prefix = v
-		case "ssm":
-			a.SSM = v
+		case "value":
+			vs, ferr := parseValueSource(c)
+			if ferr != nil {
+				return Auth{}, fmt.Errorf("guardfile: auth %w", ferr)
+			}
+			a.Value = vs
 		default:
 			return Auth{}, fmt.Errorf("guardfile: auth: unknown field %q (fail-closed)", c.Name())
 		}
 	}
-	if a.Header == "" || a.SSM == "" {
-		return Auth{}, fmt.Errorf("guardfile: auth header-token requires `header` and `ssm`")
+	if a.Header == "" || a.Value.IsZero() {
+		return Auth{}, fmt.Errorf("guardfile: auth header-token requires `header` and `value <provider> \"...\"`")
 	}
 	return a, nil
 }
 
-// parseBearerAuth reads `bearer { ssm S }`: shorthand for the Authorization
-// header with a "Bearer " prefix (Tailscale).
+// parseBearerAuth reads `bearer { value <provider> A }`: shorthand for the
+// Authorization header with a "Bearer " prefix (Tailscale).
 func parseBearerAuth(n *kdl.Node) (Auth, error) {
 	a := Auth{Scheme: "bearer", Header: "Authorization", Prefix: "Bearer "}
 	for _, c := range n.Children().Nodes {
-		v, ferr := singleArg(c)
+		if c.Name() != "value" {
+			return Auth{}, fmt.Errorf("guardfile: auth bearer: unknown field %q (want value; fail-closed)", c.Name())
+		}
+		vs, ferr := parseValueSource(c)
 		if ferr != nil {
-			return Auth{}, fmt.Errorf("guardfile: auth %s: %w", c.Name(), ferr)
+			return Auth{}, fmt.Errorf("guardfile: auth bearer %w", ferr)
 		}
-		if c.Name() != "ssm" {
-			return Auth{}, fmt.Errorf("guardfile: auth bearer: unknown field %q (want ssm; fail-closed)", c.Name())
-		}
-		a.SSM = v
+		a.Value = vs
 	}
-	if a.SSM == "" {
-		return Auth{}, fmt.Errorf("guardfile: auth bearer requires `ssm`")
+	if a.Value.IsZero() {
+		return Auth{}, fmt.Errorf("guardfile: auth bearer requires `value <provider> \"...\"`")
 	}
 	return a, nil
 }
 
-// parseQueryParamAuth reads `query-param { param <name> { ssm S } ... }`: one or
-// more secrets injected as query parameters (Trello's ?key=&token=).
+// parseQueryParamAuth reads `query-param { param <name> { value <provider> A } ... }`:
+// one or more secrets injected as query parameters (Trello's ?key=&token=).
 func parseQueryParamAuth(n *kdl.Node) (Auth, error) {
 	a := Auth{Scheme: "query-param"}
 	for _, c := range n.Children().Nodes {
@@ -324,21 +376,21 @@ func parseQueryParamAuth(n *kdl.Node) (Auth, error) {
 		}
 		name, err := singleArg(c)
 		if err != nil {
-			return Auth{}, fmt.Errorf("guardfile: auth query-param: %w (name it: `param key { ssm \"...\" }`)", err)
+			return Auth{}, fmt.Errorf("guardfile: auth query-param: %w (name it: `param key { value <provider> \"...\" }`)", err)
 		}
 		p := QueryAuthParam{Name: name}
 		for _, cc := range c.Children().Nodes {
-			v, ferr := singleArg(cc)
+			if cc.Name() != "value" {
+				return Auth{}, fmt.Errorf("guardfile: auth query-param %s: unknown field %q (want value)", name, cc.Name())
+			}
+			vs, ferr := parseValueSource(cc)
 			if ferr != nil {
 				return Auth{}, fmt.Errorf("guardfile: auth query-param %s: %w", name, ferr)
 			}
-			if cc.Name() != "ssm" {
-				return Auth{}, fmt.Errorf("guardfile: auth query-param %s: unknown field %q (want ssm)", name, cc.Name())
-			}
-			p.SSM = v
+			p.Value = vs
 		}
-		if p.SSM == "" {
-			return Auth{}, fmt.Errorf("guardfile: auth query-param %q requires `ssm`", name)
+		if p.Value.IsZero() {
+			return Auth{}, fmt.Errorf("guardfile: auth query-param %q requires `value <provider> \"...\"`", name)
 		}
 		a.Params = append(a.Params, p)
 	}

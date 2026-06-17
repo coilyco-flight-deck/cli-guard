@@ -16,7 +16,7 @@ func TestBearerAuthLive(t *testing.T) {
 	spec := readSpec(t, "tailscale.openapi.yaml")
 	gf, err := guardfile.Parse([]byte(`wrap ward ops tailscale {
 		spec tailscale.openapi.yaml
-		auth bearer { ssm "/tailscale/api-key" }
+		auth bearer { value ssm "/tailscale/api-key" }
 		can list devices { op "listTailnetDevices" }
 	}`))
 	if err != nil {
@@ -31,7 +31,7 @@ func TestBearerAuthLive(t *testing.T) {
 	defer srv.Close()
 
 	cfg := Config{Guardfile: gf, Spec: spec, BaseURL: srv.URL,
-		Token: func(context.Context, string) (string, error) { return "tskey-abc", nil }}
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "tskey-abc", nil }}}
 	if _, err := runTree(t, cfg, "tailscale", "devices", "list", "my-tailnet", "--output", "json"); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -47,8 +47,8 @@ func trelloFixture(t *testing.T) (*guardfile.Guardfile, []byte) {
 	gf, err := guardfile.Parse([]byte(`wrap ward ops trello {
 		spec trello.openapi.json
 		auth query-param {
-			param key { ssm "/trello/api-key" }
-			param token { ssm "/trello/api-token" }
+			param key { value ssm "/trello/api-key" }
+			param token { value ssm "/trello/api-token" }
 		}
 		can create cards { op "post-cards" }
 	}`))
@@ -72,7 +72,7 @@ func TestQueryParamAuthLive(t *testing.T) {
 
 	secrets := map[string]string{"/trello/api-key": "KEYVAL", "/trello/api-token": "TOKENVAL"}
 	cfg := Config{Guardfile: gf, Spec: spec, BaseURL: srv.URL,
-		Token: func(_ context.Context, p string) (string, error) { return secrets[p], nil }}
+		Providers: map[string]Provider{"ssm": func(_ context.Context, p string) (string, error) { return secrets[p], nil }}}
 	if _, err := runTree(t, cfg, "trello", "cards", "create", "--name", "demo", "--idList", "abc", "--output", "json"); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -88,10 +88,10 @@ func TestQueryParamAuthLive(t *testing.T) {
 func TestQueryParamAuthDryRunRedacts(t *testing.T) {
 	gf, spec := trelloFixture(t)
 	cfg := Config{Guardfile: gf, Spec: spec, HTTPClient: &http.Client{Transport: failingTransport{t}},
-		Token: func(context.Context, string) (string, error) {
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) {
 			t.Fatal("dry-run must not resolve an auth secret")
 			return "", nil
-		}}
+		}}}
 	out, err := runTree(t, cfg, "trello", "cards", "create", "--name", "demo", "--dry-run", "--output", "json")
 	if err != nil {
 		t.Fatalf("dry-run: %v", err)
@@ -112,7 +112,7 @@ func TestBearerDescribeNamesScheme(t *testing.T) {
 	spec := readSpec(t, "tailscale.openapi.yaml")
 	gf, err := guardfile.Parse([]byte(`wrap ward ops tailscale {
 		spec tailscale.openapi.yaml
-		auth bearer { ssm "/tailscale/api-key" }
+		auth bearer { value ssm "/tailscale/api-key" }
 		can list devices { op "listTailnetDevices" }
 	}`))
 	if err != nil {
@@ -122,7 +122,7 @@ func TestBearerDescribeNamesScheme(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Describe: %v", err)
 	}
-	if surface.Auth.Scheme != "bearer" || surface.Auth.SSM != "/tailscale/api-key" {
+	if surface.Auth.Scheme != "bearer" || surface.Auth.Source != "ssm /tailscale/api-key" {
 		t.Errorf("auth info = %+v", surface.Auth)
 	}
 }

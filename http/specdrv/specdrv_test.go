@@ -15,7 +15,7 @@ import (
 const guardfileFixture = `wrap ward-kdl ops forgejo {
 	spec forgejo.swagger.v1.json
 	base-url "forgejo.coilysiren.me/api/v1"
-	auth header-token { header Authorization; prefix "token "; ssm "/forgejo/api-token" }
+	auth header-token { header Authorization; prefix "token "; value ssm "/forgejo/api-token" }
 	can read repos { op "repoGet" }
 	can create repos { op "createCurrentUserRepo" }
 }`

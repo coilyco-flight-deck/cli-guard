@@ -3,7 +3,6 @@
 package specverb
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"sort"
@@ -19,10 +18,6 @@ import (
 // default client (Config.HTTPClient nil).
 const defaultHTTPTimeout = 30 * time.Second
 
-// TokenResolver fetches the auth secret named by an SSM path. Injected so the
-// AWS SDK stays out of cli-guard; nil is only valid for dry-run-only use.
-type TokenResolver func(ctx context.Context, ssmPath string) (string, error)
-
 // Config is everything the engine needs to build a command tree.
 type Config struct {
 	// Guardfile is the parsed L2 policy: the command path, auth, and grants.
@@ -35,18 +30,15 @@ type Config struct {
 	// pipeline). nil mounts the bare action, for doc rendering only.
 	Wrap func(verb.Spec) cli.ActionFunc
 
-	// Token resolves the auth secret. nil is tolerated for a dry-run-only tree.
-	Token TokenResolver
+	// Providers registers the value resolvers a `value <provider>` source names;
+	// cli-guard merges its built-ins (env, file, literal). See specverb-policy.md.
+	Providers map[string]Provider
 
 	// HTTPClient fires the live request. nil uses http.DefaultClient.
 	HTTPClient *http.Client
 
 	// BaseURL overrides the Guardfile base-url. "" uses the Guardfile value.
 	BaseURL string
-
-	// BaseURLFn resolves the base-url lazily at request time for a `base-url { ssm }`
-	// host, nil keeps the static value. Consulted once and cached. See specverb-policy.md.
-	BaseURLFn func(ctx context.Context) (string, error)
 }
 
 // opDescriptor is the tiny per-operation payload the generic action binds to,
@@ -105,14 +97,13 @@ func Build(cfg Config) (*cli.Command, error) {
 	}
 
 	rt := &runtime{
-		baseURL:    defaultScheme(strings.TrimRight(baseURL, "/")),
-		auth:       gf.Auth,
-		token:      cfg.Token,
-		client:     cfg.HTTPClient,
-		wrap:       cfg.Wrap,
-		restrict:   gf.Restrict,
-		baseURLFn:  cfg.BaseURLFn,
-		baseURLSSM: gf.BaseURLSSM,
+		baseURL:      defaultScheme(strings.TrimRight(baseURL, "/")),
+		auth:         gf.Auth,
+		providers:    mergeProviders(cfg.Providers),
+		client:       cfg.HTTPClient,
+		wrap:         cfg.Wrap,
+		restrict:     gf.Restrict,
+		baseURLValue: gf.BaseURLValue,
 	}
 	if rt.client == nil {
 		rt.client = defaultHTTPClient()
@@ -184,11 +175,11 @@ func findOrCreateGroup(parent *cli.Command, name string) *cli.Command {
 	return g
 }
 
-// baseURLDisplay is the base-url describe shows: the SSM path for an SSM-resolved
-// host (stays offline), else the resolved static base.
+// baseURLDisplay is the base-url describe shows: the provider+address for a
+// value-resolved host (stays offline), else the resolved static base.
 func baseURLDisplay(gf *guardfile.Guardfile, static string) string {
-	if gf.BaseURLSSM != "" {
-		return "(resolved from SSM " + gf.BaseURLSSM + ")"
+	if !gf.BaseURLValue.IsZero() {
+		return "(resolved from " + gf.BaseURLValue.Provider + " " + gf.BaseURLValue.Address + ")"
 	}
 	return static
 }

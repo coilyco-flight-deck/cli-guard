@@ -28,7 +28,7 @@ func TestParseFixture(t *testing.T) {
 		t.Errorf("BaseURL = %q, want %q", got, want)
 	}
 
-	wantAuth := Auth{Scheme: "header-token", Header: "Authorization", Prefix: "token ", SSM: "/forgejo/api-token"}
+	wantAuth := Auth{Scheme: "header-token", Header: "Authorization", Prefix: "token ", Value: ValueSource{Provider: "ssm", Address: "/forgejo/api-token"}}
 	if !reflect.DeepEqual(gf.Auth, wantAuth) {
 		t.Errorf("Auth = %+v, want %+v", gf.Auth, wantAuth)
 	}
@@ -50,7 +50,7 @@ func TestBareTokensAreStrings(t *testing.T) {
     spec forgejo.swagger.v1.json
     auth header-token {
         header Authorization
-        ssm "/forgejo/api-token"
+        value ssm "/forgejo/api-token"
     }
     can delete labels created-by-me { op "labelDelete" }
 }`)
@@ -72,7 +72,7 @@ func TestBareTokensAreStrings(t *testing.T) {
 func TestGrantDescribeAnnotation(t *testing.T) {
 	src := []byte(`wrap ward ops forgejo {
 	    spec s
-	    auth header-token { header H; ssm S }
+	    auth header-token { header H; value ssm S }
 	    can delete repos {
 	        op "repoDelete"
 	        describe "irreversible: deletes the repo and all its data"
@@ -93,7 +93,7 @@ func TestGrantDescribeAnnotation(t *testing.T) {
 func TestGrantProperties(t *testing.T) {
 	src := []byte(`wrap ward ops forgejo {
 	    spec s
-	    auth header-token { header H; ssm S }
+	    auth header-token { header H; value ssm S }
 	    can delete repos org="coilyco-flight-deck" { op "repoDelete" }
 	}`)
 	gf, err := Parse(src)
@@ -111,7 +111,7 @@ func TestGrantProperties(t *testing.T) {
 func TestParseGrantWithoutOp(t *testing.T) {
 	src := []byte(`wrap ward ops forgejo {
 	    spec s
-	    auth header-token { header H; ssm S }
+	    auth header-token { header H; value ssm S }
 	    can get repo
 	}`)
 	gf, err := Parse(src)
@@ -129,7 +129,7 @@ func TestParseGrantWithoutOp(t *testing.T) {
 func TestParseAction(t *testing.T) {
 	src := []byte(`wrap ward ops forgejo {
     spec s
-    auth header-token { header H; ssm S }
+    auth header-token { header H; value ssm S }
     can list tasks { op "ListActionTasks" }
 
     action ci-watch {
@@ -197,13 +197,13 @@ func TestParseAction(t *testing.T) {
 func TestParseAuthSchemes(t *testing.T) {
 	bearer, err := Parse([]byte(`wrap w ops tailscale {
 		spec s
-		auth bearer { ssm "/tailscale/api-key" }
+		auth bearer { value ssm "/tailscale/api-key" }
 		can list devices { op "listTailnetDevices" }
 	}`))
 	if err != nil {
 		t.Fatalf("bearer parse: %v", err)
 	}
-	want := Auth{Scheme: "bearer", Header: "Authorization", Prefix: "Bearer ", SSM: "/tailscale/api-key"}
+	want := Auth{Scheme: "bearer", Header: "Authorization", Prefix: "Bearer ", Value: ValueSource{Provider: "ssm", Address: "/tailscale/api-key"}}
 	if !reflect.DeepEqual(bearer.Auth, want) {
 		t.Errorf("bearer auth = %+v, want %+v", bearer.Auth, want)
 	}
@@ -211,8 +211,8 @@ func TestParseAuthSchemes(t *testing.T) {
 	qp, err := Parse([]byte(`wrap w ops trello {
 		spec s
 		auth query-param {
-			param key { ssm "/trello/api-key" }
-			param token { ssm "/trello/api-token" }
+			param key { value ssm "/trello/api-key" }
+			param token { value ssm "/trello/api-token" }
 		}
 		can create cards { op "post-cards" }
 	}`))
@@ -222,46 +222,46 @@ func TestParseAuthSchemes(t *testing.T) {
 	if qp.Auth.Scheme != "query-param" || len(qp.Auth.Params) != 2 {
 		t.Fatalf("query-param auth = %+v", qp.Auth)
 	}
-	if qp.Auth.Params[0] != (QueryAuthParam{Name: "key", SSM: "/trello/api-key"}) ||
-		qp.Auth.Params[1] != (QueryAuthParam{Name: "token", SSM: "/trello/api-token"}) {
+	if qp.Auth.Params[0] != (QueryAuthParam{Name: "key", Value: ValueSource{Provider: "ssm", Address: "/trello/api-key"}}) ||
+		qp.Auth.Params[1] != (QueryAuthParam{Name: "token", Value: ValueSource{Provider: "ssm", Address: "/trello/api-token"}}) {
 		t.Errorf("query-param params = %+v", qp.Auth.Params)
 	}
 }
 
 // TestParseBaseURLForms covers both base-url shapes: the committed string and the
-// `{ ssm }` block for an opaque host resolved at request time.
+// `{ value <provider> }` block for an opaque host resolved at request time.
 func TestParseBaseURLForms(t *testing.T) {
 	str, err := Parse([]byte(`wrap w ops forgejo {
 		spec s
 		base-url "forgejo.coilysiren.me/api/v1"
-		auth bearer { ssm "/x" }
+		auth bearer { value ssm "/x" }
 		can get session { op o }
 	}`))
 	if err != nil {
 		t.Fatalf("string base-url parse: %v", err)
 	}
-	if str.BaseURL != "forgejo.coilysiren.me/api/v1" || str.BaseURLSSM != "" {
-		t.Errorf("string form: BaseURL=%q BaseURLSSM=%q", str.BaseURL, str.BaseURLSSM)
+	if str.BaseURL != "forgejo.coilysiren.me/api/v1" || !str.BaseURLValue.IsZero() {
+		t.Errorf("string form: BaseURL=%q BaseURLValue=%+v", str.BaseURL, str.BaseURLValue)
 	}
 
 	ssm, err := Parse([]byte(`wrap w ops owui {
 		spec s
-		base-url { ssm "/coilysiren/open-webui/url" }
-		auth bearer { ssm "/x" }
+		base-url { value ssm "/coilysiren/open-webui/url" }
+		auth bearer { value ssm "/x" }
 		can get session { op o }
 	}`))
 	if err != nil {
 		t.Fatalf("ssm base-url parse: %v", err)
 	}
-	if ssm.BaseURL != "" || ssm.BaseURLSSM != "/coilysiren/open-webui/url" {
-		t.Errorf("ssm form: BaseURL=%q BaseURLSSM=%q", ssm.BaseURL, ssm.BaseURLSSM)
+	if ssm.BaseURL != "" || ssm.BaseURLValue != (ValueSource{Provider: "ssm", Address: "/coilysiren/open-webui/url"}) {
+		t.Errorf("value form: BaseURL=%q BaseURLValue=%+v", ssm.BaseURL, ssm.BaseURLValue)
 	}
 }
 
 // TestParseActionFailsClosed asserts the action grammar rejects every malformed
 // or reserved shape, never silently dropping a node.
 func TestParseActionFailsClosed(t *testing.T) {
-	hdr := "wrap w {\n spec s\n auth header-token { header H; ssm S }\n"
+	hdr := "wrap w {\n spec s\n auth header-token { header H; value ssm S }\n"
 	cases := map[string]string{
 		"no poll":            hdr + `action a { describe "x" } }`,
 		"poll missing every": hdr + `action a { poll list tasks { until "x"; timeout "1m"; as r } } }`,
@@ -286,11 +286,11 @@ func TestParseFailsClosed(t *testing.T) {
 	cases := map[string]string{
 		"unknown node": `wrap ward ops forgejo {
 			spec s
-			auth header-token { header H; ssm S }
+			auth header-token { header H; value ssm S }
 			allow read repos
 		}`,
 		"missing spec": `wrap ward ops forgejo {
-			auth header-token { header H; ssm S }
+			auth header-token { header H; value ssm S }
 			can read repos
 		}`,
 		"missing auth": `wrap ward ops forgejo {
@@ -299,18 +299,18 @@ func TestParseFailsClosed(t *testing.T) {
 		}`,
 		"no group": `wrap {
 			spec s
-			auth header-token { header H; ssm S }
+			auth header-token { header H; value ssm S }
 		}`,
 		"grant missing resource": `wrap ward ops forgejo {
 			spec s
-			auth header-token { header H; ssm S }
+			auth header-token { header H; value ssm S }
 			can read
 		}`,
 		"unsupported auth scheme": `wrap ward ops forgejo {
 			spec s
-			auth oauth2 { ssm S }
+			auth oauth2 { value ssm S }
 		}`,
-		"bearer needs ssm": `wrap ward ops forgejo {
+		"bearer needs value": `wrap ward ops forgejo {
 			spec s
 			auth bearer { }
 		}`,
@@ -320,28 +320,75 @@ func TestParseFailsClosed(t *testing.T) {
 		}`,
 		"unknown grant-body node": `wrap ward ops forgejo {
 			spec s
-			auth header-token { header H; ssm S }
+			auth header-token { header H; value ssm S }
 			can delete repos { explain "nope" }
 		}`,
 		"base-url block unknown field": `wrap ward ops owui {
 			spec s
 			base-url { host "h" }
-			auth bearer { ssm S }
+			auth bearer { value ssm S }
 			can get session { op o }
 		}`,
-		"base-url block needs ssm": `wrap ward ops owui {
+		"base-url block needs value": `wrap ward ops owui {
 			spec s
 			base-url { }
-			auth bearer { ssm S }
+			auth bearer { value ssm S }
 			can get session { op o }
 		}`,
 		"base-url both forms": `wrap ward ops owui {
 			spec s
 			base-url "h"
-			base-url { ssm "/x" }
-			auth bearer { ssm S }
+			base-url { value ssm "/x" }
+			auth bearer { value ssm S }
 			can get session { op o }
 		}`,
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Parse([]byte(src)); err == nil {
+				t.Errorf("expected error for %s, got nil", name)
+			}
+		})
+	}
+}
+
+// TestParseValueProviders asserts the `value <provider> "addr"` grammar binds
+// distinct providers across auth and base-url, and that Providers() reports them.
+func TestParseValueProviders(t *testing.T) {
+	gf, err := Parse([]byte(`wrap w ops owui {
+		spec s
+		base-url { value tailscale "open-webui" }
+		auth header-token { header Authorization; value env "OWUI_TOKEN" }
+		can get session { op o }
+	}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if gf.Auth.Value != (ValueSource{Provider: "env", Address: "OWUI_TOKEN"}) {
+		t.Errorf("auth value = %+v", gf.Auth.Value)
+	}
+	if gf.BaseURLValue != (ValueSource{Provider: "tailscale", Address: "open-webui"}) {
+		t.Errorf("base-url value = %+v", gf.BaseURLValue)
+	}
+	got := gf.Providers()
+	want := map[string]bool{"env": true, "tailscale": true}
+	if len(got) != 2 || !want[got[0]] || !want[got[1]] {
+		t.Errorf("Providers() = %v, want env+tailscale", got)
+	}
+}
+
+// TestParseValueArityFailsClosed asserts a `value` node needs exactly a provider
+// and an address; any other arity is a parse error.
+func TestParseValueArityFailsClosed(t *testing.T) {
+	cases := map[string]string{
+		"value missing address": `wrap w { spec s
+			auth header-token { header H; value ssm } }`,
+		"value too many args": `wrap w { spec s
+			auth header-token { header H; value ssm "/a" "/b" } }`,
+		"base-url value bare": `wrap w ops owui { spec s
+			base-url { value ssm }
+			auth bearer { value ssm "/x" }
+			can get session { op o } }`,
 	}
 	for name, src := range cases {
 		t.Run(name, func(t *testing.T) {
