@@ -1,5 +1,5 @@
-// M0 proving-slice Guardfile: the forgejo repo create/delete pair on ward.
-// Policy body is flat declarative sentences; quotes live only in the header.
+// Proving-slice Guardfile: the forgejo repo get/create/delete trio on ward.
+// Each `can` binds its op explicitly; quotes live only in the header.
 wrap ward ops forgejo {
     spec forgejo.swagger.v1.json
     base-url "https://forgejo.coilysiren.me/api/v1"
@@ -9,7 +9,7 @@ wrap ward ops forgejo {
         ssm "/forgejo/api-token"
     }
 
-    can read repos
-    can create repos
-    can delete repos
+    can get repos { op "repoGet" }
+    can create repos { op "createCurrentUserRepo" }
+    can delete repos { op "repoDelete" }
 }

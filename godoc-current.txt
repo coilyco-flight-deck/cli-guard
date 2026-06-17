@@ -1518,10 +1518,12 @@ type Action struct {
 	Describe string
 	Inputs   []Input
 	Poll     *Poll
+	Calls    []Call // ordered multi-call sequence; mutually exclusive with Poll
 	FailWhen string // JMESPath over the bindings; truthy => non-zero exit
 }
-    Action is a named composite verb inside a wrap block: sugar over the
-    allowlist. v1 carries one Poll plus an optional FailWhen exit predicate.
+    Action is a named composite verb: EITHER a Poll (watch one leaf) or an
+    ordered Calls sequence (chain leaves), plus an optional FailWhen exit.
+    See specverb-actions.md.
 
 type ArgBind struct {
 	Name  string
@@ -1540,6 +1542,15 @@ type Auth struct {
     Auth describes how the engine authenticates to the target API. Only the
     header-token scheme (Forgejo's "Authorization: token <key>") is modeled.
 
+type Call struct {
+	Verb     string
+	Resource string
+	Args     []ArgBind
+	As       string // binding name for this call's response
+}
+    Call is one step of a multi-call action: fires a granted leaf with Args,
+    binds the response to As for `$As.field` data-flow. See specverb-actions.md.
+
 type Grant struct {
 	Modal      string
 	Verb       string
@@ -1550,21 +1561,34 @@ type Grant struct {
 	// like `org=acme`. Positional bareword qualifiers stay in Qualifiers.
 	Props map[string]string
 
+	// Op is the spec operationId this grant authorizes (grant-body `op "..."`).
+	// Required on a `can`; ignored on a deny, which names a verb+resource class.
+	Op string
+
+	// FixedBody is the grant-body `body key=value...` map: a state-toggle leaf that
+	// always sends this exact JSON and mounts no body flags. Keeps KDL-native types.
+	FixedBody map[string]any
+
+	// Message is the grant-body `message "..."` shown when a deny blocks an
+	// invocation - the teaching error. Only meaningful on cannot/never.
+	Message string
+
 	// Describe is the optional grant-body `describe "..."` note that enriches
 	// the thin upstream spec; it flows into help and the describe verb.
 	Describe string
 }
     Grant is one policy sentence: modal verb resource [qualifiers...]
-    [key=value...]. "can delete repos org=acme" -> {can, delete, repos,
-    Props{org: acme}}.
+    [key=value...]. Resource is the CLI group, Verb the leaf, Op the
+    operationId. See docs/specverb.md.
 
 type Guardfile struct {
-	Group   []string // command path, e.g. ["ward", "ops", "forgejo"]
-	Spec    string
-	BaseURL string
-	Auth    Auth
-	Grants  []Grant
-	Actions []Action
+	Group    []string // command path, e.g. ["ward", "ops", "forgejo"]
+	Spec     string
+	BaseURL  string
+	Auth     Auth
+	Grants   []Grant
+	Restrict []Restriction
+	Actions  []Action
 }
     Guardfile is the parsed form of one wrap block.
 
@@ -1593,6 +1617,14 @@ type Poll struct {
     Poll re-fires a granted leaf (Verb+Resource) until Until settles or
     Timeout elapses, sampling Every; the last response binds to As. See
     specverb-actions.md.
+
+type Restriction struct {
+	Param string
+	Globs []string
+}
+    Restriction is a wrap-level `restrict <param> matches "<glob>"...`
+    allowlist: a {Param}-carrying leaf must match a Glob or fail closed.
+    See docs/specverb.md.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt

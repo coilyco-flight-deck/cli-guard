@@ -13,9 +13,9 @@ const fixture = `wrap ward-kdl ops forgejo {
 	spec forgejo.swagger.v1.json
 	base-url "forgejo.coilysiren.me/api/v1"
 	auth header-token { header Authorization; prefix "token "; ssm "/forgejo/api-token" }
-	can read repos
-	can create repos
-	can delete repos
+	can read repos { op "repoGet" }
+	can create repos { op "createCurrentUserRepo" }
+	can delete repos { op "repoDelete" }
 }`
 
 func TestRenderProducesValidGo(t *testing.T) {
@@ -52,7 +52,7 @@ func TestRenderSetMergesIntoOneBinary(t *testing.T) {
 		spec aws.swagger.v1.json
 		base-url "aws.example.com/api/v1"
 		auth header-token { header Authorization; prefix "token "; ssm "/aws/api-token" }
-		can list buckets
+		can list buckets { op "ListBuckets" }
 	}`
 	fj, err := guardfile.Parse([]byte(fixture))
 	if err != nil {
@@ -171,7 +171,7 @@ func TestRenderSetRejectsBinaryMismatch(t *testing.T) {
 		spec aws.swagger.v1.json
 		base-url "aws.example.com/api/v1"
 		auth header-token { header Authorization; prefix "token "; ssm "/aws/api-token" }
-		can list buckets
+		can list buckets { op "ListBuckets" }
 	}`
 	a, _ := guardfile.Parse([]byte(fixture))
 	b, _ := guardfile.Parse([]byte(other))

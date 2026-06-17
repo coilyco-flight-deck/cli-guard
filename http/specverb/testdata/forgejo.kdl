@@ -1,4 +1,5 @@
-// specverb M0 proving-slice Guardfile: the forgejo repo read/create/delete trio.
+// specverb proving-slice Guardfile: the forgejo repo get/create/delete trio.
+// Each `can` binds its op explicitly; the engine carries no expansion table.
 // Policy body is flat declarative sentences; quotes live only in the header.
 wrap ward ops forgejo {
     spec forgejo.swagger.v1.json
@@ -9,9 +10,10 @@ wrap ward ops forgejo {
         ssm "/forgejo/api-token"
     }
 
-    can read repos
-    can create repos
-    can delete repos {
+    can get repo { op "repoGet" }
+    can create repo { op "createCurrentUserRepo" }
+    can delete repo {
+        op "repoDelete"
         describe "irreversible: deletes the repo and all its data"
     }
 }

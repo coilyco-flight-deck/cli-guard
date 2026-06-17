@@ -91,7 +91,7 @@ func Describe(cfg Config) (*Surface, error) {
 	if err != nil {
 		return nil, err
 	}
-	actionDescs, err := resolveActions(spec, gf, grantedKeys(gf))
+	actionDescs, err := resolveActions(spec, gf, grantedGrants(gf))
 	if err != nil {
 		return nil, err
 	}

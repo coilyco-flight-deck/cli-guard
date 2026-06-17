@@ -79,11 +79,10 @@ func grantedPathMethods(spec *swaggerSpec, gf *guardfile.Guardfile) (map[string]
 		if g.Modal != "can" {
 			continue
 		}
-		entry, ok := lookupExpansion(g.Verb, g.Resource)
-		if !ok {
-			return nil, fmt.Errorf("specverb: prune: grant %q %q has no expansion-table row (deny-by-default)", g.Verb, g.Resource)
+		if g.Op == "" {
+			return nil, fmt.Errorf("specverb: prune: grant %q %q has no `op` binding (deny-by-default)", g.Verb, g.Resource)
 		}
-		method, path, _, err := spec.findOp(entry.OperationID)
+		method, path, _, err := spec.findOp(g.Op)
 		if err != nil {
 			return nil, err
 		}

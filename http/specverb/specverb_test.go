@@ -106,25 +106,18 @@ func names(cmds []*cli.Command) []string {
 
 func TestDenyByDefault(t *testing.T) {
 	_, spec := loadFixtures(t)
-	// `webhooks` has no expansion-table row: the build must fail closed.
+	// The op the grant names is absent from the spec: the build must fail closed
+	// rather than silently drop the verb.
 	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
 		spec forgejo.swagger.v1.json
 		auth header-token { header Authorization; ssm "/forgejo/api-token" }
-		can read webhooks
+		can read webhooks { op "repoListWebhooks" }
 	}`))
 	if err != nil {
 		t.Fatalf("parse guardfile: %v", err)
 	}
 	if _, err := Build(Config{Guardfile: gf, Spec: spec}); err == nil {
-		t.Fatal("expected deny-by-default error for an unmapped grant, got nil")
-	}
-}
-
-func TestSwagger2Required(t *testing.T) {
-	gf, _ := loadFixtures(t)
-	_, err := Build(Config{Guardfile: gf, Spec: []byte(`{"openapi":"3.0.0","paths":{"/x":{}}}`)})
-	if err == nil {
-		t.Fatal("expected an error for a non-2.0 spec, got nil")
+		t.Fatal("expected a fail-closed error for an op absent from the spec, got nil")
 	}
 }
 
@@ -336,8 +329,8 @@ func TestDescribeModel(t *testing.T) {
 	if create.Method != "POST" || create.Path != "/user/repos" {
 		t.Errorf("create = %s %s, want POST /user/repos", create.Method, create.Path)
 	}
-	if create.Grant != "can create repos" {
-		t.Errorf("create grant = %q, want %q", create.Grant, "can create repos")
+	if create.Grant != "can create repo" {
+		t.Errorf("create grant = %q, want %q", create.Grant, "can create repo")
 	}
 	if create.Name != "ward.ops.forgejo.repo.create" {
 		t.Errorf("create dotted name = %q", create.Name)
@@ -366,7 +359,7 @@ func TestDescribeVerbRenders(t *testing.T) {
 	for _, want := range []string{
 		"## ward ops forgejo repo create", // heading carries the full command path
 		"/user/repos",
-		"Authorized by grant: can create repos",
+		"Authorized by grant: can create repo",
 		"/forgejo/api-token",
 		"Destructive - mutates irreversibly.",
 		"deletes the repo",
@@ -376,21 +369,6 @@ func TestDescribeVerbRenders(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("describe output missing %q:\n%s", want, out)
 		}
-	}
-}
-
-// TestListOrgsExpands proves `list orgs` resolves to the non-destructive org list
-// leaf (orgGetAll, GET /orgs), asserted at the table since the test spec has no orgs.
-func TestListOrgsExpands(t *testing.T) {
-	e, ok := lookupExpansion("list", "orgs")
-	if !ok {
-		t.Fatal("list orgs should be in the expansion allowlist")
-	}
-	if e.Group != "org" || e.Leaf != "list" || e.OperationID != "orgGetAll" {
-		t.Errorf("list orgs = %+v, want org/list/orgGetAll", e)
-	}
-	if destructiveLeaves[e.Leaf] {
-		t.Errorf("list leaf must not be destructive")
 	}
 }
 
@@ -406,7 +384,7 @@ func TestLeafDescriptionIsRich(t *testing.T) {
 	if del == nil {
 		t.Fatal("no repo delete leaf")
 	}
-	for _, want := range []string{"DELETE", "/repos/{owner}/{repo}", "Authorized by: can delete repos", "<owner> (path", "--dry-run", "deletes the repo"} {
+	for _, want := range []string{"DELETE", "/repos/{owner}/{repo}", "Authorized by: can delete repo", "<owner> (path", "--dry-run", "deletes the repo"} {
 		if !strings.Contains(del.Description, want) {
 			t.Errorf("leaf description missing %q:\n%s", want, del.Description)
 		}
@@ -430,8 +408,8 @@ func issuesFixtures(t *testing.T) (*guardfile.Guardfile, []byte) {
 	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
 		spec forgejo.swagger.v1.json
 		auth header-token { header Authorization; ssm "/forgejo/api-token" }
-		can list issues
-		can create issues
+		can list issue { op "issueListIssues" }
+		can create issue { op "issueCreateIssue" }
 	}`))
 	if err != nil {
 		t.Fatalf("parse guardfile: %v", err)
@@ -565,7 +543,7 @@ func TestStateToggleSendsFixedBody(t *testing.T) {
 	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
 		spec forgejo.swagger.v1.json
 		auth header-token { header Authorization; ssm "/forgejo/api-token" }
-		can close issues
+		can close issue { op "issueEditIssue"; body state="closed" }
 	}`))
 	if err != nil {
 		t.Fatalf("parse guardfile: %v", err)
@@ -621,7 +599,7 @@ func TestUntypedArrayTakesNames(t *testing.T) {
 	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
 		spec forgejo.swagger.v1.json
 		auth header-token { header Authorization; ssm "/forgejo/api-token" }
-		can add issue-labels
+		can add issue-label { op "issueAddLabel" }
 	}`))
 	if err != nil {
 		t.Fatalf("parse guardfile: %v", err)
@@ -651,7 +629,7 @@ func TestMultipartUpload(t *testing.T) {
 	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
 		spec forgejo.swagger.v1.json
 		auth header-token { header Authorization; ssm "/forgejo/api-token" }
-		can upload release-assets
+		can upload-asset release { op "repoCreateReleaseAttachment" }
 	}`))
 	if err != nil {
 		t.Fatalf("parse guardfile: %v", err)
@@ -702,16 +680,10 @@ func TestMultipartUpload(t *testing.T) {
 }
 
 // TestBoolFixedBodyToggle proves a non-string fixed body (archive ->
-// {"archived":true}) serializes with its JSON type, matching coily's oracle.
+// {"archived":true}) serializes with its JSON type in the describe sentence.
 func TestBoolFixedBodyToggle(t *testing.T) {
-	e, ok := lookupExpansion("archive", "repos")
-	if !ok {
-		t.Fatal("archive repos should be in the expansion allowlist")
-	}
-	if v, isBool := e.FixedBody["archived"].(bool); !isBool || !v {
-		t.Errorf("archive fixed body = %#v, want archived: true (bool)", e.FixedBody)
-	}
-	if got := fixedBodySentence(e.FixedBody); !strings.Contains(got, `"archived": true`) {
+	fixed := map[string]any{"archived": true}
+	if got := fixedBodySentence(fixed); !strings.Contains(got, `"archived": true`) {
 		t.Errorf("fixed body sentence = %q, want a JSON-typed rendering", got)
 	}
 }

@@ -26,7 +26,7 @@ func ciWatchGuardfile(t *testing.T) *guardfile.Guardfile {
 		"    spec forgejo.swagger.v1.json\n" +
 		"    base-url \"https://forgejo.coilysiren.me/api/v1\"\n" +
 		"    auth header-token { header Authorization; prefix \"token \"; ssm \"/forgejo/api-token\" }\n" +
-		"    can list tasks\n" +
+		"    can list tasks { op \"ListActionTasks\" }\n" +
 		"    action ci-watch {\n" +
 		"        describe \"Watch a CI run to completion.\"\n" +
 		"        input repo { positional; required; help \"owner/name\" }\n" +
@@ -217,7 +217,7 @@ func TestActionGrantedOnlyFailsClosed(t *testing.T) {
 	gf := ciWatchGuardfile(t)
 	// swap the `can list tasks` grant for an unrelated one: the tree still mounts
 	// a verb, but the action now polls an op no grant authorizes
-	gf.Grants = []guardfile.Grant{{Modal: "can", Verb: "read", Resource: "repos"}}
+	gf.Grants = []guardfile.Grant{{Modal: "can", Verb: "get", Resource: "repo", Op: "repoGet"}}
 	_, err := Build(Config{Guardfile: gf, Spec: actionSpec(t)})
 	if err == nil {
 		t.Fatal("expected a build error for an ungranted poll target, got nil")
@@ -257,7 +257,7 @@ func TestActionWritesPerCallAndEnvelopeAudit(t *testing.T) {
 	if !strings.Contains(rows, "ward.ops.forgejo.action.ci-watch") {
 		t.Errorf("missing the envelope audit row:\n%s", rows)
 	}
-	if !strings.Contains(rows, "ward.ops.forgejo.task.list") {
+	if !strings.Contains(rows, "ward.ops.forgejo.tasks.list") {
 		t.Errorf("missing the per-call leaf audit row:\n%s", rows)
 	}
 }

@@ -122,7 +122,7 @@ func Build(cfg Config) (*cli.Command, error) {
 	if len(descs) == 0 {
 		return nil, fmt.Errorf("specverb: Guardfile mounted no verbs (no `can` grants resolved)")
 	}
-	actionDescs, err := resolveActions(spec, gf, grantedKeys(gf))
+	actionDescs, err := resolveActions(spec, gf, grantedGrants(gf))
 	if err != nil {
 		return nil, err
 	}
@@ -203,13 +203,24 @@ func defaultHTTPClient() *http.Client {
 	}
 }
 
-// grantedKeys is the set of (verb, resource) pairs a `can` grant authorizes; an
-// action may only poll a target in this set (granted-only).
-func grantedKeys(gf *guardfile.Guardfile) map[grantKey]bool {
-	keys := map[grantKey]bool{}
+// grantKey is the (verb-class, resource) pair an authored grant names: the CLI
+// placement (Resource is the group, Verb is the leaf).
+type grantKey struct {
+	Verb     string
+	Resource string
+}
+
+// destructiveVerbs names the irreversibly-mutating verb classes. Generic, not
+// API-specific: `delete` is destructive whatever the resource.
+var destructiveVerbs = map[string]bool{"delete": true}
+
+// grantedGrants maps each `can` grant by its (verb, resource) placement, so an
+// action can recover the grant - and its op - for a leaf it polls or calls.
+func grantedGrants(gf *guardfile.Guardfile) map[grantKey]guardfile.Grant {
+	keys := map[grantKey]guardfile.Grant{}
 	for _, g := range gf.Grants {
 		if g.Modal == "can" {
-			keys[grantKey{Verb: g.Verb, Resource: g.Resource}] = true
+			keys[grantKey{Verb: g.Verb, Resource: g.Resource}] = g
 		}
 	}
 	return keys
@@ -254,14 +265,13 @@ func (rt *runtime) buildGroups(descs []opDescriptor) []*cli.Command {
 	return out
 }
 
-// resolveDescriptor turns one grant into a concrete descriptor, failing closed
-// at each gate (no table row, or a row naming an op the spec lacks).
+// resolveDescriptor turns one grant into a concrete descriptor, failing closed at
+// each gate (no `op`, or an op the spec lacks). Resource is the group, Verb the leaf.
 func resolveDescriptor(spec *swaggerSpec, group []string, g guardfile.Grant) (opDescriptor, error) {
-	entry, ok := lookupExpansion(g.Verb, g.Resource)
-	if !ok {
-		return opDescriptor{}, fmt.Errorf("specverb: grant %q %q %q has no expansion-table row (deny-by-default)", g.Modal, g.Verb, g.Resource)
+	if g.Op == "" {
+		return opDescriptor{}, fmt.Errorf("specverb: grant %q %q %q has no `op` binding (deny-by-default)", g.Modal, g.Verb, g.Resource)
 	}
-	method, path, op, err := spec.findOp(entry.OperationID)
+	method, path, op, err := spec.findOp(g.Op)
 	if err != nil {
 		return opDescriptor{}, err
 	}
@@ -270,17 +280,17 @@ func resolveDescriptor(spec *swaggerSpec, group []string, g guardfile.Grant) (op
 		return opDescriptor{}, err
 	}
 	desc := opDescriptor{
-		VerbName:    strings.Join(group, ".") + "." + entry.Group + "." + entry.Leaf,
-		Group:       entry.Group,
-		Leaf:        entry.Leaf,
+		VerbName:    strings.Join(group, ".") + "." + g.Resource + "." + g.Verb,
+		Group:       g.Resource,
+		Leaf:        g.Verb,
 		Method:      method,
 		Path:        path,
 		PathParams:  pathParamsInOrder(path),
 		BodyFlags:   bodyFlagsFrom(bodySchema),
 		QueryFlags:  queryFlagsFrom(op),
 		FormFlags:   formFlagsFrom(op),
-		FixedBody:   entry.FixedBody,
-		Destructive: destructiveLeaves[entry.Leaf],
+		FixedBody:   g.FixedBody,
+		Destructive: destructiveVerbs[g.Verb],
 		Grant:       formatGrant(g),
 		Describe:    g.Describe,
 	}

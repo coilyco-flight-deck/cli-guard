@@ -18,7 +18,7 @@ type Auth struct {
 }
 
 // Grant is one policy sentence: modal verb resource [qualifiers...] [key=value...].
-// "can delete repos org=acme" -> {can, delete, repos, Props{org: acme}}.
+// Resource is the CLI group, Verb the leaf, Op the operationId. See docs/specverb.md.
 type Grant struct {
 	Modal      string
 	Verb       string
@@ -29,9 +29,28 @@ type Grant struct {
 	// like `org=acme`. Positional bareword qualifiers stay in Qualifiers.
 	Props map[string]string
 
+	// Op is the spec operationId this grant authorizes (grant-body `op "..."`).
+	// Required on a `can`; ignored on a deny, which names a verb+resource class.
+	Op string
+
+	// FixedBody is the grant-body `body key=value...` map: a state-toggle leaf that
+	// always sends this exact JSON and mounts no body flags. Keeps KDL-native types.
+	FixedBody map[string]any
+
+	// Message is the grant-body `message "..."` shown when a deny blocks an
+	// invocation - the teaching error. Only meaningful on cannot/never.
+	Message string
+
 	// Describe is the optional grant-body `describe "..."` note that enriches
 	// the thin upstream spec; it flows into help and the describe verb.
 	Describe string
+}
+
+// Restriction is a wrap-level `restrict <param> matches "<glob>"...` allowlist:
+// a {Param}-carrying leaf must match a Glob or fail closed. See docs/specverb.md.
+type Restriction struct {
+	Param string
+	Globs []string
 }
 
 // Input is one parameter an Action declares (a positional arg or a flag). Its
@@ -62,24 +81,35 @@ type Poll struct {
 	As       string // binding name for the final response
 }
 
-// Action is a named composite verb inside a wrap block: sugar over the
-// allowlist. v1 carries one Poll plus an optional FailWhen exit predicate.
+// Call is one step of a multi-call action: fires a granted leaf with Args, binds
+// the response to As for `$As.field` data-flow. See specverb-actions.md.
+type Call struct {
+	Verb     string
+	Resource string
+	Args     []ArgBind
+	As       string // binding name for this call's response
+}
+
+// Action is a named composite verb: EITHER a Poll (watch one leaf) or an ordered
+// Calls sequence (chain leaves), plus an optional FailWhen exit. See specverb-actions.md.
 type Action struct {
 	Name     string
 	Describe string
 	Inputs   []Input
 	Poll     *Poll
+	Calls    []Call // ordered multi-call sequence; mutually exclusive with Poll
 	FailWhen string // JMESPath over the bindings; truthy => non-zero exit
 }
 
 // Guardfile is the parsed form of one wrap block.
 type Guardfile struct {
-	Group   []string // command path, e.g. ["ward", "ops", "forgejo"]
-	Spec    string
-	BaseURL string
-	Auth    Auth
-	Grants  []Grant
-	Actions []Action
+	Group    []string // command path, e.g. ["ward", "ops", "forgejo"]
+	Spec     string
+	BaseURL  string
+	Auth     Auth
+	Grants   []Grant
+	Restrict []Restriction
+	Actions  []Action
 }
 
 // modals is the closed set of grant verbs; anything else fails closed.
@@ -135,6 +165,13 @@ func (gf *Guardfile) applyNode(n *kdl.Node) error {
 		a, err := parseAuth(n)
 		gf.Auth = a
 		return err
+	case "restrict":
+		r, err := parseRestrict(n)
+		if err != nil {
+			return err
+		}
+		gf.Restrict = append(gf.Restrict, r)
+		return nil
 	case "action":
 		act, err := parseAction(n)
 		if err != nil {
@@ -153,7 +190,7 @@ func (gf *Guardfile) applyNode(n *kdl.Node) error {
 // reservedActionKeywords are the forward-design slots v1 does not implement;
 // parsing one is a fail-closed error, not a silent no-op. See specverb-actions.md.
 var reservedActionKeywords = map[string]bool{
-	"call": true, "read": true, // non-poll leaf calls (the leaf seam)
+	"read": true,                 // non-poll single-leaf read (the leaf seam)
 	"emit": true, "cursor": true, // per-tick streaming-delta slots on poll
 	"each": true, "yield": true, // fan-out body (deferred v2)
 	"follow": true, "stream": true, "tail": true, // live log-tail keywords
@@ -219,18 +256,66 @@ func parseGrant(n *kdl.Node) (Grant, error) {
 		g.Props[k] = v.String()
 	}
 	for _, c := range n.Children().Nodes {
-		switch c.Name() {
-		case "describe":
-			v, err := singleArg(c)
-			if err != nil {
-				return Grant{}, fmt.Errorf("guardfile: grant %q: %w", n.Name(), err)
-			}
-			g.Describe = v
-		default:
-			return Grant{}, fmt.Errorf("guardfile: grant body: unknown node %q (only `describe` is allowed; fail-closed)", c.Name())
+		if err := applyGrantChild(&g, n.Name(), c); err != nil {
+			return Grant{}, err
 		}
 	}
+	if g.Modal == "can" && g.Op == "" {
+		return Grant{}, fmt.Errorf("guardfile: `can %s %s` needs an `op \"<operationId>\"` binding (the engine carries no expansion table)", g.Verb, g.Resource)
+	}
 	return g, nil
+}
+
+// applyGrantChild dispatches one grant-body child onto g. modal is the grant's
+// node name, used only to enrich error messages.
+func applyGrantChild(g *Grant, modal string, c *kdl.Node) error {
+	switch c.Name() {
+	case "op":
+		v, err := singleArg(c)
+		if err != nil {
+			return fmt.Errorf("guardfile: grant %q: %w", modal, err)
+		}
+		g.Op = v
+	case "body":
+		// A fixed-body toggle: `body state="closed"` -> always send that JSON.
+		// Properties keep their KDL-native type so booleans stay booleans.
+		if len(c.Properties()) == 0 {
+			return fmt.Errorf("guardfile: grant %q: `body` needs at least one key=value (e.g. `body state=\"closed\"`)", modal)
+		}
+		g.FixedBody = map[string]any{}
+		for k, val := range c.Properties() {
+			g.FixedBody[k] = val.RawValue()
+		}
+	case "message":
+		v, err := singleArg(c)
+		if err != nil {
+			return fmt.Errorf("guardfile: grant %q: %w", modal, err)
+		}
+		g.Message = v
+	case "describe":
+		v, err := singleArg(c)
+		if err != nil {
+			return fmt.Errorf("guardfile: grant %q: %w", modal, err)
+		}
+		g.Describe = v
+	default:
+		return fmt.Errorf("guardfile: grant body: unknown node %q (want op | body | message | describe; fail-closed)", c.Name())
+	}
+	return nil
+}
+
+// parseRestrict reads a `restrict <param> matches "<glob>"...` allowlist clause.
+func parseRestrict(n *kdl.Node) (Restriction, error) {
+	args := n.Arguments()
+	// shape: restrict <param> matches <glob> [<glob>...]
+	if len(args) < 3 || args[1].String() != "matches" {
+		return Restriction{}, fmt.Errorf("guardfile: restrict needs `restrict <param> matches \"<glob>\"...`")
+	}
+	r := Restriction{Param: args[0].String()}
+	for _, g := range args[2:] {
+		r.Globs = append(r.Globs, g.String())
+	}
+	return r, nil
 }
 
 // parseAction reads one `action <name> { ... }` block into an Action. It fails
@@ -246,8 +331,11 @@ func parseAction(n *kdl.Node) (Action, error) {
 			return Action{}, fmt.Errorf("guardfile: action %q: %w", name, err)
 		}
 	}
-	if act.Poll == nil {
-		return Action{}, fmt.Errorf("guardfile: action %q: a `poll` block is required in v1", name)
+	switch {
+	case act.Poll == nil && len(act.Calls) == 0:
+		return Action{}, fmt.Errorf("guardfile: action %q: needs a `poll` block or at least one `call` step", name)
+	case act.Poll != nil && len(act.Calls) > 0:
+		return Action{}, fmt.Errorf("guardfile: action %q: `poll` and `call` are mutually exclusive (watch one leaf, or chain leaves)", name)
 	}
 	return act, nil
 }
@@ -267,14 +355,13 @@ func applyActionChild(act *Action, c *kdl.Node) error {
 		act.Inputs = append(act.Inputs, in)
 		return nil
 	case "poll":
-		if act.Poll != nil {
-			return fmt.Errorf("v1 allows exactly one `poll` per action")
-		}
-		p, err := parsePoll(c)
+		return addPoll(act, c)
+	case "call":
+		call, err := parseCall(c)
 		if err != nil {
 			return err
 		}
-		act.Poll = &p
+		act.Calls = append(act.Calls, call)
 		return nil
 	case "fail-when":
 		v, err := singleArg(c)
@@ -289,6 +376,19 @@ func applyActionChild(act *Action, c *kdl.Node) error {
 		}
 		return fmt.Errorf("unknown body node %q (fail-closed)", c.Name())
 	}
+}
+
+// addPoll parses a poll child and attaches it to act, rejecting a second poll.
+func addPoll(act *Action, c *kdl.Node) error {
+	if act.Poll != nil {
+		return fmt.Errorf("v1 allows exactly one `poll` per action")
+	}
+	p, err := parsePoll(c)
+	if err != nil {
+		return err
+	}
+	act.Poll = &p
+	return nil
 }
 
 // parseInput reads one `input <name> { positional|flag; required; help "..." }`
@@ -322,6 +422,40 @@ func parseInput(n *kdl.Node) (Input, error) {
 		return Input{}, fmt.Errorf("input %q: declare exactly one of `positional` or `flag`", name)
 	}
 	return in, nil
+}
+
+// parseCall reads a `call <verb> <resource> { args {...}; as <name> }` step of a
+// multi-call action. Args and As are both optional. See specverb-actions.md.
+func parseCall(n *kdl.Node) (Call, error) {
+	args := n.Arguments()
+	if len(args) != 2 {
+		return Call{}, fmt.Errorf("call needs a verb and a resource, e.g. `call view issues { ... }`")
+	}
+	cl := Call{Verb: args[0].String(), Resource: args[1].String()}
+	for _, c := range n.Children().Nodes {
+		switch c.Name() {
+		case "args":
+			for _, a := range c.Children().Nodes {
+				v, err := singleArg(a)
+				if err != nil {
+					return Call{}, fmt.Errorf("call args %q: %w", a.Name(), err)
+				}
+				cl.Args = append(cl.Args, ArgBind{Name: a.Name(), Value: v})
+			}
+		case "as":
+			v, err := singleArg(c)
+			if err != nil {
+				return Call{}, fmt.Errorf("call as: %w", err)
+			}
+			cl.As = v
+		default:
+			if reservedActionKeywords[c.Name()] {
+				return Call{}, fmt.Errorf("call: %q is reserved for a future version (fail-closed)", c.Name())
+			}
+			return Call{}, fmt.Errorf("call: unknown body node %q (want args | as; fail-closed)", c.Name())
+		}
+	}
+	return cl, nil
 }
 
 // parsePoll reads a `poll <verb> <resource> { args {...}; until; every; timeout;

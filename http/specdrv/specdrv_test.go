@@ -16,8 +16,8 @@ const guardfileFixture = `wrap ward-kdl ops forgejo {
 	spec forgejo.swagger.v1.json
 	base-url "forgejo.coilysiren.me/api/v1"
 	auth header-token { header Authorization; prefix "token "; ssm "/forgejo/api-token" }
-	can read repos
-	can create repos
+	can read repos { op "repoGet" }
+	can create repos { op "createCurrentUserRepo" }
 }`
 
 // execFixture is an exec-dialect member sharing the ward-kdl binary with the

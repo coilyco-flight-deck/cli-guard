@@ -45,7 +45,7 @@ type actionDescriptor struct {
 
 // resolveActions resolves every Guardfile action into a descriptor, failing
 // closed at each gate; granted is the (verb, resource) set the Guardfile grants.
-func resolveActions(spec *swaggerSpec, gf *guardfile.Guardfile, granted map[grantKey]bool) ([]actionDescriptor, error) {
+func resolveActions(spec *swaggerSpec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant) ([]actionDescriptor, error) {
 	var out []actionDescriptor
 	for _, a := range gf.Actions {
 		ad, err := resolveAction(spec, gf, granted, a)
@@ -57,13 +57,19 @@ func resolveActions(spec *swaggerSpec, gf *guardfile.Guardfile, granted map[gran
 	return out, nil
 }
 
-func resolveAction(spec *swaggerSpec, gf *guardfile.Guardfile, granted map[grantKey]bool, a guardfile.Action) (actionDescriptor, error) {
-	p := a.Poll // parser guarantees non-nil
+func resolveAction(spec *swaggerSpec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant, a guardfile.Action) (actionDescriptor, error) {
+	// Multi-call (`call`) execution lands in its own pass; poll is the only shape
+	// the engine runs today. Parser guarantees exactly one of Poll/Calls is set.
+	if a.Poll == nil {
+		return actionDescriptor{}, fmt.Errorf("specverb: action %q: multi-call (`call`) actions are parsed but not yet executed by the engine", a.Name)
+	}
+	p := a.Poll
 	// Granted-only: an action may only poll an op the same Guardfile grants.
-	if !granted[grantKey{Verb: p.Verb, Resource: p.Resource}] {
+	g, ok := granted[grantKey{Verb: p.Verb, Resource: p.Resource}]
+	if !ok {
 		return actionDescriptor{}, fmt.Errorf("specverb: action %q polls %q %q which no `can` grant authorizes (deny-by-default; add `can %s %s`)", a.Name, p.Verb, p.Resource, p.Verb, p.Resource)
 	}
-	leaf, err := resolveDescriptor(spec, gf.Group, guardfile.Grant{Modal: "can", Verb: p.Verb, Resource: p.Resource})
+	leaf, err := resolveDescriptor(spec, gf.Group, g)
 	if err != nil {
 		return actionDescriptor{}, fmt.Errorf("specverb: action %q: %w", a.Name, err)
 	}

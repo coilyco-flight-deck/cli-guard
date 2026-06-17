@@ -34,9 +34,9 @@ func TestParseFixture(t *testing.T) {
 	}
 
 	wantGrants := []Grant{
-		{Modal: "can", Verb: "read", Resource: "repos"},
-		{Modal: "can", Verb: "create", Resource: "repos"},
-		{Modal: "can", Verb: "delete", Resource: "repos"},
+		{Modal: "can", Verb: "get", Resource: "repos", Op: "repoGet"},
+		{Modal: "can", Verb: "create", Resource: "repos", Op: "createCurrentUserRepo"},
+		{Modal: "can", Verb: "delete", Resource: "repos", Op: "repoDelete"},
 	}
 	if !reflect.DeepEqual(gf.Grants, wantGrants) {
 		t.Errorf("Grants = %+v, want %+v", gf.Grants, wantGrants)
@@ -52,7 +52,7 @@ func TestBareTokensAreStrings(t *testing.T) {
         header Authorization
         ssm "/forgejo/api-token"
     }
-    can delete labels created-by-me
+    can delete labels created-by-me { op "labelDelete" }
 }`)
 	gf, err := Parse(src)
 	if err != nil {
@@ -61,7 +61,7 @@ func TestBareTokensAreStrings(t *testing.T) {
 	if gf.Spec != "forgejo.swagger.v1.json" {
 		t.Errorf("dotted bare spec did not round-trip: %q", gf.Spec)
 	}
-	want := Grant{Modal: "can", Verb: "delete", Resource: "labels", Qualifiers: []string{"created-by-me"}}
+	want := Grant{Modal: "can", Verb: "delete", Resource: "labels", Qualifiers: []string{"created-by-me"}, Op: "labelDelete"}
 	if len(gf.Grants) != 1 || !reflect.DeepEqual(gf.Grants[0], want) {
 		t.Errorf("flat qualifier sentence = %+v, want %+v", gf.Grants, want)
 	}
@@ -74,6 +74,7 @@ func TestGrantDescribeAnnotation(t *testing.T) {
 	    spec s
 	    auth header-token { header H; ssm S }
 	    can delete repos {
+	        op "repoDelete"
 	        describe "irreversible: deletes the repo and all its data"
 	    }
 	}`)
@@ -81,7 +82,7 @@ func TestGrantDescribeAnnotation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	want := Grant{Modal: "can", Verb: "delete", Resource: "repos", Describe: "irreversible: deletes the repo and all its data"}
+	want := Grant{Modal: "can", Verb: "delete", Resource: "repos", Op: "repoDelete", Describe: "irreversible: deletes the repo and all its data"}
 	if len(gf.Grants) != 1 || !reflect.DeepEqual(gf.Grants[0], want) {
 		t.Errorf("grant with describe = %+v, want %+v", gf.Grants, want)
 	}
@@ -93,13 +94,13 @@ func TestGrantProperties(t *testing.T) {
 	src := []byte(`wrap ward ops forgejo {
 	    spec s
 	    auth header-token { header H; ssm S }
-	    can delete repos org="coilyco-flight-deck"
+	    can delete repos org="coilyco-flight-deck" { op "repoDelete" }
 	}`)
 	gf, err := Parse(src)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	want := Grant{Modal: "can", Verb: "delete", Resource: "repos", Props: map[string]string{"org": "coilyco-flight-deck"}}
+	want := Grant{Modal: "can", Verb: "delete", Resource: "repos", Op: "repoDelete", Props: map[string]string{"org": "coilyco-flight-deck"}}
 	if len(gf.Grants) != 1 || !reflect.DeepEqual(gf.Grants[0], want) {
 		t.Errorf("grant with org property = %+v, want %+v", gf.Grants, want)
 	}
@@ -111,7 +112,7 @@ func TestParseAction(t *testing.T) {
 	src := []byte(`wrap ward ops forgejo {
     spec s
     auth header-token { header H; ssm S }
-    can list tasks
+    can list tasks { op "ListActionTasks" }
 
     action ci-watch {
         describe "Watch a CI run to completion."
