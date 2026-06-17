@@ -106,6 +106,24 @@ func TestGrantProperties(t *testing.T) {
 	}
 }
 
+// TestParseGrantWithoutOp asserts a `can` parses with no `op` binding: Op is
+// optional at the parser layer (resolved by convention downstream), not an error.
+func TestParseGrantWithoutOp(t *testing.T) {
+	src := []byte(`wrap ward ops forgejo {
+	    spec s
+	    auth header-token { header H; ssm S }
+	    can get repo
+	}`)
+	gf, err := Parse(src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := Grant{Modal: "can", Verb: "get", Resource: "repo"}
+	if len(gf.Grants) != 1 || !reflect.DeepEqual(gf.Grants[0], want) {
+		t.Errorf("grant without op = %+v, want %+v", gf.Grants, want)
+	}
+}
+
 // TestParseAction asserts the complex-action grammar round-trips: inputs, the
 // poll primitive with its bounds, the multiline `until`, and `fail-when`.
 func TestParseAction(t *testing.T) {

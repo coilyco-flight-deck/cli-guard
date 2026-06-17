@@ -27,7 +27,7 @@ Packages are grouped by **guarded surface** plus a shared `pkg/` core; `cli/`, `
 ### HTTP request surface (`http/`)
 
 - **egress** - Per-invocation CONNECT proxy with consumer allowlist.
-- **guardfile** / **specverb** / **specgen** / **specdrv** - Spec-driven verbs from a Guardfile + `action` composites; each `can` binds its `op`, durable across Swagger 2 / OpenAPI 3. See [specverb.md](specverb.md).
+- **guardfile** / **specverb** / **specgen** / **specdrv** - Spec-driven verbs from a Guardfile + `action`s; each `can` resolves its op by convention, across Swagger 2 / OpenAPI 3. See [specverb.md](specverb.md).
 - **respfmt** - JSON response renderer with JMESPath + five output formats.
 - **ghcache** / **ghidcache** / **ghratelimit** / **stscache** - Forgejo/GitHub response, id, rate-limit, and STS credential caches.
 

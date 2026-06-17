@@ -1,6 +1,7 @@
 // specverb proving-slice Guardfile: the forgejo repo get/create/delete trio.
-// Each `can` binds its op explicitly; the engine carries no expansion table.
-// Policy body is flat declarative sentences; quotes live only in the header.
+// No `op` bindings - each grant's verb+resource resolve to an operationId by
+// convention (specverb.resolveOp). Policy body is flat declarative sentences;
+// quotes live only in the header.
 wrap ward ops forgejo {
     spec forgejo.swagger.v1.json
     base-url "https://forgejo.coilysiren.me/api/v1"
@@ -10,10 +11,9 @@ wrap ward ops forgejo {
         ssm "/forgejo/api-token"
     }
 
-    can get repo { op "repoGet" }
-    can create repo { op "createCurrentUserRepo" }
+    can get repo
+    can create repo
     can delete repo {
-        op "repoDelete"
         describe "irreversible: deletes the repo and all its data"
     }
 }

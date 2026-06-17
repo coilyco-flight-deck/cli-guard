@@ -96,10 +96,11 @@ func grantedPathMethods(spec *swaggerSpec, gf *guardfile.Guardfile) (map[string]
 		if _, blocked := denied[grantKey{Verb: g.Verb, Resource: g.Resource}]; blocked {
 			continue // deny beats allow: keep the blocked op out of the lock too
 		}
-		if g.Op == "" {
-			return nil, fmt.Errorf("specverb: prune: grant %q %q has no `op` binding (deny-by-default)", g.Verb, g.Resource)
+		opID, err := resolveOp(spec, g)
+		if err != nil {
+			return nil, err
 		}
-		method, path, _, err := spec.findOp(g.Op)
+		method, path, _, err := spec.findOp(opID)
 		if err != nil {
 			return nil, err
 		}

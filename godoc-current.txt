@@ -1566,8 +1566,8 @@ type Grant struct {
 	// like `org=acme`. Positional bareword qualifiers stay in Qualifiers.
 	Props map[string]string
 
-	// Op is the spec operationId this grant authorizes (grant-body `op "..."`).
-	// Required on a `can`; ignored on a deny, which names a verb+resource class.
+	// Op is the spec operationId (grant-body `op "..."`). Optional: an empty Op is
+	// resolved by convention (specverb.resolveOp); set it to override. Deny ignores it.
 	Op string
 
 	// FixedBody is the grant-body `body key=value...` map: a state-toggle leaf that

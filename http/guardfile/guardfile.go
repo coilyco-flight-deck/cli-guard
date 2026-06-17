@@ -40,8 +40,8 @@ type Grant struct {
 	// like `org=acme`. Positional bareword qualifiers stay in Qualifiers.
 	Props map[string]string
 
-	// Op is the spec operationId this grant authorizes (grant-body `op "..."`).
-	// Required on a `can`; ignored on a deny, which names a verb+resource class.
+	// Op is the spec operationId (grant-body `op "..."`). Optional: an empty Op is
+	// resolved by convention (specverb.resolveOp); set it to override. Deny ignores it.
 	Op string
 
 	// FixedBody is the grant-body `body key=value...` map: a state-toggle leaf that
@@ -336,9 +336,6 @@ func parseGrant(n *kdl.Node) (Grant, error) {
 		if err := applyGrantChild(&g, n.Name(), c); err != nil {
 			return Grant{}, err
 		}
-	}
-	if g.Modal == "can" && g.Op == "" {
-		return Grant{}, fmt.Errorf("guardfile: `can %s %s` needs an `op \"<operationId>\"` binding (the engine carries no expansion table)", g.Verb, g.Resource)
 	}
 	return g, nil
 }

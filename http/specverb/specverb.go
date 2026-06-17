@@ -284,13 +284,14 @@ func (rt *runtime) buildGroups(descs []opDescriptor, denies []denyDescriptor) []
 	return out
 }
 
-// resolveDescriptor turns one grant into a concrete descriptor, failing closed at
-// each gate (no `op`, or an op the spec lacks). Resource is the group, Verb the leaf.
+// resolveDescriptor turns one grant into a concrete descriptor via resolveOp,
+// failing closed (unresolvable verb+resource, or an op the spec lacks).
 func resolveDescriptor(spec *swaggerSpec, group []string, g guardfile.Grant) (opDescriptor, error) {
-	if g.Op == "" {
-		return opDescriptor{}, fmt.Errorf("specverb: grant %q %q %q has no `op` binding (deny-by-default)", g.Modal, g.Verb, g.Resource)
+	opID, err := resolveOp(spec, g)
+	if err != nil {
+		return opDescriptor{}, err
 	}
-	method, path, op, err := spec.findOp(g.Op)
+	method, path, op, err := spec.findOp(opID)
 	if err != nil {
 		return opDescriptor{}, err
 	}
