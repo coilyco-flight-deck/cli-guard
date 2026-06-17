@@ -12,13 +12,26 @@ import (
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
 )
 
-// Prune returns a minimal Swagger 2.0 doc with only the operations gf grants and
-// their reachable definitions (raw-JSON, full-fidelity). See docs/specverb-driver.md.
+// Prune returns a minimal spec doc holding only the operations gf grants and
+// their reachable schemas. Dispatches on version. See docs/specverb-driver.md.
 func Prune(spec []byte, gf *guardfile.Guardfile) ([]byte, error) {
 	if gf == nil {
 		return nil, fmt.Errorf("specverb: prune: nil guardfile")
 	}
-	typed, err := parseSwagger(spec)
+	version, err := detectSpecVersion(spec)
+	if err != nil {
+		return nil, err
+	}
+	if version == 3 {
+		return pruneOpenAPI3(spec, gf)
+	}
+	return pruneSwagger2(spec, gf)
+}
+
+// pruneSwagger2 keeps only the granted paths/methods and the transitive closure
+// of Swagger 2.0 definitions they reach, re-emitting raw-fidelity JSON.
+func pruneSwagger2(spec []byte, gf *guardfile.Guardfile) ([]byte, error) {
+	typed, err := parseSwagger2(spec)
 	if err != nil {
 		return nil, err
 	}

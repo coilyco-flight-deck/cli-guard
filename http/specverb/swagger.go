@@ -1,5 +1,5 @@
-// Minimal Swagger 2.0 reader for M0: reads only what the proving ops need.
-// Full kin-openapi 2.0 -> 3.x conversion is M1. See docs/specverb.md.
+// The spec reader: a small internal model the engine binds to, fed by either a
+// Swagger 2.0 document (here) or an OpenAPI 3.x document (openapi3.go).
 
 package specverb
 
@@ -44,15 +44,48 @@ type swaggerSchema struct {
 	Items       *swaggerSchema           `json:"items"`
 }
 
-// parseSwagger reads a Swagger 2.0 document, failing closed on anything that is
-// not the 2.0 shape the M0 reader understands.
+// parseSwagger reads either a Swagger 2.0 or an OpenAPI 3.x document into the
+// internal model, dispatching on the declared version. Fails closed on neither.
 func parseSwagger(raw []byte) (*swaggerSpec, error) {
+	version, err := detectSpecVersion(raw)
+	if err != nil {
+		return nil, err
+	}
+	if version == 3 {
+		return parseOpenAPI3(raw)
+	}
+	return parseSwagger2(raw)
+}
+
+// detectSpecVersion sniffs the document version: 2 for `swagger: "2.x"`, 3 for
+// `openapi: "3.x"`. YAML (3.x only here) routes through the openapi3 loader.
+func detectSpecVersion(raw []byte) (int, error) {
+	var probe struct {
+		Swagger string `json:"swagger"`
+		OpenAPI string `json:"openapi"`
+	}
+	if json.Unmarshal(raw, &probe) == nil {
+		if strings.HasPrefix(probe.Swagger, "2.") {
+			return 2, nil
+		}
+		if strings.HasPrefix(probe.OpenAPI, "3.") {
+			return 3, nil
+		}
+	}
+	if v, ok := sniffOpenAPI3(raw); ok && v {
+		return 3, nil
+	}
+	return 0, fmt.Errorf("specverb: unrecognized spec version (want swagger 2.x or openapi 3.x)")
+}
+
+// parseSwagger2 reads a Swagger 2.0 document, failing closed on a non-2.0 shape.
+func parseSwagger2(raw []byte) (*swaggerSpec, error) {
 	var s swaggerSpec
 	if err := json.Unmarshal(raw, &s); err != nil {
 		return nil, fmt.Errorf("specverb: parse swagger json: %w", err)
 	}
 	if !strings.HasPrefix(s.Swagger, "2.") {
-		return nil, fmt.Errorf("specverb: expected swagger 2.0, got %q (openapi 3.x conversion is M1)", s.Swagger)
+		return nil, fmt.Errorf("specverb: expected swagger 2.0, got %q", s.Swagger)
 	}
 	if len(s.Paths) == 0 {
 		return nil, fmt.Errorf("specverb: spec has no paths")

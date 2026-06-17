@@ -1843,9 +1843,8 @@ func Mount(root *cli.Command, cfg Config) error
     intermediate path groups the Guardfile names. See docs/specverb.md.
 
 func Prune(spec []byte, gf *guardfile.Guardfile) ([]byte, error)
-    Prune returns a minimal Swagger 2.0 doc with only the operations gf
-    grants and their reachable definitions (raw-JSON, full-fidelity). See
-    docs/specverb-driver.md.
+    Prune returns a minimal spec doc holding only the operations gf grants and
+    their reachable schemas. Dispatches on version. See docs/specverb-driver.md.
 
 
 TYPES
