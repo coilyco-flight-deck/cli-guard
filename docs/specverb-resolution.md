@@ -20,10 +20,14 @@ A resource may be a `parent-child` compound: `issue-label` targets the `labels` 
 
 For the lowered (method, shape, leaf, ancestors), the resource segment is the static segment naming the collection - the trailing static segment (collection) or the last static segment before the trailing `{param}` run (item). Among matches, the winner is chosen by: prefer a true **plural collection** segment over a singular singleton, then the **least-nested** path (the canonical resource lives at the shallowest depth; deeper paths are nested views).
 
+## operationId fallback
+
+When no path-structure candidate matches, the resolver matches the grant's verb and resource against the **words of each operationId** (camelCase / kebab / snake split). This reaches endpoints whose path does not name the resource: Tailscale's `get policy` resolves to `getPolicyFile` (path `/tailnet/{tailnet}/acl`) because the operationId words are `[get, policy, file]`. The same plural/least-nested disambiguation and fail-closed rule apply.
+
 ## Fail-closed
 
 Resolution is deny-by-default. A unique winner resolves; **zero candidates or a remaining tie is a fail-closed error** that names the candidates and tells the author to pin one with `op`. The engine never silently guesses. Because disambiguation prefers shallow/plural paths rather than failing on every collision, a spec re-vendor that introduces a shallower colliding path can change a resolved op - the `lock` diff and skew check surface that for review.
 
 ## When to pin `op`
 
-Pin `op` for endpoints no convention can name: a singleton sub-resource whose path segment differs from the resource (e.g. Tailscale's policy file at `/tailnet/{tailnet}/acl`), or any operation the structural conventions genuinely cannot reach.
+With the structural conventions plus the operationId fallback, `op` is rarely needed. Pin it only when resolution is genuinely ambiguous (the error names the colliding candidates) or when neither the path nor the operationId names the verb+resource.

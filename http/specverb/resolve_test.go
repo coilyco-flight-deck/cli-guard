@@ -129,6 +129,25 @@ func TestResolveOpListChild(t *testing.T) {
 	}
 }
 
+// TestResolveOpOperationIDFallback asserts that when no path-structure candidate
+// matches, verb+resource match the operationId words (`get policy` -> getPolicyFile).
+func TestResolveOpOperationIDFallback(t *testing.T) {
+	spec := &swaggerSpec{Paths: map[string]map[string]swaggerOp{
+		"/tailnet/{tailnet}/acl":          {"get": {OperationID: "getPolicyFile"}, "post": {OperationID: "setPolicyFile"}},
+		"/tailnet/{tailnet}/acl/validate": {"post": {OperationID: "validateAndTestPolicyFile"}},
+	}}
+	cases := []struct{ verb, want string }{{"get", "getPolicyFile"}, {"set", "setPolicyFile"}}
+	for _, c := range cases {
+		got, err := resolveOp(spec, guardfile.Grant{Modal: "can", Verb: c.verb, Resource: "policy"})
+		if err != nil {
+			t.Fatalf("resolveOp(%s policy) errored: %v", c.verb, err)
+		}
+		if got != c.want {
+			t.Errorf("resolveOp(%s policy) = %q, want %q", c.verb, got, c.want)
+		}
+	}
+}
+
 // TestResolveOpFailsClosed asserts resolution is deny-by-default: a verb+resource
 // with no matching operation is an error, never a silent guess.
 func TestResolveOpFailsClosed(t *testing.T) {

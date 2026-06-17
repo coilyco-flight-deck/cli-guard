@@ -5,6 +5,7 @@ package specverb
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -90,7 +91,60 @@ func resolveOp(spec *swaggerSpec, g guardfile.Grant) (string, error) {
 		op, ok, amb := pick(cands)
 		return resolveResult(g, op, ok, amb)
 	}
-	return resolveResult(g, "", false, nil)
+	// Fallback: when no path-structure candidate matches, match verb+resource
+	// against the words of each operationId (e.g. getPolicyFile for `get policy`).
+	op, ok, amb := pick(operationIDCandidates(spec, g.Verb, g.Resource))
+	return resolveResult(g, op, ok, amb)
+}
+
+// idTokenRe inserts a split point between a lower/digit and an uppercase letter,
+// so camelCase operationIds tokenize on word boundaries.
+var idTokenRe = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+
+// idTokens lowercases an operationId and splits it into words on case boundaries
+// and `-`/`_` separators: getPolicyFile -> [get policy file].
+func idTokens(id string) []string {
+	s := strings.NewReplacer("-", " ", "_", " ").Replace(id)
+	return strings.Fields(strings.ToLower(idTokenRe.ReplaceAllString(s, "$1 $2")))
+}
+
+// operationIDCandidates returns operations whose operationId words contain the
+// verb and the singularized resource (the fallback). See docs/specverb-resolution.md.
+func operationIDCandidates(spec *swaggerSpec, verb, resource string) []candidate {
+	want := singularize(resource)
+	var out []candidate
+	for path, methods := range spec.Paths {
+		for _, op := range methods {
+			if op.OperationID == "" {
+				continue
+			}
+			toks := idTokens(op.OperationID)
+			if tokensHave(toks, verb) && tokensHaveSingular(toks, want) {
+				out = append(out, candidate{op: op.OperationID, depth: len(splitPath(path)), plural: true})
+			}
+		}
+	}
+	return out
+}
+
+// tokensHave reports whether word appears verbatim among toks.
+func tokensHave(toks []string, word string) bool {
+	for _, t := range toks {
+		if t == word {
+			return true
+		}
+	}
+	return false
+}
+
+// tokensHaveSingular reports whether any token, singularized, equals want.
+func tokensHaveSingular(toks []string, want string) bool {
+	for _, t := range toks {
+		if singularize(t) == want {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveResult turns a pick into either the operationId or a fail-closed error
