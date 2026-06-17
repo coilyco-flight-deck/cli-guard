@@ -72,6 +72,7 @@ type stamp struct {
 	SpecLockHash     string `json:"specLockHash"`
 	DepLockHash      string `json:"depLockHash"`
 	GeneratorVersion string `json:"generatorVersion"`
+	LDVersion        string `json:"ldVersion"` // version stamped via -ldflags; rebuilds when it drifts
 	BuiltAt          string `json:"builtAt"`
 }
 
@@ -130,5 +131,6 @@ func stale(dir, binaryPath string, want stamp) bool {
 	return got.GuardfileHash != want.GuardfileHash ||
 		got.SpecLockHash != want.SpecLockHash ||
 		got.DepLockHash != want.DepLockHash ||
-		got.GeneratorVersion != want.GeneratorVersion
+		got.GeneratorVersion != want.GeneratorVersion ||
+		got.LDVersion != want.LDVersion
 }

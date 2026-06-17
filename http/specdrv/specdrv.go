@@ -28,6 +28,7 @@ type Options struct {
 	Args            []string // run: arguments passed through to the materialized binary
 	CLIGuardRef     string   // lock: cli-guard module query to pin (version/commit); empty = auto
 	CLIGuardReplace string   // lock: local cli-guard checkout to replace with (dev locks only)
+	Version         string   // build: release version stamped into the binary via -ldflags (empty = "dev")
 }
 
 // ErrNoLock is returned by run and skew when a required committed lock is
@@ -486,6 +487,7 @@ func materialize(opts Options) (string, *group, error) {
 		SpecLockHash:     hashConcat(orderedSpecs(g.Members, specByPath)...),
 		DepLockHash:      hashBytes(depRaw),
 		GeneratorVersion: generatorVersion(),
+		LDVersion:        opts.Version,
 		BuiltAt:          time.Now().UTC().Format(time.RFC3339),
 	}
 	if err := materializeIfStale(cdir, binPath, main, g.Members, specByPath, dl, want); err != nil {
@@ -580,7 +582,14 @@ func materializeIfStale(cdir, binPath string, main []byte, mems []member, specBy
 	if err := os.MkdirAll(filepath.Join(cdir, "bin"), 0o750); err != nil {
 		return fmt.Errorf("specdrv: create bin dir: %w", err)
 	}
-	if err := runGo(cdir, "build", "-mod=readonly", "-o", binPath, "."); err != nil {
+	args := []string{"build", "-mod=readonly"}
+	// Stamp the consumer's release version into main.Version, mirroring the way
+	// ward's own formula sets it. Absent (dev build), the template's "dev" stands.
+	if want.LDVersion != "" {
+		args = append(args, "-ldflags", "-X main.Version="+want.LDVersion)
+	}
+	args = append(args, "-o", binPath, ".")
+	if err := runGo(cdir, args...); err != nil {
 		return err
 	}
 	return writeStamp(cdir, want)

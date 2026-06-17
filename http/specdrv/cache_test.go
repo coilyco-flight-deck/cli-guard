@@ -70,6 +70,7 @@ func TestStaleDetectsEveryInput(t *testing.T) {
 		"speclock":  func(s stamp) stamp { s.SpecLockHash = "x"; return s },
 		"deplock":   func(s stamp) stamp { s.DepLockHash = "x"; return s },
 		"generator": func(s stamp) stamp { s.GeneratorVersion = "x"; return s },
+		"ldversion": func(s stamp) stamp { s.LDVersion = "x"; return s },
 	} {
 		if !stale(dir, bin, mut(base)) {
 			t.Errorf("expected stale when %s hash differs", name)

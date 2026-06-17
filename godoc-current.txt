@@ -1762,6 +1762,7 @@ type Options struct {
 	Args            []string // run: arguments passed through to the materialized binary
 	CLIGuardRef     string   // lock: cli-guard module query to pin (version/commit); empty = auto
 	CLIGuardReplace string   // lock: local cli-guard checkout to replace with (dev locks only)
+	Version         string   // build: release version stamped into the binary via -ldflags (empty = "dev")
 }
     Options are the inputs shared by every driver verb.
 

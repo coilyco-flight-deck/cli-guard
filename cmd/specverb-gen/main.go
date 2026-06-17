@@ -112,10 +112,11 @@ func buildCmd() *cli.Command {
 		Usage: "materialize+build the consumer binary if stale, then write it to --out (a dir or file path)",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "out", Value: "bin", Usage: "output directory (binary keeps its Guardfile name) or explicit file path"},
+			&cli.StringFlag{Name: "set-version", Usage: "release version stamped into the binary's --version via -ldflags (default \"dev\")"},
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
 			gf := resolveGuardfile(c)
-			return specdrv.Build(specdrv.Options{GuardfilePath: gf, Out: c.String("out")})
+			return specdrv.Build(specdrv.Options{GuardfilePath: gf, Out: c.String("out"), Version: c.String("set-version")})
 		},
 	}
 }
