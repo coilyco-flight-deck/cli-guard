@@ -336,3 +336,89 @@ func TestParseFailsClosed(t *testing.T) {
 		}
 	}
 }
+
+// agentGuardfile exercises the per-grant `argv` override: a friendly leaf name
+// (launch/headless/whoami) decoupled from the executed invocation.
+const agentGuardfile = `wrap ward-kdl agents claude {
+	exec claude
+
+	can run launch {
+		argv
+		describe "interactive session (bare binary)"
+	}
+	can run headless {
+		argv "-p"
+		describe "non-interactive print mode"
+	}
+	can run whoami {
+		argv "login" "status"
+	}
+	can run doctor
+}`
+
+func TestArgvOverrideBareLaunch(t *testing.T) {
+	var cp capture
+	if err := runArgv(t, agentGuardfile, &cp, "agents", "claude", "launch"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if cp.bin != "claude" {
+		t.Errorf("bin = %q, want claude", cp.bin)
+	}
+	// the friendly leaf name `launch` must NOT leak into argv; an empty
+	// override runs the bare binary.
+	if len(cp.argv) != 0 {
+		t.Errorf("argv = %v, want empty (bare launch)", cp.argv)
+	}
+}
+
+func TestArgvOverrideBareLaunchForwardsArgs(t *testing.T) {
+	var cp capture
+	if err := runArgv(t, agentGuardfile, &cp, "agents", "claude", "launch", "--model", "opus"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := strings.Join(cp.argv, " "); got != "--model opus" {
+		t.Errorf("argv = %q, want %q", got, "--model opus")
+	}
+}
+
+func TestArgvOverrideFlagShape(t *testing.T) {
+	var cp capture
+	if err := runArgv(t, agentGuardfile, &cp, "agents", "claude", "headless", "write a test"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := strings.Join(cp.argv, " "); got != "-p write a test" {
+		t.Errorf("argv = %q, want %q", got, "-p write a test")
+	}
+}
+
+func TestArgvOverrideMultiToken(t *testing.T) {
+	var cp capture
+	if err := runArgv(t, agentGuardfile, &cp, "agents", "claude", "whoami"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := strings.Join(cp.argv, " "); got != "login status" {
+		t.Errorf("argv = %q, want %q", got, "login status")
+	}
+}
+
+func TestNoArgvOverrideKeepsSubcommand(t *testing.T) {
+	var cp capture
+	if err := runArgv(t, agentGuardfile, &cp, "agents", "claude", "doctor"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := strings.Join(cp.argv, " "); got != "doctor" {
+		t.Errorf("argv = %q, want %q (subcommand kept when no override)", got, "doctor")
+	}
+}
+
+func TestArgvOverrideParseFailsClosed(t *testing.T) {
+	cases := []string{
+		`wrap ward agents claude { exec claude; can run "*" { argv "-p" } }`,          // argv on wildcard
+		`wrap ward agents claude { exec claude; can run launch { argv; argv "-p" } }`, // duplicate argv
+	}
+	for _, src := range cases {
+		if _, err := Parse([]byte(src)); err == nil {
+			t.Errorf("expected parse failure for %q", src)
+		}
+	}
+}

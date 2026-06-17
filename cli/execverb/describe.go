@@ -22,6 +22,7 @@ type Surface struct {
 type GrantInfo struct {
 	Name       string   `json:"name"`                  // dotted audit name, e.g. ward.ops.aws.s3.ls
 	Subcommand []string `json:"subcommand,omitempty"`  // e.g. ["s3","ls"]; empty for the wildcard
+	Exec       []string `json:"exec,omitempty"`        // tokens appended after the binary: the argv override when set, else the subcommand
 	Wildcard   bool     `json:"wildcard"`              // `can run *`: the whole binary passes through
 	Describe   string   `json:"describe,omitempty"`    // Guardfile describe note
 	AllowFlags []string `json:"allow_flags,omitempty"` // non-empty: strict flag allowlist
@@ -53,6 +54,7 @@ func grantInfo(gf *Guardfile, g Grant) GrantInfo {
 	gi := GrantInfo{
 		Name:       name,
 		Subcommand: g.Subcommand,
+		Exec:       g.ExecArgv(),
 		Wildcard:   g.Wildcard,
 		Describe:   g.Describe,
 		AllowFlags: g.AllowFlags,
@@ -86,7 +88,7 @@ func (s *Surface) Markdown() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n", strings.Join(s.Group, " "))
 	invocation := strings.TrimSpace(s.Bin + " " + strings.Join(s.ArgvPrefix, " "))
-	fmt.Fprintf(&b, "Exec-dialect CLI. Every verb runs `%s` with the granted subcommand appended; the binary and its prefix are fixed and the caller can never substitute them.\n", invocation)
+	fmt.Fprintf(&b, "Exec-dialect CLI. Every verb runs `%s` with the granted subcommand (or its `argv` override) appended; the binary and its prefix are fixed and the caller can never substitute them.\n", invocation)
 
 	prefix := strings.Join(s.Group, " ")
 	for _, g := range s.Grants {
@@ -99,7 +101,7 @@ func (s *Surface) Markdown() string {
 			heading += " - " + g.Describe
 		}
 		fmt.Fprintf(&b, "\n%s\n\n", heading)
-		fmt.Fprintf(&b, "`%s`\n", strings.TrimSpace(invocation+" "+strings.Join(g.Subcommand, " ")))
+		fmt.Fprintf(&b, "`%s`\n", strings.TrimSpace(invocation+" "+strings.Join(g.Exec, " ")))
 		writeFlagPolicy(&b, g)
 		writeGuards(&b, g)
 	}

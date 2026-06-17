@@ -190,7 +190,7 @@ func actionFor(gf *Guardfile, g Grant, gates []gateFunc, run Runner) cli.ActionF
 		if err := checkFlagPolicy(args, g); err != nil {
 			return exitcode.New(exitcode.UserError, "user_error", err, "this flag is refused by the Guardfile policy")
 		}
-		argv := append(append(append([]string{}, gf.ArgvPrefix...), g.Subcommand...), args...)
+		argv := append(append(append([]string{}, gf.ArgvPrefix...), g.ExecArgv()...), args...)
 		if err := run(ctx, gf.Bin, argv); err != nil {
 			return exitcode.New(exitcode.UpstreamFailed, "upstream_failed", err, "the wrapped command failed")
 		}
@@ -322,9 +322,10 @@ func flagValue(args []string, flag string) (string, bool) {
 	return "", false
 }
 
-// leafUsage renders the one-line help: the real invocation plus the policy.
+// leafUsage renders the one-line help: the real invocation (ExecArgv reflects
+// any `argv` override, so it shows what runs) plus the policy.
 func leafUsage(gf *Guardfile, g Grant) string {
-	invocation := append(append([]string{}, gf.ArgvPrefix...), g.Subcommand...)
+	invocation := append(append([]string{}, gf.ArgvPrefix...), g.ExecArgv()...)
 	u := fmt.Sprintf("exec: %s %s", gf.Bin, strings.TrimSpace(strings.Join(invocation, " ")))
 	if g.Wildcard {
 		u += " <args...> (open passthrough)"

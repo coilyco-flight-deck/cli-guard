@@ -411,12 +411,23 @@ type Grant struct {
 	Gates      []GateSpec
 	Whens      []WhenClause
 	Describe   string
+
+	// Argv is the per-grant `argv` override: tokens appended after argv-prefix
+	// in place of Subcommand. ArgvSet marks an explicit (maybe empty) override.
+	Argv    []string
+	ArgvSet bool
 }
     Grant is one `can run <subcommand>` sentence plus its flag policy.
+
+func (g Grant) ExecArgv() []string
+    ExecArgv returns the tokens appended after the binary and argv-prefix:
+    the `argv` override when set (possibly empty, a bare launch), else the
+    subcommand.
 
 type GrantInfo struct {
 	Name       string   `json:"name"`                  // dotted audit name, e.g. ward.ops.aws.s3.ls
 	Subcommand []string `json:"subcommand,omitempty"`  // e.g. ["s3","ls"]; empty for the wildcard
+	Exec       []string `json:"exec,omitempty"`        // tokens appended after the binary: the argv override when set, else the subcommand
 	Wildcard   bool     `json:"wildcard"`              // `can run *`: the whole binary passes through
 	Describe   string   `json:"describe,omitempty"`    // Guardfile describe note
 	AllowFlags []string `json:"allow_flags,omitempty"` // non-empty: strict flag allowlist

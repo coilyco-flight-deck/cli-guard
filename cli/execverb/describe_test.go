@@ -58,6 +58,35 @@ func TestDescribeMarkdown(t *testing.T) {
 	}
 }
 
+func TestDescribeArgvOverride(t *testing.T) {
+	gf, err := Parse([]byte(`wrap ward-kdl agents claude {
+		exec claude
+		can run launch { argv; describe "interactive" }
+		can run headless { argv "-p" }
+	}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	s := Describe(gf)
+	// the leaf name (Subcommand) and the executed argv (Exec) diverge.
+	if got := strings.Join(s.Grants[0].Exec, " "); got != "" {
+		t.Errorf("launch Exec: got %q want empty (bare)", got)
+	}
+	if got := strings.Join(s.Grants[1].Exec, " "); got != "-p" {
+		t.Errorf("headless Exec: got %q want -p", got)
+	}
+	md := s.Markdown()
+	for _, want := range []string{
+		"## ward-kdl agents claude launch - interactive",
+		"`claude`\n",    // bare launch renders just the binary
+		"`claude -p`\n", // headless renders the override, not the leaf name
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("markdown missing %q\n---\n%s", want, md)
+		}
+	}
+}
+
 func TestDescribeWildcard(t *testing.T) {
 	gf, err := Parse([]byte(`wrap ward ops docker { exec docker; can run * }`))
 	if err != nil {

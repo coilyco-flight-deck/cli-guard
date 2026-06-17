@@ -26,6 +26,20 @@ type Grant struct {
 	Gates      []GateSpec
 	Whens      []WhenClause
 	Describe   string
+
+	// Argv is the per-grant `argv` override: tokens appended after argv-prefix
+	// in place of Subcommand. ArgvSet marks an explicit (maybe empty) override.
+	Argv    []string
+	ArgvSet bool
+}
+
+// ExecArgv returns the tokens appended after the binary and argv-prefix: the
+// `argv` override when set (possibly empty, a bare launch), else the subcommand.
+func (g Grant) ExecArgv() []string {
+	if g.ArgvSet {
+		return g.Argv
+	}
+	return g.Subcommand
 }
 
 // WhenClause is a `when` / `deny-when` argv guard in CLI vocabulary.
@@ -142,6 +156,9 @@ func parseGrant(n *kdl.Node) (Grant, error) {
 			return Grant{}, err
 		}
 	}
+	if g.Wildcard && g.ArgvSet {
+		return Grant{}, fmt.Errorf("execverb: `can run *` cannot take an `argv` override (the wildcard funnels the whole binary; fail-closed)")
+	}
 	return g, nil
 }
 
@@ -162,6 +179,15 @@ func (g *Grant) applyGrantChild(c *kdl.Node) error {
 			return err
 		}
 		g.Whens = append(g.Whens, wc)
+		return nil
+	case "argv":
+		if g.ArgvSet {
+			return fmt.Errorf("execverb: grant %q: duplicate `argv` override (fail-closed)", g.subcommandLabel())
+		}
+		g.ArgvSet = true
+		for _, a := range c.Arguments() {
+			g.Argv = append(g.Argv, a.String())
+		}
 		return nil
 	default:
 		return g.applyPolicyNode(c)
