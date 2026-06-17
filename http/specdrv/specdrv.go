@@ -94,7 +94,7 @@ func readMember(path string) (member, error) {
 		if err != nil {
 			return member{}, fmt.Errorf("specdrv: parse exec guardfile %s: %w", path, err)
 		}
-		p, err := specgen.PlanExec(egf.Group, filepath.Base(path))
+		p, err := specgen.PlanExec(egf.Group, egf.Providers(), filepath.Base(path))
 		if err != nil {
 			return member{}, err
 		}

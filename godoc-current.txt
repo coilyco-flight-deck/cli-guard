@@ -391,10 +391,23 @@ type Config struct {
 	// pipeline). nil mounts the bare action, for doc rendering only.
 	Wrap func(verb.Spec) cli.ActionFunc
 
+	// Providers registers the value resolvers a guardfile `env` source names;
+	// cli-guard merges its built-ins (env, file, literal). Resolved at exec time.
+	Providers map[string]valuesource.Provider
+
 	// Run fires the command. nil execs for real.
 	Run Runner
 }
     Config is everything the engine needs to build a command tree.
+
+type EnvVar struct {
+	Name     string
+	Provider string // value-source provider name (env|file|literal|consumer-registered)
+	Address  string // provider-specific address (SSM path, env var name, literal value)
+}
+    EnvVar is one `env` injection: an environment variable set on the
+    wrapped process, its value resolved at exec time through a provider.
+    See docs/execverb.md.
 
 type GateSpec struct {
 	Name     string   // registry key, e.g. "aws-read"
@@ -442,6 +455,7 @@ type Guardfile struct {
 	Group      []string // command path, e.g. ["ward", "git"]
 	Bin        string   // the real binary, fixed at parse
 	ArgvPrefix []string // unoverridable leading argv (remote-exec transport)
+	Env        []EnvVar // environment vars set on the wrapped process
 	Grants     []Grant
 }
     Guardfile is the parsed form of one exec-dialect wrap block.
@@ -450,14 +464,20 @@ func Parse(src []byte) (*Guardfile, error)
     Parse turns exec-dialect Guardfile source into a Guardfile. It fails closed:
     an unknown node, missing exec block, or malformed sentence is an error.
 
-type Runner func(ctx context.Context, bin string, argv []string) error
-    Runner fires the resolved command. Injected so tests capture argv; nil uses
-    the real exec with inherited stdio.
+func (gf *Guardfile) Providers() []string
+    Providers returns the distinct value-source provider names this guardfile's
+    env injections name, so the driver wires the matching resolvers.
+
+type Runner func(ctx context.Context, bin string, argv, env []string) error
+    Runner fires the resolved command; env is the `NAME=VALUE` overrides to
+    layer over the inherited environment. Injected for tests; nil execs for
+    real.
 
 type Surface struct {
 	Group      []string    `json:"group"`                 // command path, e.g. ["ward","ops","aws"]
 	Bin        string      `json:"bin"`                   // the wrapped binary, fixed at parse
 	ArgvPrefix []string    `json:"argv_prefix,omitempty"` // unoverridable leading argv
+	Env        []string    `json:"env,omitempty"`         // env injections as "NAME = provider address" (source, never the resolved value)
 	Grants     []GrantInfo `json:"grants"`                // every mounted leaf, in mount order
 }
     Surface is the in-engine model of a mounted exec surface: the wrapped
@@ -1850,10 +1870,10 @@ func Plan(gf *guardfile.Guardfile, guardfileName string) (Params, error)
     Plan derives the per-consumer Params from gf without rendering, the shared
     derivation behind both Render and the driver. guardfileName feeds the embed.
 
-func PlanExec(group []string, guardfileName string) (Params, error)
-    PlanExec derives the Params for an exec-dialect member from its wrap
-    group; it has no upstream spec, so the spec-lock fields stay empty.
-    See specverb-driver.md.
+func PlanExec(group, providers []string, guardfileName string) (Params, error)
+    PlanExec derives an exec member's Params from its wrap group and
+    the provider names its env injections use; no upstream spec. See
+    specverb-driver.md.
 
 type SetParams struct {
 	Binary  string
@@ -1978,10 +1998,10 @@ type ParamInfo struct {
     the structure the engine knows even where the upstream spec carries no
     description.
 
-type Provider func(ctx context.Context, address string) (string, error)
-    Provider resolves the value at address for one named value source.
-    Registered by the consumer so the engine imports no store SDK. See
-    specverb-policy.md.
+type Provider = valuesource.Provider
+    Provider resolves the value at address for one named value source:
+    the shared valuesource.Provider, so the consumer's one registry drives both
+    engines.
 
 type RestrictionInfo struct {
 	Param string   `json:"param"`
@@ -2642,6 +2662,37 @@ func (c *Cache) Invalidate(key string) error
 func (c *Cache) Set(key string, value []byte, ttl time.Duration) error
     Set writes value under key with the given TTL. Returns the underlying
     filesystem error if the write fails; callers can ignore it (the next
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/valuesource
+
+package valuesource // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/valuesource"
+
+Package valuesource is cli-guard's shared value-resolution layer: a Provider
+reads a named address at request time, so neither engine imports a store SDK.
+
+FUNCTIONS
+
+func Builtins() map[string]Provider
+    Builtins are the store-agnostic resolvers cli-guard ships itself: no SDK,
+    no wiring. A consumer entry of the same name overrides one via Merge.
+
+func Merge(consumer map[string]Provider) map[string]Provider
+    Merge layers the consumer's registry over the built-ins (consumer wins on a
+    clash), always non-nil. A missing provider fails closed in Resolve.
+
+func Resolve(ctx context.Context, providers map[string]Provider, provider, address string) (string, error)
+    Resolve reads address through the named provider. A missing provider or
+    a resolver error is returned for the caller to wrap; the value is never
+    logged.
+
+
+TYPES
+
+type Provider func(ctx context.Context, address string) (string, error)
+    Provider resolves the value at address for one named value source.
+    A consumer registers store-backed resolvers; the same func type drives both
+    engines.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/workdir

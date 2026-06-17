@@ -14,6 +14,7 @@ type Surface struct {
 	Group      []string    `json:"group"`                 // command path, e.g. ["ward","ops","aws"]
 	Bin        string      `json:"bin"`                   // the wrapped binary, fixed at parse
 	ArgvPrefix []string    `json:"argv_prefix,omitempty"` // unoverridable leading argv
+	Env        []string    `json:"env,omitempty"`         // env injections as "NAME = provider address" (source, never the resolved value)
 	Grants     []GrantInfo `json:"grants"`                // every mounted leaf, in mount order
 }
 
@@ -38,6 +39,9 @@ func Describe(gf *Guardfile) *Surface {
 		return &Surface{}
 	}
 	s := &Surface{Group: gf.Group, Bin: gf.Bin, ArgvPrefix: gf.ArgvPrefix}
+	for _, e := range gf.Env {
+		s.Env = append(s.Env, e.Name+" = "+strings.TrimSpace(e.Provider+" "+e.Address))
+	}
 	for _, g := range gf.Grants {
 		s.Grants = append(s.Grants, grantInfo(gf, g))
 	}
@@ -89,6 +93,9 @@ func (s *Surface) Markdown() string {
 	fmt.Fprintf(&b, "# %s\n\n", strings.Join(s.Group, " "))
 	invocation := strings.TrimSpace(s.Bin + " " + strings.Join(s.ArgvPrefix, " "))
 	fmt.Fprintf(&b, "Exec-dialect CLI. Every verb runs `%s` with the granted subcommand (or its `argv` override) appended; the binary and its prefix are fixed and the caller can never substitute them.\n", invocation)
+	if len(s.Env) > 0 {
+		fmt.Fprintf(&b, "\nEnv set on the process (resolved at exec time): %s.\n", joinCode(s.Env))
+	}
 
 	prefix := strings.Join(s.Group, " ")
 	for _, g := range s.Grants {

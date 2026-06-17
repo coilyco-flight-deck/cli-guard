@@ -14,7 +14,30 @@ type Guardfile struct {
 	Group      []string // command path, e.g. ["ward", "git"]
 	Bin        string   // the real binary, fixed at parse
 	ArgvPrefix []string // unoverridable leading argv (remote-exec transport)
+	Env        []EnvVar // environment vars set on the wrapped process
 	Grants     []Grant
+}
+
+// EnvVar is one `env` injection: an environment variable set on the wrapped
+// process, its value resolved at exec time through a provider. See docs/execverb.md.
+type EnvVar struct {
+	Name     string
+	Provider string // value-source provider name (env|file|literal|consumer-registered)
+	Address  string // provider-specific address (SSM path, env var name, literal value)
+}
+
+// Providers returns the distinct value-source provider names this guardfile's
+// env injections name, so the driver wires the matching resolvers.
+func (gf *Guardfile) Providers() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, e := range gf.Env {
+		if e.Provider != "" && !seen[e.Provider] {
+			seen[e.Provider] = true
+			out = append(out, e.Provider)
+		}
+	}
+	return out
 }
 
 // Grant is one `can run <subcommand>` sentence plus its flag policy.
@@ -126,14 +149,46 @@ func (gf *Guardfile) parseExec(n *kdl.Node) error {
 	}
 	gf.Bin = args[0].String()
 	for _, c := range n.Children().Nodes {
-		if c.Name() != "argv-prefix" {
-			return fmt.Errorf("execverb: exec body: unknown node %q (fail-closed)", c.Name())
-		}
-		for _, a := range c.Arguments() {
-			gf.ArgvPrefix = append(gf.ArgvPrefix, a.String())
+		switch c.Name() {
+		case "argv-prefix":
+			for _, a := range c.Arguments() {
+				gf.ArgvPrefix = append(gf.ArgvPrefix, a.String())
+			}
+		case "env":
+			ev, err := parseEnv(c)
+			if err != nil {
+				return err
+			}
+			gf.Env = append(gf.Env, ev)
+		default:
+			return fmt.Errorf("execverb: exec body: unknown node %q (want argv-prefix | env; fail-closed)", c.Name())
 		}
 	}
 	return nil
+}
+
+// parseEnv reads an `env "<NAME>" "<literal>"` or `env "<NAME>" { value
+// <provider> "<addr>" }` injection; the provider form keeps an opaque value out.
+func parseEnv(n *kdl.Node) (EnvVar, error) {
+	args := n.Arguments()
+	if len(args) < 1 || args[0].String() == "" {
+		return EnvVar{}, fmt.Errorf("execverb: `env` needs a name, e.g. `env \"OLLAMA_HOST\" { value ssm \"/path\" }`")
+	}
+	ev := EnvVar{Name: args[0].String()}
+	children := n.Children().Nodes
+	switch {
+	case len(args) == 2 && len(children) == 0:
+		ev.Provider, ev.Address = "literal", args[1].String()
+	case len(args) == 1 && len(children) == 1 && children[0].Name() == "value":
+		vargs := children[0].Arguments()
+		if len(vargs) != 2 || vargs[0].String() == "" || vargs[1].String() == "" {
+			return EnvVar{}, fmt.Errorf("execverb: env %q: value needs a non-empty provider and address, e.g. `value ssm \"/path\"`", ev.Name)
+		}
+		ev.Provider, ev.Address = vargs[0].String(), vargs[1].String()
+	default:
+		return EnvVar{}, fmt.Errorf("execverb: env %q: want `env \"NAME\" \"literal\"` or `env \"NAME\" { value <provider> \"<addr>\" }` (fail-closed)", ev.Name)
+	}
+	return ev, nil
 }
 
 // parseGrant reads one `can run <subcommand...>` sentence and its policy body.

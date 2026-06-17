@@ -69,9 +69,9 @@ func Plan(gf *guardfile.Guardfile, guardfileName string) (Params, error) {
 	}, nil
 }
 
-// PlanExec derives the Params for an exec-dialect member from its wrap group;
-// it has no upstream spec, so the spec-lock fields stay empty. See specverb-driver.md.
-func PlanExec(group []string, guardfileName string) (Params, error) {
+// PlanExec derives an exec member's Params from its wrap group and the provider
+// names its env injections use; no upstream spec. See specverb-driver.md.
+func PlanExec(group, providers []string, guardfileName string) (Params, error) {
 	if len(group) == 0 {
 		return Params{}, fmt.Errorf("specgen: exec Guardfile has no command group")
 	}
@@ -79,6 +79,7 @@ func PlanExec(group []string, guardfileName string) (Params, error) {
 		Transport:     TransportExec,
 		Binary:        group[0],
 		GuardfileName: guardfileName,
+		Providers:     providers,
 	}, nil
 }
 
@@ -224,6 +225,7 @@ import (
 {{end}}
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/audit"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/config"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/valuesource"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
 {{if .HasSpec}}	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specverb"
@@ -263,19 +265,28 @@ func main() {
 // path, dispatching on transport. The audit writer is built once and reused.
 func mountOps(app *cli.Command) error {
 	wrap := wrapWith(auditWriter())
-{{if .HasSpec}}	provs := providerRegistry()
-{{end}}{{range $i, $m := .Mounts}}{{if eq $m.Transport "spec"}}	if err := mountSpec(app, wrap, provs, embeddedGuardfile{{$i}}, embeddedSpec{{$i}}, "{{$m.SpecURL}}", "{{$m.SpecEnvVar}}"); err != nil {
+	provs := providerRegistry()
+{{range $i, $m := .Mounts}}{{if eq $m.Transport "spec"}}	if err := mountSpec(app, wrap, provs, embeddedGuardfile{{$i}}, embeddedSpec{{$i}}, "{{$m.SpecURL}}", "{{$m.SpecEnvVar}}"); err != nil {
 		return err
 	}
-{{else}}	if err := mountExec(app, wrap, embeddedGuardfile{{$i}}); err != nil {
+{{else}}	if err := mountExec(app, wrap, provs, embeddedGuardfile{{$i}}); err != nil {
 		return err
 	}
 {{end}}{{end}}	return nil
 }
+
+// providerRegistry wires the store-backed resolvers in use; cli-guard merges its
+// no-SDK built-ins (env, file, literal) underneath. Shared by both transports.
+func providerRegistry() map[string]valuesource.Provider {
+	return map[string]valuesource.Provider{
+{{if .HasSSM}}		"ssm": ssmTokenResolver,
+{{end}}{{if .HasTailscale}}		"tailscale": tailscaleResolver,
+{{end}}	}
+}
 {{if .HasSpec}}
 // mountSpec parses one spec member's policy, resolves its spec, and mounts the
 // specverb tree onto app. The value providers resolve lazily at request time.
-func mountSpec(app *cli.Command, wrap func(verb.Spec) cli.ActionFunc, provs map[string]specverb.Provider, gfBytes, specLock []byte, specURL, specEnv string) error {
+func mountSpec(app *cli.Command, wrap func(verb.Spec) cli.ActionFunc, provs map[string]valuesource.Provider, gfBytes, specLock []byte, specURL, specEnv string) error {
 	gf, err := guardfile.Parse(gfBytes)
 	if err != nil {
 		return fmt.Errorf("parse guardfile: %w", err)
@@ -290,15 +301,6 @@ func mountSpec(app *cli.Command, wrap func(verb.Spec) cli.ActionFunc, provs map[
 		Wrap:      wrap,
 		Providers: provs,
 	})
-}
-
-// providerRegistry wires the store-backed resolvers in use; cli-guard merges its
-// no-SDK built-ins (env, file, literal) underneath.
-func providerRegistry() map[string]specverb.Provider {
-	return map[string]specverb.Provider{
-{{if .HasSSM}}		"ssm": ssmTokenResolver,
-{{end}}{{if .HasTailscale}}		"tailscale": tailscaleResolver,
-{{end}}	}
 }
 
 // resolveSpec prefers the override, then the embedded lock, then a live-fetch
@@ -327,14 +329,14 @@ func fetchSpec(u string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 {{end}}{{if .HasExec}}
-// mountExec parses one exec member's policy and mounts the execverb command
-// tree onto app. An exec member has no spec lock and no auth token.
-func mountExec(app *cli.Command, wrap func(verb.Spec) cli.ActionFunc, gfBytes []byte) error {
+// mountExec parses one exec member's policy and mounts the execverb tree onto
+// app; its env injections resolve through the shared provider registry.
+func mountExec(app *cli.Command, wrap func(verb.Spec) cli.ActionFunc, provs map[string]valuesource.Provider, gfBytes []byte) error {
 	gf, err := execverb.Parse(gfBytes)
 	if err != nil {
 		return fmt.Errorf("parse exec guardfile: %w", err)
 	}
-	return execverb.Mount(app, execverb.Config{Guardfile: gf, Wrap: wrap})
+	return execverb.Mount(app, execverb.Config{Guardfile: gf, Wrap: wrap, Providers: provs})
 }
 {{end}}
 func auditWriter() *audit.Writer {

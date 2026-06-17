@@ -151,18 +151,18 @@ func TestRenderParamsMixed(t *testing.T) {
 }
 
 func TestPlanExecDerivesParams(t *testing.T) {
-	p, err := PlanExec([]string{"ward-kdl", "ops", "aws"}, "aws.guardfile.kdl")
+	p, err := PlanExec([]string{"ward-kdl", "ops", "aws"}, []string{"ssm"}, "aws.guardfile.kdl")
 	if err != nil {
 		t.Fatalf("PlanExec: %v", err)
 	}
-	want := Params{Transport: TransportExec, Binary: "ward-kdl", GuardfileName: "aws.guardfile.kdl"}
+	want := Params{Transport: TransportExec, Binary: "ward-kdl", GuardfileName: "aws.guardfile.kdl", Providers: []string{"ssm"}}
 	if !reflect.DeepEqual(p, want) {
 		t.Errorf("PlanExec = %+v, want %+v", p, want)
 	}
 }
 
 func TestPlanExecRejectsEmptyGroup(t *testing.T) {
-	if _, err := PlanExec(nil, "x.kdl"); err == nil {
+	if _, err := PlanExec(nil, nil, "x.kdl"); err == nil {
 		t.Fatal("expected error for an exec Guardfile with no group")
 	}
 }

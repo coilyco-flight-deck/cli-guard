@@ -14,12 +14,13 @@ import (
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/awsgate"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/valuesource"
 	"github.com/urfave/cli/v3"
 )
 
-// Runner fires the resolved command. Injected so tests capture argv; nil uses
-// the real exec with inherited stdio.
-type Runner func(ctx context.Context, bin string, argv []string) error
+// Runner fires the resolved command; env is the `NAME=VALUE` overrides to layer
+// over the inherited environment. Injected for tests; nil execs for real.
+type Runner func(ctx context.Context, bin string, argv, env []string) error
 
 // Config is everything the engine needs to build a command tree.
 type Config struct {
@@ -29,6 +30,10 @@ type Config struct {
 	// Wrap adapts a verb.Spec into a guarded cli.ActionFunc (the audit + argv
 	// pipeline). nil mounts the bare action, for doc rendering only.
 	Wrap func(verb.Spec) cli.ActionFunc
+
+	// Providers registers the value resolvers a guardfile `env` source names;
+	// cli-guard merges its built-ins (env, file, literal). Resolved at exec time.
+	Providers map[string]valuesource.Provider
 
 	// Run fires the command. nil execs for real.
 	Run Runner
@@ -49,6 +54,7 @@ func Build(cfg Config) (*cli.Command, error) {
 	if run == nil {
 		run = realRunner
 	}
+	providers := valuesource.Merge(cfg.Providers)
 	root := &cli.Command{
 		Name:  gf.Group[len(gf.Group)-1],
 		Usage: fmt.Sprintf("guarded %s verbs (exec dialect)", strings.Join(gf.Group, " ")),
@@ -58,9 +64,9 @@ func Build(cfg Config) (*cli.Command, error) {
 			if len(gf.Grants) != 1 {
 				return nil, fmt.Errorf("execverb: `can run *` must be the only grant (fail-closed)")
 			}
-			return mountWildcard(root, gf, g, wrap, run)
+			return mountWildcard(root, gf, g, wrap, run, providers)
 		}
-		if err := mountGrant(root, gf, g, wrap, run); err != nil {
+		if err := mountGrant(root, gf, g, wrap, run, providers); err != nil {
 			return nil, err
 		}
 	}
@@ -69,7 +75,7 @@ func Build(cfg Config) (*cli.Command, error) {
 
 // mountWildcard turns the group itself into one open passthrough leaf; the
 // grant's gates and flag policy still decide whether the call happens.
-func mountWildcard(root *cli.Command, gf *Guardfile, g Grant, wrap func(verb.Spec) cli.ActionFunc, run Runner) (*cli.Command, error) {
+func mountWildcard(root *cli.Command, gf *Guardfile, g Grant, wrap func(verb.Spec) cli.ActionFunc, run Runner, providers map[string]valuesource.Provider) (*cli.Command, error) {
 	gates, err := buildGates(g)
 	if err != nil {
 		return nil, err
@@ -81,7 +87,7 @@ func mountWildcard(root *cli.Command, gf *Guardfile, g Grant, wrap func(verb.Spe
 		ArgsFunc: func(c *cli.Command) (map[string]string, []string) {
 			return nil, c.Args().Slice()
 		},
-		Action: actionFor(gf, g, gates, run),
+		Action: actionFor(gf, g, gates, run, providers),
 	})
 	return root, nil
 }
@@ -108,7 +114,7 @@ func Mount(root *cli.Command, cfg Config) error {
 }
 
 // mountGrant places one grant's leaf at its subcommand path under root.
-func mountGrant(root *cli.Command, gf *Guardfile, g Grant, wrap func(verb.Spec) cli.ActionFunc, run Runner) error {
+func mountGrant(root *cli.Command, gf *Guardfile, g Grant, wrap func(verb.Spec) cli.ActionFunc, run Runner, providers map[string]valuesource.Provider) error {
 	if len(g.Subcommand) == 0 {
 		return fmt.Errorf("execverb: grant with empty subcommand")
 	}
@@ -134,7 +140,7 @@ func mountGrant(root *cli.Command, gf *Guardfile, g Grant, wrap func(verb.Spec) 
 			ArgsFunc: func(c *cli.Command) (map[string]string, []string) {
 				return nil, c.Args().Slice()
 			},
-			Action: actionFor(gf, g, gates, run),
+			Action: actionFor(gf, g, gates, run, providers),
 		}),
 	})
 	return nil
@@ -174,9 +180,9 @@ func buildGates(g Grant) ([]gateFunc, error) {
 	return gates, nil
 }
 
-// actionFor returns the leaf action: gates, then flag policy, then exec with
-// the fixed prefix + subcommand + caller args (bin and prefix are immutable).
-func actionFor(gf *Guardfile, g Grant, gates []gateFunc, run Runner) cli.ActionFunc {
+// actionFor returns the leaf action: gates, flag policy, env resolution, then
+// exec with the fixed prefix + subcommand + caller args (all immutable).
+func actionFor(gf *Guardfile, g Grant, gates []gateFunc, run Runner, providers map[string]valuesource.Provider) cli.ActionFunc {
 	return func(ctx context.Context, c *cli.Command) error {
 		args := c.Args().Slice()
 		for _, gate := range gates {
@@ -190,12 +196,33 @@ func actionFor(gf *Guardfile, g Grant, gates []gateFunc, run Runner) cli.ActionF
 		if err := checkFlagPolicy(args, g); err != nil {
 			return exitcode.New(exitcode.UserError, "user_error", err, "this flag is refused by the Guardfile policy")
 		}
+		env, err := resolveEnv(ctx, gf, providers)
+		if err != nil {
+			return exitcode.New(exitcode.Internal, "internal", err, "check the env value provider address and credentials")
+		}
 		argv := append(append(append([]string{}, gf.ArgvPrefix...), g.ExecArgv()...), args...)
-		if err := run(ctx, gf.Bin, argv); err != nil {
+		if err := run(ctx, gf.Bin, argv, env); err != nil {
 			return exitcode.New(exitcode.UpstreamFailed, "upstream_failed", err, "the wrapped command failed")
 		}
 		return nil
 	}
+}
+
+// resolveEnv reads each env injection through its provider into `NAME=VALUE`
+// overrides. Fails closed: a missing provider or error aborts before any exec.
+func resolveEnv(ctx context.Context, gf *Guardfile, providers map[string]valuesource.Provider) ([]string, error) {
+	if len(gf.Env) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(gf.Env))
+	for _, e := range gf.Env {
+		v, err := valuesource.Resolve(ctx, providers, e.Provider, e.Address)
+		if err != nil {
+			return nil, fmt.Errorf("resolve env %s from %s %s: %w", e.Name, e.Provider, e.Address, err)
+		}
+		out = append(out, e.Name+"="+v)
+	}
+	return out, nil
 }
 
 // checkFlagPolicy enforces the grant's flag rules over the caller args:
@@ -336,10 +363,14 @@ func leafUsage(gf *Guardfile, g Grant) string {
 	return u
 }
 
-// realRunner execs bin with inherited stdio, the production Runner.
-func realRunner(ctx context.Context, bin string, argv []string) error {
+// realRunner execs bin with inherited stdio, the production Runner. env layers
+// the resolved `NAME=VALUE` overrides on top of the inherited environment.
+func realRunner(ctx context.Context, bin string, argv, env []string) error {
 	cmd := exec.CommandContext(ctx, bin, argv...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	return cmd.Run()
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/audit"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/valuesource"
 	"github.com/urfave/cli/v3"
 )
 
@@ -42,11 +43,13 @@ const adminGuardfile = `wrap ward ops forgejo admin {
 type capture struct {
 	bin  string
 	argv []string
+	env  []string
 }
 
-func (cp *capture) run(_ context.Context, bin string, argv []string) error {
+func (cp *capture) run(_ context.Context, bin string, argv, env []string) error {
 	cp.bin = bin
 	cp.argv = argv
+	cp.env = env
 	return nil
 }
 
@@ -415,6 +418,84 @@ func TestArgvOverrideParseFailsClosed(t *testing.T) {
 	cases := []string{
 		`wrap ward agents claude { exec claude; can run "*" { argv "-p" } }`,          // argv on wildcard
 		`wrap ward agents claude { exec claude; can run launch { argv; argv "-p" } }`, // duplicate argv
+	}
+	for _, src := range cases {
+		if _, err := Parse([]byte(src)); err == nil {
+			t.Errorf("expected parse failure for %q", src)
+		}
+	}
+}
+
+// envGuardfile injects an opaque host via a provider plus a literal: the
+// OLLAMA_HOST-to-tower shape.
+const envGuardfile = `wrap ward-kdl agents ollama {
+	exec ollama {
+		env "OLLAMA_HOST" { value ssm "/coilysiren/ollama/host" }
+		env "OLLAMA_KEEP_ALIVE" "30m"
+	}
+	can run list
+}`
+
+func TestEnvResolvesProviderAndLiteral(t *testing.T) {
+	gf, err := Parse([]byte(envGuardfile))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	var cp capture
+	root := &cli.Command{Name: "ward-kdl"}
+	provs := map[string]valuesource.Provider{
+		"ssm": func(_ context.Context, addr string) (string, error) {
+			if addr != "/coilysiren/ollama/host" {
+				t.Fatalf("ssm address = %q", addr)
+			}
+			return "http://tower:11434", nil
+		},
+	}
+	if err := Mount(root, Config{Guardfile: gf, Run: cp.run, Providers: provs}); err != nil {
+		t.Fatalf("Mount: %v", err)
+	}
+	if err := root.Run(context.Background(), []string{"ward-kdl", "agents", "ollama", "list"}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	got := map[string]string{}
+	for _, kv := range cp.env {
+		k, v, _ := strings.Cut(kv, "=")
+		got[k] = v
+	}
+	if got["OLLAMA_HOST"] != "http://tower:11434" {
+		t.Errorf("OLLAMA_HOST = %q (resolved provider value), env = %v", got["OLLAMA_HOST"], cp.env)
+	}
+	if got["OLLAMA_KEEP_ALIVE"] != "30m" {
+		t.Errorf("OLLAMA_KEEP_ALIVE = %q (literal), env = %v", got["OLLAMA_KEEP_ALIVE"], cp.env)
+	}
+}
+
+func TestEnvUnresolvedProviderFailsClosed(t *testing.T) {
+	gf, err := Parse([]byte(envGuardfile))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	var cp capture
+	root := &cli.Command{Name: "ward-kdl"}
+	// No `ssm` provider registered -> resolution must fail before any exec.
+	if err := Mount(root, Config{Guardfile: gf, Run: cp.run}); err != nil {
+		t.Fatalf("Mount: %v", err)
+	}
+	err = root.Run(context.Background(), []string{"ward-kdl", "agents", "ollama", "list"})
+	if err == nil {
+		t.Fatal("expected an env-resolution failure, got nil")
+	}
+	if cp.bin != "" {
+		t.Errorf("exec ran despite unresolved env: %s %v", cp.bin, cp.argv)
+	}
+}
+
+func TestEnvParseFailsClosed(t *testing.T) {
+	cases := []string{
+		`wrap ward x { exec foo { env "BAR" } can run baz }`,                        // neither literal nor value
+		`wrap ward x { exec foo { env "BAR" { value ssm } } can run baz }`,          // value missing address
+		`wrap ward x { exec foo { env { value ssm "/p" } } can run baz }`,           // env missing name
+		`wrap ward x { exec foo { env "BAR" "lit" { value ssm "/p" } } can run b }`, // literal and block both
 	}
 	for _, src := range cases {
 		if _, err := Parse([]byte(src)); err == nil {
