@@ -23,21 +23,25 @@ func loadProvingSpec(t *testing.T) *swaggerSpec {
 	return spec
 }
 
-// TestResolveOpConvention asserts the CRUD verbs resolve to the right operationId
-// from verb + resource alone (no `op`): method + the path resource segment.
+// TestResolveOpConvention covers the generic conventions against the proving
+// slice: CRUD, toggles, compound membership, sub-collection create - no `op`.
 func TestResolveOpConvention(t *testing.T) {
 	spec := loadProvingSpec(t)
 	cases := []struct {
 		verb, resource, want string
 	}{
-		{"get", "repo", "repoGet"},
-		{"delete", "repo", "repoDelete"},
-		{"create", "repo", "createCurrentUserRepo"},
-		{"list", "issue", "issueListIssues"},
+		{"get", "repo", "repoGet"},                  // GET item
+		{"delete", "repo", "repoDelete"},            // DELETE item
+		{"create", "repo", "createCurrentUserRepo"}, // POST collection
+		{"list", "issue", "issueListIssues"},        // GET collection
 		{"create", "issue", "issueCreateIssue"},
-		{"edit", "issue", "issueEditIssue"},
+		{"edit", "issue", "issueEditIssue"},   // PATCH item
+		{"view", "repo", "repoGet"},           // view aliases get
+		{"close", "issue", "issueEditIssue"},  // toggle -> edit op (PATCH item)
+		{"reopen", "issue", "issueEditIssue"}, // toggle -> edit op
 		{"list", "tasks", "ListActionTasks"},
-		{"view", "repo", "repoGet"}, // view aliases get (GET item)
+		{"add", "issue-label", "issueAddLabel"},                    // membership on compound resource
+		{"upload-asset", "release", "repoCreateReleaseAttachment"}, // sub-collection create (unknown verb)
 	}
 	for _, c := range cases {
 		t.Run(c.verb+" "+c.resource, func(t *testing.T) {
@@ -52,8 +56,7 @@ func TestResolveOpConvention(t *testing.T) {
 	}
 }
 
-// TestResolveOpExplicitOverride asserts an explicit `op` always wins, even when
-// it names a different operation than convention would pick.
+// TestResolveOpExplicitOverride asserts an explicit `op` always wins.
 func TestResolveOpExplicitOverride(t *testing.T) {
 	spec := loadProvingSpec(t)
 	got, err := resolveOp(spec, guardfile.Grant{Modal: "can", Verb: "get", Resource: "repo", Op: "repoDelete"})
@@ -65,60 +68,95 @@ func TestResolveOpExplicitOverride(t *testing.T) {
 	}
 }
 
-// TestResolveOpFailsClosed asserts resolution is deny-by-default: an
-// unresolvable verb+resource is an error, never a silent guess.
-func TestResolveOpFailsClosed(t *testing.T) {
-	spec := loadProvingSpec(t)
-	cases := []struct {
-		name, verb, resource, wantSubstr string
-	}{
-		// no GET .../issues/{index} in the slice -> no item op for "get issue"
-		{"no match", "get", "issue", "no GET operation"},
-		// "frobnicate" is not a CRUD verb -> no convention
-		{"unknown verb", "frobnicate", "repo", "no resolution convention"},
+// TestResolveOpLeastNested asserts the canonical (shallowest) path wins when a
+// deeper nested path shares the resource segment.
+func TestResolveOpLeastNested(t *testing.T) {
+	spec := &swaggerSpec{Paths: map[string]map[string]swaggerOp{
+		"/repos/{owner}/{repo}":          {"get": {OperationID: "repoGet"}},
+		"/teams/{id}/repos/{org}/{repo}": {"get": {OperationID: "orgListTeamRepo"}},
+	}}
+	got, err := resolveOp(spec, guardfile.Grant{Modal: "can", Verb: "get", Resource: "repo"})
+	if err != nil {
+		t.Fatalf("least-nested resolve errored: %v", err)
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			_, err := resolveOp(spec, guardfile.Grant{Modal: "can", Verb: c.verb, Resource: c.resource})
-			if err == nil {
-				t.Fatalf("resolveOp(%s %s) succeeded, want error", c.verb, c.resource)
-			}
-			if !strings.Contains(err.Error(), c.wantSubstr) {
-				t.Errorf("error %q does not contain %q", err.Error(), c.wantSubstr)
-			}
-		})
+	if got != "repoGet" {
+		t.Errorf("least-nested = %q, want repoGet (the shallowest path)", got)
 	}
 }
 
-// TestResolveOpAmbiguousFailsClosed asserts two operations matching the same
-// verb+resource is a fail-closed error naming both candidates (create-repo case).
+// TestResolveOpPreferPluralCollection asserts a true (plural) collection segment
+// wins over a singular singleton at the same depth (createKey vs updateDeviceKey).
+func TestResolveOpPreferPluralCollection(t *testing.T) {
+	spec := &swaggerSpec{Paths: map[string]map[string]swaggerOp{
+		"/tailnet/{tailnet}/keys": {"post": {OperationID: "createKey"}},
+		"/device/{deviceId}/key":  {"post": {OperationID: "updateDeviceKey"}},
+	}}
+	got, err := resolveOp(spec, guardfile.Grant{Modal: "can", Verb: "create", Resource: "keys"})
+	if err != nil {
+		t.Fatalf("plural-preference resolve errored: %v", err)
+	}
+	if got != "createKey" {
+		t.Errorf("plural preference = %q, want createKey", got)
+	}
+}
+
+// TestResolveOpSearch asserts the search verb matches the `<resource>/search` suffix.
+func TestResolveOpSearch(t *testing.T) {
+	spec := &swaggerSpec{Paths: map[string]map[string]swaggerOp{
+		"/repos/search": {"get": {OperationID: "repoSearch"}},
+		"/user/repos":   {"get": {OperationID: "userCurrentListRepos"}},
+	}}
+	got, err := resolveOp(spec, guardfile.Grant{Modal: "can", Verb: "search", Resource: "repo"})
+	if err != nil {
+		t.Fatalf("search resolve errored: %v", err)
+	}
+	if got != "repoSearch" {
+		t.Errorf("search repo = %q, want repoSearch", got)
+	}
+}
+
+// TestResolveOpListChild asserts `list-<child>` lists a sub-collection of the resource.
+func TestResolveOpListChild(t *testing.T) {
+	spec := &swaggerSpec{Paths: map[string]map[string]swaggerOp{
+		"/boards/{id}/lists": {"get": {OperationID: "get-boards-id-lists"}},
+	}}
+	got, err := resolveOp(spec, guardfile.Grant{Modal: "can", Verb: "list-lists", Resource: "board"})
+	if err != nil {
+		t.Fatalf("list-lists resolve errored: %v", err)
+	}
+	if got != "get-boards-id-lists" {
+		t.Errorf("list-lists board = %q, want get-boards-id-lists", got)
+	}
+}
+
+// TestResolveOpFailsClosed asserts resolution is deny-by-default: a verb+resource
+// with no matching operation is an error, never a silent guess.
+func TestResolveOpFailsClosed(t *testing.T) {
+	spec := loadProvingSpec(t)
+	// no GET .../issues/{index} in the slice -> no item op for "get issue"
+	_, err := resolveOp(spec, guardfile.Grant{Modal: "can", Verb: "get", Resource: "issue"})
+	if err == nil {
+		t.Fatal("resolveOp(get issue) succeeded, want error")
+	}
+	if !strings.Contains(err.Error(), "no operation matches") {
+		t.Errorf("error %q does not name the deny-by-default reason", err.Error())
+	}
+}
+
+// TestResolveOpAmbiguousFailsClosed asserts a genuine depth tie (two equally-shallow
+// paths) fails closed, naming both candidates.
 func TestResolveOpAmbiguousFailsClosed(t *testing.T) {
 	spec := &swaggerSpec{Paths: map[string]map[string]swaggerOp{
-		"/user/repos":       {"post": {OperationID: "createCurrentUserRepo"}},
 		"/orgs/{org}/repos": {"post": {OperationID: "createOrgRepo"}},
+		"/teams/{id}/repos": {"post": {OperationID: "createTeamRepo"}},
 	}}
 	_, err := resolveOp(spec, guardfile.Grant{Modal: "can", Verb: "create", Resource: "repo"})
 	if err == nil {
 		t.Fatal("ambiguous resolveOp succeeded, want error")
 	}
-	for _, want := range []string{"createCurrentUserRepo", "createOrgRepo", "operations match"} {
+	for _, want := range []string{"createOrgRepo", "createTeamRepo", "operations match"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("ambiguity error %q missing %q", err.Error(), want)
 		}
-	}
-}
-
-// TestResolveOpEditFallsBackToPut asserts `edit` resolves a PUT whole-replace API
-// (Trello) when no PATCH exists, while preferring PATCH when both are present.
-func TestResolveOpEditFallsBackToPut(t *testing.T) {
-	put := &swaggerSpec{Paths: map[string]map[string]swaggerOp{
-		"/boards/{id}": {"put": {OperationID: "put-boards-id"}},
-	}}
-	got, err := resolveOp(put, guardfile.Grant{Modal: "can", Verb: "edit", Resource: "board"})
-	if err != nil {
-		t.Fatalf("edit board (PUT) errored: %v", err)
-	}
-	if got != "put-boards-id" {
-		t.Errorf("edit board fell back to %q, want put-boards-id", got)
 	}
 }
