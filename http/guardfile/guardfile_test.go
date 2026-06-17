@@ -174,6 +174,42 @@ func TestParseAction(t *testing.T) {
 	}
 }
 
+// TestParseAuthSchemes asserts the three auth schemes round-trip: header-token,
+// bearer (Authorization + "Bearer " implied), and query-param dual-secret.
+func TestParseAuthSchemes(t *testing.T) {
+	bearer, err := Parse([]byte(`wrap w ops tailscale {
+		spec s
+		auth bearer { ssm "/tailscale/api-key" }
+		can list devices { op "listTailnetDevices" }
+	}`))
+	if err != nil {
+		t.Fatalf("bearer parse: %v", err)
+	}
+	want := Auth{Scheme: "bearer", Header: "Authorization", Prefix: "Bearer ", SSM: "/tailscale/api-key"}
+	if !reflect.DeepEqual(bearer.Auth, want) {
+		t.Errorf("bearer auth = %+v, want %+v", bearer.Auth, want)
+	}
+
+	qp, err := Parse([]byte(`wrap w ops trello {
+		spec s
+		auth query-param {
+			param key { ssm "/trello/api-key" }
+			param token { ssm "/trello/api-token" }
+		}
+		can create cards { op "post-cards" }
+	}`))
+	if err != nil {
+		t.Fatalf("query-param parse: %v", err)
+	}
+	if qp.Auth.Scheme != "query-param" || len(qp.Auth.Params) != 2 {
+		t.Fatalf("query-param auth = %+v", qp.Auth)
+	}
+	if qp.Auth.Params[0] != (QueryAuthParam{Name: "key", SSM: "/trello/api-key"}) ||
+		qp.Auth.Params[1] != (QueryAuthParam{Name: "token", SSM: "/trello/api-token"}) {
+		t.Errorf("query-param params = %+v", qp.Auth.Params)
+	}
+}
+
 // TestParseActionFailsClosed asserts the action grammar rejects every malformed
 // or reserved shape, never silently dropping a node.
 func TestParseActionFailsClosed(t *testing.T) {
@@ -224,7 +260,15 @@ func TestParseFailsClosed(t *testing.T) {
 		}`,
 		"unsupported auth scheme": `wrap ward ops forgejo {
 			spec s
-			auth bearer { header H; ssm S }
+			auth oauth2 { ssm S }
+		}`,
+		"bearer needs ssm": `wrap ward ops forgejo {
+			spec s
+			auth bearer { }
+		}`,
+		"query-param needs a param": `wrap ward ops forgejo {
+			spec s
+			auth query-param { }
 		}`,
 		"unknown grant-body node": `wrap ward ops forgejo {
 			spec s

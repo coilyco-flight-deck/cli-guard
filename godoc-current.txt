@@ -1538,9 +1538,14 @@ type Auth struct {
 	Header string
 	Prefix string // trailing space is significant, e.g. "token "
 	SSM    string
+
+	// Params are the query-param scheme's ordered secrets, each injected as a
+	// query parameter (Trello's ?key=&token=). Empty for the header schemes.
+	Params []QueryAuthParam
 }
-    Auth describes how the engine authenticates to the target API. Only the
-    header-token scheme (Forgejo's "Authorization: token <key>") is modeled.
+    Auth describes how the engine authenticates to the target API.
+    Three schemes: header-token, bearer, query-param (dual-secret). See
+    docs/specverb.md.
 
 type Call struct {
 	Verb     string
@@ -1617,6 +1622,13 @@ type Poll struct {
     Poll re-fires a granted leaf (Verb+Resource) until Until settles or
     Timeout elapses, sampling Every; the last response binds to As. See
     specverb-actions.md.
+
+type QueryAuthParam struct {
+	Name string
+	SSM  string
+}
+    QueryAuthParam is one secret of the query-param scheme: a query parameter
+    Name whose value is the secret read from SSM.
 
 type Restriction struct {
 	Param string

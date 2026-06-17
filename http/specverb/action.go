@@ -504,7 +504,7 @@ func (rt *runtime) applyFailWhen(ad actionDescriptor, finalRaw []byte, jmesVars 
 func (rt *runtime) renderActionPlan(ad actionDescriptor, method, url string, body []byte, contentType, output string) error {
 	poll := map[string]any{
 		"method":  method,
-		"url":     url,
+		"url":     rt.previewURL(url),
 		"headers": rt.previewHeaders(body != nil, contentType),
 		"every":   ad.Every.String(),
 		"timeout": ad.Timeout.String(),

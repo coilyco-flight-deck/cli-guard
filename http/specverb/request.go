@@ -348,7 +348,7 @@ func flagValue(c *cli.Command, f fieldFlag) any {
 func (rt *runtime) renderDryRun(method, url string, body []byte, contentType string, bodyPreview any, output string) error {
 	preview := map[string]any{
 		"method":  method,
-		"url":     url,
+		"url":     rt.previewURL(url),
 		"headers": rt.previewHeaders(body != nil || bodyPreview != nil, contentType),
 	}
 	switch {
@@ -374,13 +374,67 @@ func (rt *runtime) renderDryRun(method, url string, body []byte, contentType str
 	return nil
 }
 
-// previewHeaders builds the header map a dry-run shows, redacting the secret.
+// previewHeaders builds the header map a dry-run shows, redacting the secret. The
+// query-param scheme carries no auth header (it rides the URL); see previewURL.
 func (rt *runtime) previewHeaders(hasBody bool, contentType string) map[string]string {
-	h := map[string]string{rt.auth.Header: rt.auth.Prefix + redacted}
+	h := map[string]string{}
+	if rt.auth.Header != "" {
+		h[rt.auth.Header] = rt.auth.Prefix + redacted
+	}
 	if hasBody {
 		h["Content-Type"] = contentType
 	}
 	return h
+}
+
+// previewURL returns the URL a dry-run shows: for the query-param scheme it
+// appends each auth parameter with a redacted value; other schemes pass through.
+func (rt *runtime) previewURL(url string) string {
+	if rt.auth.Scheme != "query-param" || len(rt.auth.Params) == 0 {
+		return url
+	}
+	sep := "?"
+	if strings.Contains(url, "?") {
+		sep = "&"
+	}
+	parts := make([]string, len(rt.auth.Params))
+	for i, p := range rt.auth.Params {
+		parts[i] = p.Name + "=" + redacted
+	}
+	return url + sep + strings.Join(parts, "&")
+}
+
+// authorize resolves the scheme's secret(s) and applies them to req: a header
+// for header-token/bearer, or query parameters for query-param.
+func (rt *runtime) authorize(ctx context.Context, req *http.Request) error {
+	if rt.auth.Scheme == "query-param" {
+		q := req.URL.Query()
+		for _, p := range rt.auth.Params {
+			secret, err := rt.resolveSecret(ctx, p.SSM)
+			if err != nil {
+				return err
+			}
+			q.Set(p.Name, secret)
+		}
+		req.URL.RawQuery = q.Encode()
+		return nil
+	}
+	secret, err := rt.resolveSecret(ctx, rt.auth.SSM)
+	if err != nil {
+		return err
+	}
+	req.Header.Set(rt.auth.Header, rt.auth.Prefix+secret)
+	return nil
+}
+
+// resolveSecret reads one secret from SSM through the configured resolver.
+func (rt *runtime) resolveSecret(ctx context.Context, ssmPath string) (string, error) {
+	secret, err := rt.token(ctx, ssmPath)
+	if err != nil {
+		return "", exitcode.New(exitcode.Internal, "internal",
+			fmt.Errorf("resolve auth secret from %s: %w", ssmPath, err), "check the SSM path and credentials")
+	}
+	return secret, nil
 }
 
 // fire resolves the secret, sends the request, and renders the response.
@@ -410,11 +464,6 @@ func (rt *runtime) fireCapture(ctx context.Context, method, url string, body []b
 		return nil, nil, "", exitcode.New(exitcode.Internal, "internal",
 			fmt.Errorf("no token resolver configured"), "wire a TokenResolver into specverb.Config")
 	}
-	secret, terr := rt.token(ctx, rt.auth.SSM)
-	if terr != nil {
-		return nil, nil, "", exitcode.New(exitcode.Internal, "internal",
-			fmt.Errorf("resolve auth secret from %s: %w", rt.auth.SSM, terr), "check the SSM path and credentials")
-	}
 
 	var reqBody io.Reader
 	if body != nil {
@@ -424,7 +473,9 @@ func (rt *runtime) fireCapture(ctx context.Context, method, url string, body []b
 	if rerr != nil {
 		return nil, nil, "", exitcode.New(exitcode.Internal, "internal", rerr, "")
 	}
-	req.Header.Set(rt.auth.Header, rt.auth.Prefix+secret)
+	if aerr := rt.authorize(ctx, req); aerr != nil {
+		return nil, nil, "", aerr
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", contentType)
 	}

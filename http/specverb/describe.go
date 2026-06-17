@@ -108,7 +108,7 @@ func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor,
 	s := &Surface{
 		Group:   gf.Group,
 		BaseURL: baseURL,
-		Auth:    AuthInfo{Scheme: gf.Auth.Scheme, Header: gf.Auth.Header, SSM: gf.Auth.SSM},
+		Auth:    AuthInfo{Scheme: gf.Auth.Scheme, Header: gf.Auth.Header, SSM: authSSMDisplay(gf.Auth)},
 	}
 	for _, d := range descs {
 		s.Verbs = append(s.Verbs, VerbInfo{
@@ -291,13 +291,30 @@ func fixedBodySentence(fixed map[string]any) string {
 	return fmt.Sprintf("Always sends the fixed body {%s}; takes no body flags.", strings.Join(parts, ", "))
 }
 
-// authSentence states how the engine authenticates in plain language, naming the
-// SSM path but never the secret it holds.
-func authSentence(a AuthInfo) string {
-	if a.Scheme == "" {
-		return "No authentication is configured."
+// authSSMDisplay renders the SSM path(s) a describe surface shows: the single
+// secret for the header schemes, or `name=path` pairs for the query-param scheme.
+func authSSMDisplay(a guardfile.Auth) string {
+	if a.Scheme != "query-param" {
+		return a.SSM
 	}
-	return fmt.Sprintf("Authenticates with the %q header (scheme %s), reading the token from SSM at %s. The token value is never shown.", a.Header, a.Scheme, a.SSM)
+	parts := make([]string, len(a.Params))
+	for i, p := range a.Params {
+		parts[i] = p.Name + "=" + p.SSM
+	}
+	return strings.Join(parts, ", ")
+}
+
+// authSentence states how the engine authenticates in plain language, naming the
+// SSM path(s) but never the secret(s) they hold.
+func authSentence(a AuthInfo) string {
+	switch a.Scheme {
+	case "":
+		return "No authentication is configured."
+	case "query-param":
+		return fmt.Sprintf("Authenticates with query parameters (scheme %s), reading each secret from SSM at %s. The secret values are never shown.", a.Scheme, a.SSM)
+	default:
+		return fmt.Sprintf("Authenticates with the %q header (scheme %s), reading the token from SSM at %s. The token value is never shown.", a.Header, a.Scheme, a.SSM)
+	}
 }
 
 // positionalLines renders each path param as a Markdown bullet body: code-spanned

@@ -8,13 +8,24 @@ import (
 	kdl "github.com/calico32/kdl-go"
 )
 
-// Auth describes how the engine authenticates to the target API. Only the
-// header-token scheme (Forgejo's "Authorization: token <key>") is modeled.
+// Auth describes how the engine authenticates to the target API. Three schemes:
+// header-token, bearer, query-param (dual-secret). See docs/specverb.md.
 type Auth struct {
 	Scheme string
 	Header string
 	Prefix string // trailing space is significant, e.g. "token "
 	SSM    string
+
+	// Params are the query-param scheme's ordered secrets, each injected as a
+	// query parameter (Trello's ?key=&token=). Empty for the header schemes.
+	Params []QueryAuthParam
+}
+
+// QueryAuthParam is one secret of the query-param scheme: a query parameter Name
+// whose value is the secret read from SSM.
+type QueryAuthParam struct {
+	Name string
+	SSM  string
 }
 
 // Grant is one policy sentence: modal verb resource [qualifiers...] [key=value...].
@@ -207,16 +218,28 @@ func (gf *Guardfile) validate() error {
 	return nil
 }
 
-// parseAuth reads the auth header block; each field is a single-arg child node.
+// parseAuth reads the auth block, dispatching on the named scheme. Three are
+// supported: header-token, bearer, query-param. See docs/specverb.md.
 func parseAuth(n *kdl.Node) (Auth, error) {
 	scheme, err := singleArg(n)
 	if err != nil {
 		return Auth{}, fmt.Errorf("guardfile: auth: %w", err)
 	}
-	if scheme != "header-token" {
-		return Auth{}, fmt.Errorf("guardfile: auth scheme %q unsupported (only header-token)", scheme)
+	switch scheme {
+	case "header-token":
+		return parseHeaderTokenAuth(n)
+	case "bearer":
+		return parseBearerAuth(n)
+	case "query-param":
+		return parseQueryParamAuth(n)
+	default:
+		return Auth{}, fmt.Errorf("guardfile: auth scheme %q unsupported (want header-token | bearer | query-param)", scheme)
 	}
-	a := Auth{Scheme: scheme}
+}
+
+// parseHeaderTokenAuth reads `header-token { header H; prefix "..."; ssm S }`.
+func parseHeaderTokenAuth(n *kdl.Node) (Auth, error) {
+	a := Auth{Scheme: "header-token"}
 	for _, c := range n.Children().Nodes {
 		v, ferr := singleArg(c)
 		if ferr != nil {
@@ -235,6 +258,60 @@ func parseAuth(n *kdl.Node) (Auth, error) {
 	}
 	if a.Header == "" || a.SSM == "" {
 		return Auth{}, fmt.Errorf("guardfile: auth header-token requires `header` and `ssm`")
+	}
+	return a, nil
+}
+
+// parseBearerAuth reads `bearer { ssm S }`: shorthand for the Authorization
+// header with a "Bearer " prefix (Tailscale).
+func parseBearerAuth(n *kdl.Node) (Auth, error) {
+	a := Auth{Scheme: "bearer", Header: "Authorization", Prefix: "Bearer "}
+	for _, c := range n.Children().Nodes {
+		v, ferr := singleArg(c)
+		if ferr != nil {
+			return Auth{}, fmt.Errorf("guardfile: auth %s: %w", c.Name(), ferr)
+		}
+		if c.Name() != "ssm" {
+			return Auth{}, fmt.Errorf("guardfile: auth bearer: unknown field %q (want ssm; fail-closed)", c.Name())
+		}
+		a.SSM = v
+	}
+	if a.SSM == "" {
+		return Auth{}, fmt.Errorf("guardfile: auth bearer requires `ssm`")
+	}
+	return a, nil
+}
+
+// parseQueryParamAuth reads `query-param { param <name> { ssm S } ... }`: one or
+// more secrets injected as query parameters (Trello's ?key=&token=).
+func parseQueryParamAuth(n *kdl.Node) (Auth, error) {
+	a := Auth{Scheme: "query-param"}
+	for _, c := range n.Children().Nodes {
+		if c.Name() != "param" {
+			return Auth{}, fmt.Errorf("guardfile: auth query-param: unknown field %q (want param; fail-closed)", c.Name())
+		}
+		name, err := singleArg(c)
+		if err != nil {
+			return Auth{}, fmt.Errorf("guardfile: auth query-param: %w (name it: `param key { ssm \"...\" }`)", err)
+		}
+		p := QueryAuthParam{Name: name}
+		for _, cc := range c.Children().Nodes {
+			v, ferr := singleArg(cc)
+			if ferr != nil {
+				return Auth{}, fmt.Errorf("guardfile: auth query-param %s: %w", name, ferr)
+			}
+			if cc.Name() != "ssm" {
+				return Auth{}, fmt.Errorf("guardfile: auth query-param %s: unknown field %q (want ssm)", name, cc.Name())
+			}
+			p.SSM = v
+		}
+		if p.SSM == "" {
+			return Auth{}, fmt.Errorf("guardfile: auth query-param %q requires `ssm`", name)
+		}
+		a.Params = append(a.Params, p)
+	}
+	if len(a.Params) == 0 {
+		return Auth{}, fmt.Errorf("guardfile: auth query-param requires at least one `param`")
 	}
 	return a, nil
 }

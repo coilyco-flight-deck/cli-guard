@@ -111,7 +111,7 @@ func TestPruneOpenAPI3(t *testing.T) {
 	full := readSpec(t, "tailscale.openapi.yaml")
 	gf, err := guardfile.Parse([]byte(`wrap ward ops tailscale {
 		spec tailscale.openapi.yaml
-		auth header-token { header Authorization; prefix "Bearer "; ssm "/tailscale/api-key" }
+		auth bearer { ssm "/tailscale/api-key" }
 		can list devices { op "listTailnetDevices" }
 		can create keys { op "createKey" }
 	}`))
@@ -158,7 +158,7 @@ func TestBuildOpenAPI3Tailscale(t *testing.T) {
 	gf, err := guardfile.Parse([]byte(`wrap ward ops tailscale {
 		spec tailscale.openapi.yaml
 		base-url "https://api.tailscale.com/api/v2"
-		auth header-token { header Authorization; prefix "Bearer "; ssm "/tailscale/api-key" }
+		auth bearer { ssm "/tailscale/api-key" }
 		can list devices { op "listTailnetDevices" }
 		can create keys { op "createKey" }
 	}`))
