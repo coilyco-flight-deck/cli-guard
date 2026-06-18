@@ -187,7 +187,7 @@ func (d *Dispatcher) Command() *cli.Command {
 		Usage:     "Fire claude against a real open issue. Surface required: headless | interactive | consult | cascade.",
 		ArgsUsage: "<headless|interactive|consult|cascade> <owner/repo#N | issue-url>",
 		Description: fmt.Sprintf(`dispatch resolves a GitHub issue reference, refuses anything outside the
-%s/* org or any issue that is not open, then hands off to one of four
+%s org or any issue that is not open, then hands off to one of four
 surface subverbs:
 
   %s dispatch headless    <ref>   Spawn a detached claude -p in a
@@ -221,7 +221,7 @@ It also carries three maintenance verbs:
                                   or sibling sidequest can see who is editing
                                   what before writing shared paths.
 
-Bare 'dispatch <ref>' errors. Pick a surface.`, d.cfg.AllowedOwner, bin, bin, bin, bin, bin, bin, bin),
+Bare 'dispatch <ref>' errors. Pick a surface.`, d.cfg.allowedOwnersLabel(), bin, bin, bin, bin, bin, bin, bin),
 		Commands: []*cli.Command{
 			d.headlessCommand(),
 			d.interactiveCommand(),
@@ -245,7 +245,7 @@ func (d *Dispatcher) headlessCommand() *cli.Command {
 		Usage:     "Spawn a detached `claude -p` against a real open issue.",
 		ArgsUsage: "<owner/repo#N | issue-url>",
 		Description: fmt.Sprintf(`headless resolves a GitHub issue reference, refuses anything outside the
-%s/* org or any issue that is not open, seeds a prompt from the issue
+%s org or any issue that is not open, seeds a prompt from the issue
 title and body plus the standard git-workflow footer, then spawns
 claude -p inside a per-issue git worktree branched off the canonical
 checkout. Concurrent headless dispatches into one repo each get their
@@ -264,7 +264,7 @@ then re-run dispatch.
 The child claude session is launched with --permission-mode (default
 'auto') and --allowedTools (default Bash,Read,Edit,Write,Glob,Grep,
 TodoWrite). Both are overridable per invocation so target repos that
-need a wider tool set can opt in without editing dispatch.`, d.cfg.AllowedOwner),
+need a wider tool set can opt in without editing dispatch.`, d.cfg.allowedOwnersLabel()),
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:  "dry-run",
