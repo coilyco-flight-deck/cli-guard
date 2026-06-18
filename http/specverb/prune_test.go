@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"sort"
 	"testing"
+
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
 )
 
 // TestPruneKeepsOnlyGrantedSurface prunes to the repo trio and asserts only the
@@ -66,6 +68,62 @@ func TestPruneIsIdempotent(t *testing.T) {
 	}
 	if string(once) != string(twice) {
 		t.Error("Prune is not idempotent: re-pruning changed the bytes")
+	}
+}
+
+// TestPruneClosesSharedResponses proves the pruner closes the shared `responses`
+// section (no dangling ref into pruned defs). Regression for forgejo #170.
+func TestPruneClosesSharedResponses(t *testing.T) {
+	spec := []byte(`{
+	  "swagger": "2.0",
+	  "info": {"title": "t", "version": "1"},
+	  "basePath": "/api",
+	  "paths": {
+	    "/comments": {"get": {"operationId": "commentList",
+	      "responses": {"200": {"$ref": "#/responses/CommentList"}}}},
+	    "/tokens": {"get": {"operationId": "tokenList",
+	      "responses": {"200": {"$ref": "#/responses/AccessTokenList"}}}}
+	  },
+	  "responses": {
+	    "CommentList": {"description": "c", "schema": {"type": "array", "items": {"$ref": "#/definitions/Comment"}}},
+	    "AccessTokenList": {"description": "a", "schema": {"type": "array", "items": {"$ref": "#/definitions/AccessToken"}}}
+	  },
+	  "definitions": {
+	    "Comment": {"type": "object", "properties": {"body": {"type": "string"}, "user": {"$ref": "#/definitions/User"}}},
+	    "User": {"type": "object", "properties": {"name": {"type": "string"}}},
+	    "AccessToken": {"type": "object", "properties": {"token": {"type": "string"}}}
+	  }
+	}`)
+	gf, err := guardfile.Parse([]byte(`wrap ward ops demo {
+		spec s
+		base-url "https://example.test/api"
+		auth header-token { header H; value ssm S }
+		can list comment { op "commentList" }
+	}`))
+	if err != nil {
+		t.Fatalf("parse guardfile: %v", err)
+	}
+
+	pruned, err := Prune(spec, gf)
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	var doc struct {
+		Responses   map[string]json.RawMessage `json:"responses"`
+		Definitions map[string]json.RawMessage `json:"definitions"`
+	}
+	if err := json.Unmarshal(pruned, &doc); err != nil {
+		t.Fatalf("pruned spec is not valid json: %v", err)
+	}
+	if !equalSorted(keysOf(doc.Responses), []string{"CommentList"}) {
+		t.Errorf("pruned responses = %v, want [CommentList] (AccessTokenList is ungranted)", keysOf(doc.Responses))
+	}
+	if !equalSorted(keysOf(doc.Definitions), []string{"Comment", "User"}) {
+		t.Errorf("pruned definitions = %v, want [Comment User] (AccessToken is unreachable)", keysOf(doc.Definitions))
+	}
+	// The regression itself: a dangling shared-response ref breaks the upgrade.
+	if _, err := Build(Config{Guardfile: gf, Spec: pruned}); err != nil {
+		t.Fatalf("Build on pruned spec (dangling shared response would fail the openapi3 upgrade): %v", err)
 	}
 }
 

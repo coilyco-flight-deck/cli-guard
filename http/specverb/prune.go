@@ -6,7 +6,6 @@ package specverb
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
@@ -44,10 +43,9 @@ func pruneSwagger2(spec []byte, gf *guardfile.Guardfile) ([]byte, error) {
 		return nil, fmt.Errorf("specverb: prune: parse spec json: %w", err)
 	}
 	rawPaths, _ := doc["paths"].(map[string]any)
-	rawDefs, _ := doc["definitions"].(map[string]any)
 
 	newPaths := map[string]any{}
-	seedRefs := map[string]bool{}
+	seed := newRefSet()
 	for path, methods := range keep {
 		pathObj, ok := rawPaths[path].(map[string]any)
 		if !ok {
@@ -60,23 +58,20 @@ func pruneSwagger2(spec []byte, gf *guardfile.Guardfile) ([]byte, error) {
 				return nil, fmt.Errorf("specverb: prune: %s %s absent from spec", strings.ToUpper(m), path)
 			}
 			kept[m] = opObj
-			collectRefs(opObj, seedRefs)
+			collectRefs(opObj, seed)
 		}
 		// Path-level shared parameters apply to every method under the path.
 		if params, ok := pathObj["parameters"]; ok {
 			kept["parameters"] = params
-			collectRefs(params, seedRefs)
+			collectRefs(params, seed)
 		}
 		newPaths[path] = kept
 	}
 
 	doc["paths"] = newPaths
-	closed := closeDefinitions(rawDefs, seedRefs)
-	if len(closed) > 0 {
-		doc["definitions"] = closed
-	} else {
-		delete(doc, "definitions")
-	}
+	// Close over all three shared sections, not definitions alone: passing
+	// `responses`/`parameters` verbatim would dangle onto pruned definitions.
+	closeSharedSections(doc, seed)
 	out, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("specverb: prune: marshal pruned spec: %w", err)
@@ -112,55 +107,120 @@ func grantedPathMethods(spec *spec, gf *guardfile.Guardfile) (map[string]map[str
 	return keep, nil
 }
 
-// closeDefinitions returns the transitive closure of seed definition names over
-// the raw definitions map: every definition reachable by following $ref chains.
-func closeDefinitions(rawDefs map[string]any, seed map[string]bool) map[string]any {
-	closed := map[string]any{}
-	queue := make([]string, 0, len(seed))
-	for name := range seed {
-		queue = append(queue, name)
+// sharedSections names each Swagger 2.0 top-level component bucket and its
+// `$ref` prefix, so the pruner closes definitions, responses, and parameters alike.
+var sharedSections = []struct{ key, prefix string }{
+	{"definitions", "#/definitions/"},
+	{"responses", "#/responses/"},
+	{"parameters", "#/parameters/"},
+}
+
+// refSet buckets collected `$ref` names by their shared section (definitions,
+// responses, parameters), so the closure can follow refs across sections.
+type refSet struct{ names map[string]map[string]bool }
+
+func newRefSet() *refSet {
+	names := map[string]map[string]bool{}
+	for _, s := range sharedSections {
+		names[s.key] = map[string]bool{}
 	}
-	sort.Strings(queue) // deterministic visitation, though the result is order-free
-	for len(queue) > 0 {
-		name := queue[0]
-		queue = queue[1:]
+	return &refSet{names: names}
+}
+
+// closeSharedSections replaces each shared section in doc with the transitive
+// closure of seed over it (a missing ref drops); empty sections are removed.
+func closeSharedSections(doc map[string]any, seed *refSet) {
+	closed := map[string]map[string]any{}
+	for _, s := range sharedSections {
+		closed[s.key] = map[string]any{}
+	}
+	for moreToVisit(seed, closed) {
+		for _, s := range sharedSections {
+			raw, _ := doc[s.key].(map[string]any)
+			visitSection(raw, seed.names[s.key], closed[s.key], seed)
+		}
+	}
+	for _, s := range sharedSections {
+		emitSection(doc, s.key, closed[s.key])
+	}
+}
+
+// visitSection moves each not-yet-closed name from raw into closed (nil-marking a
+// missing one) and folds its refs back into seed for the next pass.
+func visitSection(raw, seedNames any, closed map[string]any, seed *refSet) {
+	names, _ := seedNames.(map[string]bool)
+	rawMap, _ := raw.(map[string]any)
+	for name := range names {
 		if _, done := closed[name]; done {
 			continue
 		}
-		def, ok := rawDefs[name]
+		obj, ok := rawMap[name]
 		if !ok {
-			continue // a $ref to a missing definition: drop it, the engine fails closed later
+			closed[name] = nil
+			continue
 		}
-		closed[name] = def
-		more := map[string]bool{}
-		collectRefs(def, more)
-		for n := range more {
-			if _, done := closed[n]; !done {
-				queue = append(queue, n)
+		closed[name] = obj
+		collectRefs(obj, seed)
+	}
+}
+
+// moreToVisit reports whether any seeded name across the sections is still unclosed.
+func moreToVisit(seed *refSet, closed map[string]map[string]any) bool {
+	for _, s := range sharedSections {
+		for name := range seed.names[s.key] {
+			if _, done := closed[s.key][name]; !done {
+				return true
 			}
 		}
 	}
-	return closed
+	return false
 }
 
-// collectRefs walks an arbitrary decoded JSON value, adding every
-// `#/definitions/X` name it finds to set.
-func collectRefs(v any, set map[string]bool) {
+// emitSection writes the non-nil closed entries back onto doc[key], or removes the
+// key entirely when the closure kept nothing.
+func emitSection(doc map[string]any, key string, closed map[string]any) {
+	section := map[string]any{}
+	for name, obj := range closed {
+		if obj != nil {
+			section[name] = obj
+		}
+	}
+	if len(section) > 0 {
+		doc[key] = section
+	} else {
+		delete(doc, key)
+	}
+}
+
+// collectRefs walks an arbitrary decoded JSON value, bucketing every shared-section
+// `$ref` (`#/definitions/X`, `#/responses/X`, `#/parameters/X`) into set.
+func collectRefs(v any, set *refSet) {
 	switch t := v.(type) {
 	case map[string]any:
 		for k, val := range t {
 			if k == "$ref" {
-				if s, ok := val.(string); ok {
-					if name := strings.TrimPrefix(s, "#/definitions/"); name != s {
-						set[name] = true
-					}
-				}
+				set.add(val)
 			}
 			collectRefs(val, set)
 		}
 	case []any:
 		for _, e := range t {
 			collectRefs(e, set)
+		}
+	}
+}
+
+// add buckets one `$ref` value into its shared section, ignoring non-strings and
+// refs that name no shared section.
+func (set *refSet) add(ref any) {
+	s, ok := ref.(string)
+	if !ok {
+		return
+	}
+	for _, sec := range sharedSections {
+		if name := strings.TrimPrefix(s, sec.prefix); name != s {
+			set.names[sec.key][name] = true
+			return
 		}
 	}
 }
