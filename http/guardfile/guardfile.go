@@ -81,6 +81,9 @@ type Input struct {
 	Positional bool   // true: a positional arg; false: a --flag
 	Required   bool   // enforced at invocation
 	Help       string // one-line help, "" if none
+	// Default is a JMESPath pre-flight binding for an absent input (poll actions
+	// only); mutually exclusive with Required. See specverb-action-defaults.md.
+	Default string
 }
 
 // ArgBind is one `args { <name> <value> }` binding for the polled leaf. A
@@ -549,8 +552,8 @@ func addPoll(act *Action, c *kdl.Node) error {
 	return nil
 }
 
-// parseInput reads one `input <name> { positional|flag; required; help "..." }`
-// child. Exactly one of positional/flag must be declared.
+// parseInput reads one `input <name> { ... }` child: exactly one of
+// positional/flag is required; required and default are mutually exclusive.
 func parseInput(n *kdl.Node) (Input, error) {
 	name, err := singleArg(n)
 	if err != nil {
@@ -559,27 +562,51 @@ func parseInput(n *kdl.Node) (Input, error) {
 	in := Input{Name: name}
 	kindSet := false
 	for _, c := range n.Children().Nodes {
-		switch c.Name() {
-		case "positional":
-			in.Positional, kindSet = true, true
-		case "flag":
-			in.Positional, kindSet = false, true
-		case "required":
-			in.Required = true
-		case "help":
-			v, herr := singleArg(c)
-			if herr != nil {
-				return Input{}, fmt.Errorf("input %q: %w", name, herr)
-			}
-			in.Help = v
-		default:
-			return Input{}, fmt.Errorf("input %q: unknown field %q (want positional | flag | required | help; fail-closed)", name, c.Name())
+		set, ferr := applyInputField(&in, c)
+		if ferr != nil {
+			return Input{}, ferr
 		}
+		kindSet = kindSet || set
 	}
 	if !kindSet {
 		return Input{}, fmt.Errorf("input %q: declare exactly one of `positional` or `flag`", name)
 	}
+	if in.Required && in.Default != "" {
+		return Input{}, fmt.Errorf("input %q: `required` and `default` are mutually exclusive (a default only resolves when the input is absent)", name)
+	}
 	return in, nil
+}
+
+// applyInputField applies one child field of an input block to in, reporting
+// whether it declared the positional/flag kind. An unknown field fails closed.
+func applyInputField(in *Input, c *kdl.Node) (kindSet bool, err error) {
+	switch c.Name() {
+	case "positional":
+		in.Positional = true
+		return true, nil
+	case "flag":
+		in.Positional = false
+		return true, nil
+	case "required":
+		in.Required = true
+		return false, nil
+	case "help":
+		v, herr := singleArg(c)
+		if herr != nil {
+			return false, fmt.Errorf("input %q: %w", in.Name, herr)
+		}
+		in.Help = v
+		return false, nil
+	case "default":
+		v, derr := singleArg(c)
+		if derr != nil {
+			return false, fmt.Errorf("input %q: %w", in.Name, derr)
+		}
+		in.Default = v
+		return false, nil
+	default:
+		return false, fmt.Errorf("input %q: unknown field %q (want positional | flag | required | help | default; fail-closed)", in.Name, c.Name())
+	}
 }
 
 // parseCall reads a `call <verb> <resource> { args {...}; as <name> }` step of a

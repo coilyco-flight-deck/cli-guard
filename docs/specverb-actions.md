@@ -34,7 +34,7 @@ wrap ward ops forgejo {
     action ci-watch {
         describe "Watch a CI run to completion, then surface failing-job status."
         input repo { positional; required; help "owner/name" }
-        input run  { flag; help "run number" }
+        input run  { flag; default "max([].run_number)"; help "latest run if --run absent" }
 
         poll list tasks {
             args { owner-repo $repo }    // owner-repo: splits owner/name across the two path params
@@ -69,6 +69,8 @@ wrap ward ops forgejo {
 - `fail-when` runs after the loop against the final response, with the `as`
   binding available as a `$variable`. Truthy is a non-zero exit - how a CI-watch
   tells the shell a job failed.
+- An `input` may carry a `default <jmespath>` that pre-flights the poll leaf to
+  bind it when absent: [specverb-action-defaults.md](specverb-action-defaults.md).
 
 ## Reserved for later (do not author in v1)
 

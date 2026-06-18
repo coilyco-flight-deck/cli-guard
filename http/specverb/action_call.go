@@ -23,6 +23,9 @@ func resolveCallAction(spec *swaggerSpec, gf *guardfile.Guardfile, granted map[g
 	inputNames := map[string]bool{}
 	for _, in := range a.Inputs {
 		inputNames[in.Name] = true
+		if in.Default != "" {
+			return actionDescriptor{}, fmt.Errorf("specverb: action %q: input %q: `default` is a poll-action pre-flight binding and is not supported on call actions (fail-closed)", a.Name, in.Name)
+		}
 	}
 	bound := map[string]bool{}
 	var steps []callStep

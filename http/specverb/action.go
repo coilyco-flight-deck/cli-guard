@@ -110,6 +110,9 @@ func resolveAction(spec *swaggerSpec, gf *guardfile.Guardfile, granted map[grant
 	if err := validateArgs(a, leaf, inputNames); err != nil {
 		return actionDescriptor{}, err
 	}
+	if err := validateDefaults(a); err != nil {
+		return actionDescriptor{}, err
+	}
 	return actionDescriptor{
 		Name:     a.Name,
 		VerbName: strings.Join(gf.Group, ".") + "." + actionGroup + "." + a.Name,
@@ -152,6 +155,25 @@ func validateArgs(a guardfile.Action, leaf opDescriptor, inputNames map[string]b
 			// binds a real path param or flag
 		default:
 			return fmt.Errorf("specverb: action %q: arg %q targets nothing on %s %s (not a path param or flag; fail-closed)", a.Name, arg.Name, leaf.Method, leaf.Path)
+		}
+	}
+	return nil
+}
+
+// validateDefaults checks each input `default <jmespath>`: it must parse, and a
+// defaulted input may not also bind a poll arg. See specverb-action-defaults.md.
+func validateDefaults(a guardfile.Action) error {
+	for _, in := range a.Inputs {
+		if in.Default == "" {
+			continue
+		}
+		if err := respfmt.Validate(in.Default); err != nil {
+			return fmt.Errorf("specverb: action %q: input %q default: %w", a.Name, in.Name, err)
+		}
+		for _, arg := range a.Poll.Args {
+			if arg.Value == "$"+in.Name {
+				return fmt.Errorf("specverb: action %q: input %q has a `default` resolved from the poll response, so it cannot also bind poll arg %q (the request is built before the default resolves; fail-closed)", a.Name, in.Name, arg.Name)
+			}
 		}
 	}
 	return nil
@@ -237,15 +259,70 @@ func (rt *runtime) runAction(ad actionDescriptor) cli.ActionFunc {
 		if ad.isCall() {
 			return rt.runCallAction(ctx, c, ad, strVars)
 		}
-		method, url, body, contentType, err := rt.buildLeafRequest(ctx, c.Bool(flagDryRun), ad, strVars)
+		dry := c.Bool(flagDryRun)
+		method, url, body, contentType, err := rt.buildLeafRequest(ctx, dry, ad, strVars)
 		if err != nil {
 			return err
 		}
-		if c.Bool(flagDryRun) {
-			return rt.renderActionPlan(ad, method, url, body, contentType, c.String(flagOutput))
+		pending := pendingDefaults(ad, strVars)
+		if dry {
+			return rt.renderActionPlan(ad, method, url, body, contentType, pending, c.String(flagOutput))
+		}
+		if len(pending) > 0 {
+			if derr := rt.resolveDefaults(ctx, c, ad, method, url, body, contentType, pending, strVars, jmesVars); derr != nil {
+				return derr
+			}
 		}
 		return rt.runPoll(ctx, c, ad, method, url, body, contentType, jmesVars)
 	}
+}
+
+// pendingDefaults returns the defaulted inputs that were not supplied on the CLI,
+// so a pre-flight only fires when there is at least one input left to resolve.
+func pendingDefaults(ad actionDescriptor, strVars map[string]string) []guardfile.Input {
+	var out []guardfile.Input
+	for _, in := range ad.Inputs {
+		if in.Default == "" {
+			continue
+		}
+		if _, set := strVars[in.Name]; set {
+			continue // supplied on the CLI; the default is not consulted
+		}
+		out = append(out, in)
+	}
+	return out
+}
+
+// resolveDefaults fires the poll leaf once as an audited pre-flight, then binds
+// each absent defaulted input. Fails closed. See specverb-action-defaults.md.
+func (rt *runtime) resolveDefaults(ctx context.Context, c *cli.Command, ad actionDescriptor, method, url string, body []byte, contentType string, pending []guardfile.Input, strVars map[string]string, jmesVars map[string]any) error {
+	decoded, _, ferr := rt.fireLeafAudited(ctx, ad, method, url, body, contentType, c)
+	if ferr != nil {
+		return ferr
+	}
+	for _, in := range pending {
+		v, err := respfmt.Eval(decoded, in.Default, jmesVars)
+		if err != nil {
+			return exitcode.New(exitcode.UserError, "user_error",
+				fmt.Errorf("action %q: input %q default %q: %w", ad.Name, in.Name, in.Default, err),
+				"check the default JMESPath against the pre-flight response shape")
+		}
+		switch v.(type) {
+		case string, float64, bool:
+			// a scalar binds as the input value
+		case nil:
+			return exitcode.New(exitcode.UserError, "user_error",
+				fmt.Errorf("action %q: input %q default %q resolved to null (empty listing?)", ad.Name, in.Name, in.Default),
+				"pass --"+in.Name+" explicitly, or check the pre-flight listing is non-empty")
+		default:
+			return exitcode.New(exitcode.UserError, "user_error",
+				fmt.Errorf("action %q: input %q default %q resolved to a non-scalar value", ad.Name, in.Name, in.Default),
+				"a default must select a single value, e.g. max(...) or [0].field")
+		}
+		strVars[in.Name] = scalarToString(v)
+		jmesVars[in.Name] = v
+	}
+	return nil
 }
 
 // bindInputs reads inputs into strVars (raw, for the request) and jmesVars
@@ -531,8 +608,8 @@ func (rt *runtime) applyFailWhen(ad actionDescriptor, finalRaw []byte, jmesVars 
 }
 
 // renderActionPlan prints the bound call sequence and compiled until/fail-when,
-// firing nothing: --dry-run is a plan (auth value redacted).
-func (rt *runtime) renderActionPlan(ad actionDescriptor, method, url string, body []byte, contentType, output string) error {
+// firing nothing; an absent defaulted input adds the pre-flight call to the plan.
+func (rt *runtime) renderActionPlan(ad actionDescriptor, method, url string, body []byte, contentType string, pending []guardfile.Input, output string) error {
 	poll := map[string]any{
 		"method":  method,
 		"url":     rt.previewURL(url),
@@ -551,6 +628,18 @@ func (rt *runtime) renderActionPlan(ad actionDescriptor, method, url string, bod
 	plan := map[string]any{
 		"action": ad.Name,
 		"poll":   poll,
+	}
+	if len(pending) > 0 {
+		defaults := make([]map[string]any, 0, len(pending))
+		for _, in := range pending {
+			defaults = append(defaults, map[string]any{"input": in.Name, "jmespath": in.Default})
+		}
+		plan["preflight"] = map[string]any{
+			"leaf":     ad.Leaf.Leaf,
+			"method":   method,
+			"url":      rt.previewURL(url),
+			"defaults": defaults,
+		}
 	}
 	if ad.FailWhen != "" {
 		plan["fail_when"] = ad.FailWhen
@@ -596,12 +685,30 @@ func actionDescription(ad actionDescriptor) string {
 	} else {
 		fmt.Fprintf(&b, "Polls %s %s every %s, up to %s, until:\n  %s\n", ad.Leaf.Method, ad.Leaf.Path, ad.Every, ad.Timeout, ad.Until)
 		fmt.Fprintf(&b, "\nAuthorized by grant: %s.\n", ad.Leaf.Grant)
+		if defaults := defaultedInputs(ad); len(defaults) > 0 {
+			b.WriteString("\nPre-flight defaults (resolved against the polled leaf when the input is absent):\n")
+			for _, in := range defaults {
+				fmt.Fprintf(&b, "  --%s <- %s\n", in.Name, in.Default)
+			}
+		}
 	}
 	if ad.FailWhen != "" {
 		fmt.Fprintf(&b, "\nExits non-zero when: %s\n", ad.FailWhen)
 	}
 	b.WriteString("\nUse --dry-run to print the plan without firing it.")
 	return b.String()
+}
+
+// defaultedInputs returns the action's inputs that declare a `default` pre-flight
+// JMESPath, in declaration order; nil for an action with none.
+func defaultedInputs(ad actionDescriptor) []guardfile.Input {
+	var out []guardfile.Input
+	for _, in := range ad.Inputs {
+		if in.Default != "" {
+			out = append(out, in)
+		}
+	}
+	return out
 }
 
 // inputNamesOf returns the names of the given inputs, in order.

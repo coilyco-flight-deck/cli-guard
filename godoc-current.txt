@@ -1664,6 +1664,9 @@ type Input struct {
 	Positional bool   // true: a positional arg; false: a --flag
 	Required   bool   // enforced at invocation
 	Help       string // one-line help, "" if none
+	// Default is a JMESPath pre-flight binding for an absent input (poll actions
+	// only); mutually exclusive with Required. See specverb-action-defaults.md.
+	Default string
 }
     Input is one parameter an Action declares (a positional arg or a flag).
     Its name doubles as the JMESPath `$name` variable in `until`/`fail-when`.
@@ -1947,6 +1950,14 @@ type ActionCallInfo struct {
 }
     ActionCallInfo is one step of a multi-call action for the describe surface.
 
+type ActionDefaultInfo struct {
+	Input    string `json:"input"`
+	JMESPath string `json:"jmespath"`
+}
+    ActionDefaultInfo is one input `default` pre-flight binding for the describe
+    surface: the input it resolves and the JMESPath evaluated against the poll
+    leaf.
+
 type ActionInfo struct {
 	Name     string `json:"name"`                // envelope audit name, e.g. ward.ops.forgejo.action.ci-watch
 	Leaf     string `json:"leaf"`                // CLI leaf, e.g. ci-watch
@@ -1958,6 +1969,10 @@ type ActionInfo struct {
 	Timeout  string `json:"timeout"`             // wall-clock bound
 	Until    string `json:"until"`               // loop-ending JMESPath
 	FailWhen string `json:"fail_when,omitempty"` // non-zero-exit JMESPath
+
+	// Defaults is the pre-flight input bindings: each absent input resolved from
+	// the polled leaf before the loop starts. Empty when the action declares none.
+	Defaults []ActionDefaultInfo `json:"defaults,omitempty"`
 
 	// Calls is the resolved step sequence for a multi-call action; empty for a poll.
 	Calls []ActionCallInfo `json:"calls,omitempty"`

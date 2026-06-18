@@ -192,6 +192,39 @@ func TestParseAction(t *testing.T) {
 	}
 }
 
+// TestParseInputDefault asserts an `input { default "<jmespath>" }` slot
+// round-trips onto Input.Default, the pre-flight latest-run defaulting binding.
+func TestParseInputDefault(t *testing.T) {
+	src := []byte(`wrap ward ops forgejo {
+    spec s
+    auth header-token { header H; value ssm S }
+    can list tasks { op "ListActionTasks" }
+
+    action ci-watch {
+        input repo { positional; required; help "owner/name" }
+        input run  { flag; default "max(workflow_runs[].run_number)"; help "run number (default: latest)" }
+        poll list tasks {
+            args { owner-repo $repo }
+            until "x"
+            every "10s"
+            timeout "30m"
+            as run_tasks
+        }
+    }
+}`)
+	gf, err := Parse(src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	wantInputs := []Input{
+		{Name: "repo", Positional: true, Required: true, Help: "owner/name"},
+		{Name: "run", Positional: false, Default: "max(workflow_runs[].run_number)", Help: "run number (default: latest)"},
+	}
+	if !reflect.DeepEqual(gf.Actions[0].Inputs, wantInputs) {
+		t.Errorf("Inputs = %+v, want %+v", gf.Actions[0].Inputs, wantInputs)
+	}
+}
+
 // TestParseAuthSchemes asserts the three auth schemes round-trip: header-token,
 // bearer (Authorization + "Bearer " implied), and query-param dual-secret.
 func TestParseAuthSchemes(t *testing.T) {
@@ -269,6 +302,7 @@ func TestParseActionFailsClosed(t *testing.T) {
 		"poll missing as":    hdr + `action a { poll list tasks { until "x"; every "1s"; timeout "1m" } } }`,
 		"two polls":          hdr + `action a { poll list tasks { until "x"; every "1s"; timeout "1m"; as r }; poll list tasks { until "y"; every "1s"; timeout "1m"; as q } } }`,
 		"input no kind":      hdr + `action a { input repo { required }; poll list tasks { until "x"; every "1s"; timeout "1m"; as r } } }`,
+		"required+default":   hdr + `action a { input run { flag; required; default "x" }; poll list tasks { until "x"; every "1s"; timeout "1m"; as r } } }`,
 		"reserved each":      hdr + `action a { each "x" { }; poll list tasks { until "x"; every "1s"; timeout "1m"; as r } } }`,
 		"reserved emit":      hdr + `action a { poll list tasks { until "x"; every "1s"; timeout "1m"; as r; emit "x" } } }`,
 		"unknown poll node":  hdr + `action a { poll list tasks { until "x"; every "1s"; timeout "1m"; as r; bogus "x" } } }`,

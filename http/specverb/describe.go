@@ -57,8 +57,19 @@ type ActionInfo struct {
 	Until    string `json:"until"`               // loop-ending JMESPath
 	FailWhen string `json:"fail_when,omitempty"` // non-zero-exit JMESPath
 
+	// Defaults is the pre-flight input bindings: each absent input resolved from
+	// the polled leaf before the loop starts. Empty when the action declares none.
+	Defaults []ActionDefaultInfo `json:"defaults,omitempty"`
+
 	// Calls is the resolved step sequence for a multi-call action; empty for a poll.
 	Calls []ActionCallInfo `json:"calls,omitempty"`
+}
+
+// ActionDefaultInfo is one input `default` pre-flight binding for the describe
+// surface: the input it resolves and the JMESPath evaluated against the poll leaf.
+type ActionDefaultInfo struct {
+	Input    string `json:"input"`
+	JMESPath string `json:"jmespath"`
 }
 
 // ActionCallInfo is one step of a multi-call action for the describe surface.
@@ -163,6 +174,9 @@ func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor,
 		} else {
 			info.Method, info.Path, info.Grant = a.Leaf.Method, a.Leaf.Path, a.Leaf.Grant
 			info.Every, info.Timeout, info.Until = a.Every.String(), a.Timeout.String(), a.Until
+			for _, in := range defaultedInputs(a) {
+				info.Defaults = append(info.Defaults, ActionDefaultInfo{Input: in.Name, JMESPath: in.Default})
+			}
 		}
 		s.Actions = append(s.Actions, info)
 	}
@@ -293,6 +307,12 @@ func writeActions(b *strings.Builder, prefix string, actions []ActionInfo) {
 			fmt.Fprintf(b, "Complex action. Polls `%s %s` every %s, up to %s, until:\n\n", a.Method, a.Path, a.Every, a.Timeout)
 			fmt.Fprintf(b, "    %s\n\n", a.Until)
 			fmt.Fprintf(b, "Authorized by grant: %s.\n", a.Grant)
+			if len(a.Defaults) > 0 {
+				b.WriteString("\nPre-flight defaults, resolved against the polled leaf when the input is absent:\n\n")
+				for _, d := range a.Defaults {
+					fmt.Fprintf(b, "- `%s` <- `%s`\n", d.Input, d.JMESPath)
+				}
+			}
 		}
 		if a.FailWhen != "" {
 			fmt.Fprintf(b, "\nExits non-zero when:\n\n    %s\n", a.FailWhen)
