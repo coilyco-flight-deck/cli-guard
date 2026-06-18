@@ -37,3 +37,20 @@ func ProtectedFor(sec repocfg.Security) []hook.Protected {
 	}
 	return out
 }
+
+// ForbiddenFor maps a Security block's forbidden_argv entries into the engine's
+// ForbiddenArgv list, paralleling ProtectedFor. Nil when none are declared.
+func ForbiddenFor(sec repocfg.Security) []hook.ForbiddenArgv {
+	if len(sec.ForbiddenArgv) == 0 {
+		return nil
+	}
+	out := make([]hook.ForbiddenArgv, 0, len(sec.ForbiddenArgv))
+	for _, fa := range sec.ForbiddenArgv {
+		out = append(out, hook.ForbiddenArgv{
+			Description:    fa.Description,
+			MatchesGlobAny: fa.MatchesGlobAny,
+			Hint:           fa.Hint,
+		})
+	}
+	return out
+}

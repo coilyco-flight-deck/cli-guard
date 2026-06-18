@@ -7,6 +7,7 @@ import (
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/profile"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/profiles"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/config"
 )
 
 func withHome(t *testing.T) string {
@@ -14,7 +15,7 @@ func withHome(t *testing.T) string {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
-	return filepath.Join(dir, ".coily", "coily.yaml")
+	return filepath.Join(dir, config.AppDir(), profiles.RegistryFile())
 }
 
 func TestEvaluate_MissingFileReturnsAllowWithStrictest(t *testing.T) {

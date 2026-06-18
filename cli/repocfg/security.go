@@ -2,6 +2,7 @@ package repocfg
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
@@ -21,6 +22,22 @@ type Security struct {
 	// Hooks carries PreToolUse deny/route policy, kept explicit so a consumer
 	// can tune hook behavior without changing the protected-binary contract.
 	Hooks HookPolicy
+	// ForbiddenArgv are glob-pattern argv deny rules matching the whole command
+	// segment (not just a basename), e.g. to deny write verbs. Empty means none.
+	ForbiddenArgv []ForbiddenArgv
+}
+
+// ForbiddenArgv is one glob-pattern argv deny rule from the forbidden_argv:
+// list. A command segment matching any glob in MatchesGlobAny is denied.
+type ForbiddenArgv struct {
+	// Description is the required human label, surfaced in the deny hint.
+	Description string
+	// MatchesGlobAny holds the POSIX fnmatch patterns (path/filepath.Match
+	// grammar). Required and non-empty; each is validated at load.
+	MatchesGlobAny []string
+	// Hint is the optional recovery sentence. When empty, the engine
+	// synthesizes one from the matched glob.
+	Hint string
 }
 
 // ProtectedBinary declares one host tool that direct agent invocation is denied
@@ -85,6 +102,14 @@ type rawSecurity struct {
 		DenyBareBinaries []string          `yaml:"deny_bare_binaries"`
 		RouteHints       map[string]string `yaml:"route_hints"`
 	} `yaml:"hooks"`
+	ForbiddenArgv []rawForbiddenArgv `yaml:"forbidden_argv"`
+}
+
+// rawForbiddenArgv mirrors one on-disk forbidden_argv entry.
+type rawForbiddenArgv struct {
+	Description    string   `yaml:"description"`
+	MatchesGlobAny []string `yaml:"matches_glob_any"`
+	Hint           string   `yaml:"hint"`
 }
 
 // decodeSecurity parses and validates the security: node. A zero-value node
@@ -126,7 +151,39 @@ func decodeSecurity(node yaml.Node) (Security, error) {
 			CredentialEnv:     pb.CredentialEnv,
 		})
 	}
+	forbidden, err := decodeForbiddenArgv(raw.ForbiddenArgv)
+	if err != nil {
+		return Security{}, err
+	}
+	sec.ForbiddenArgv = forbidden
 	return sec, nil
+}
+
+// decodeForbiddenArgv validates and maps the forbidden_argv entries: each needs
+// a description and at least one well-formed glob, anchored to its entry index.
+func decodeForbiddenArgv(raw []rawForbiddenArgv) ([]ForbiddenArgv, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make([]ForbiddenArgv, 0, len(raw))
+	for i, fa := range raw {
+		if fa.Description == "" {
+			return nil, fmt.Errorf("forbidden_argv[%d]: description is empty", i)
+		}
+		if len(fa.MatchesGlobAny) == 0 {
+			return nil, fmt.Errorf("forbidden_argv[%d] (%s): matches_glob_any is empty", i, fa.Description)
+		}
+		for j, glob := range fa.MatchesGlobAny {
+			if glob == "" {
+				return nil, fmt.Errorf("forbidden_argv[%d] (%s): matches_glob_any[%d] is empty", i, fa.Description, j)
+			}
+			if _, err := filepath.Match(glob, ""); err != nil {
+				return nil, fmt.Errorf("forbidden_argv[%d] (%s): matches_glob_any[%d] %q: invalid glob: %w", i, fa.Description, j, glob, err)
+			}
+		}
+		out = append(out, ForbiddenArgv(fa))
+	}
+	return out, nil
 }
 
 // basename returns the final path element of s, matching filepath.Base for

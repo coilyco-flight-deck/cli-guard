@@ -59,7 +59,7 @@ func TestPreToolUse_BlocksEchoExfil(t *testing.T) {
 		ToolName:  "Bash",
 		ToolInput: map[string]any{"command": "echo $AWS_SECRET_ACCESS_KEY"},
 	}
-	d := PreToolUse(payload, "test", nil, nil, lookFunc(nil))
+	d := PreToolUse(payload, "test", nil, nil, lookFunc(nil), nil)
 	if !d.Block {
 		t.Fatalf("expected block, got pass-through")
 	}
@@ -73,7 +73,7 @@ func TestPreToolUse_AllowsEchoSafeVar(t *testing.T) {
 		ToolName:  "Bash",
 		ToolInput: map[string]any{"command": "echo $HOME"},
 	}
-	d := PreToolUse(payload, "test", nil, nil, lookFunc(nil))
+	d := PreToolUse(payload, "test", nil, nil, lookFunc(nil), nil)
 	if d.Block {
 		t.Errorf("expected pass-through for safe var, got Block: %q", d.Message)
 	}
@@ -92,7 +92,7 @@ func TestPreToolUse_PassThroughOnNonBashOrEmpty(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			d := PreToolUse(tc.payload, "test", nil, routes, lookFunc(nil))
+			d := PreToolUse(tc.payload, "test", nil, routes, lookFunc(nil), nil)
 			if d.Block {
 				t.Errorf("expected pass-through, got Block: %q", d.Message)
 			}
@@ -109,7 +109,7 @@ func TestPreToolUse_RouteHintFiresOnBareToken(t *testing.T) {
 		ToolName:  "Bash",
 		ToolInput: map[string]any{"command": "gh issue view 42"},
 	}
-	d := PreToolUse(payload, "test", nil, routes, lookFunc(nil))
+	d := PreToolUse(payload, "test", nil, routes, lookFunc(nil), nil)
 	if !d.Block {
 		t.Fatalf("expected block, got pass-through")
 	}
@@ -134,13 +134,13 @@ func TestPreToolUse_ExtraSuffixAppendsWhenPresent(t *testing.T) {
 	}}
 	d := PreToolUse(
 		Payload{ToolName: "Bash", ToolInput: map[string]any{"command": "gh issue view 1"}},
-		"test", nil, routes, lookFunc(nil))
+		"test", nil, routes, lookFunc(nil), nil)
 	if !strings.Contains(d.Message, "use the REST API") {
 		t.Errorf("Extra suffix missing: %q", d.Message)
 	}
 	d2 := PreToolUse(
 		Payload{ToolName: "Bash", ToolInput: map[string]any{"command": "gh pr list"}},
-		"test", nil, routes, lookFunc(nil))
+		"test", nil, routes, lookFunc(nil), nil)
 	if strings.Contains(d2.Message, "use the REST API") {
 		t.Errorf("Extra suffix should not fire for non-matching segment: %q", d2.Message)
 	}
@@ -154,7 +154,7 @@ func TestPreToolUse_IntegrityRuleBlocksOffPathBinary(t *testing.T) {
 	d := PreToolUse(
 		Payload{ToolName: "Bash", ToolInput: map[string]any{"command": "app whoami"}},
 		"test", rules, nil,
-		lookFunc(map[string]string{"app": "/tmp/evil/app"}))
+		lookFunc(map[string]string{"app": "/tmp/evil/app"}), nil)
 	if !d.Block {
 		t.Fatalf("expected block on off-path app, got pass-through")
 	}
@@ -171,7 +171,7 @@ func TestPreToolUse_IntegrityRulePassesWhenPathMatches(t *testing.T) {
 	d := PreToolUse(
 		Payload{ToolName: "Bash", ToolInput: map[string]any{"command": "app whoami"}},
 		"test", rules, nil,
-		lookFunc(map[string]string{"app": "/opt/homebrew/bin/app"}))
+		lookFunc(map[string]string{"app": "/opt/homebrew/bin/app"}), nil)
 	if d.Block {
 		t.Errorf("expected pass-through for canonical path, got block: %q", d.Message)
 	}
@@ -189,7 +189,7 @@ func TestPreToolUse_StripsEnvAndSudoBeforeTokenMatch(t *testing.T) {
 		t.Run(cmd, func(t *testing.T) {
 			d := PreToolUse(
 				Payload{ToolName: "Bash", ToolInput: map[string]any{"command": cmd}},
-				"test", nil, routes, lookFunc(nil))
+				"test", nil, routes, lookFunc(nil), nil)
 			if !d.Block {
 				t.Errorf("expected route to fire after env/sudo strip: %q", cmd)
 			}
@@ -210,7 +210,7 @@ func TestPreToolUse_SplitsOnShellBoundaries(t *testing.T) {
 		t.Run(cmd, func(t *testing.T) {
 			d := PreToolUse(
 				Payload{ToolName: "Bash", ToolInput: map[string]any{"command": cmd}},
-				"test", nil, routes, lookFunc(nil))
+				"test", nil, routes, lookFunc(nil), nil)
 			if !d.Block {
 				t.Errorf("expected route to fire across boundary: %q", cmd)
 			}
@@ -237,7 +237,7 @@ func TestPreToolUse_DeniesInterpreterEverySpelling(t *testing.T) {
 		t.Run(cmd, func(t *testing.T) {
 			d := PreToolUse(
 				Payload{ToolName: "Bash", ToolInput: map[string]any{"command": cmd}},
-				"test", nil, nil, lookFunc(nil))
+				"test", nil, nil, lookFunc(nil), nil)
 			if !d.Block {
 				t.Fatalf("expected interpreter deny, got pass-through")
 			}
@@ -268,7 +268,7 @@ func TestPreToolUse_DeniesScratchDirExecution(t *testing.T) {
 		t.Run(tc.cmd, func(t *testing.T) {
 			d := PreToolUse(
 				Payload{ToolName: "Bash", CWD: tc.cwd, ToolInput: map[string]any{"command": tc.cmd}},
-				"test", nil, nil, lookFunc(nil))
+				"test", nil, nil, lookFunc(nil), nil)
 			if !d.Block {
 				t.Fatalf("expected scratch-exec deny, got pass-through")
 			}
@@ -294,7 +294,7 @@ func TestPreToolUse_AllowsWritingToScratch(t *testing.T) {
 		t.Run(cmd, func(t *testing.T) {
 			d := PreToolUse(
 				Payload{ToolName: "Bash", ToolInput: map[string]any{"command": cmd}},
-				"test", nil, nil, lookFunc(nil))
+				"test", nil, nil, lookFunc(nil), nil)
 			if d.Block {
 				t.Errorf("expected pass-through for scratch write, got block: %q", d.Message)
 			}
@@ -438,7 +438,7 @@ func TestPreToolUse_ProtectedBinaryDeny(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			payload := Payload{ToolName: "Bash", ToolInput: map[string]interface{}{"command": tc.command}}
-			d := PreToolUse(payload, "test", nil, nil, lookFunc(nil), protected...)
+			d := PreToolUse(payload, "test", nil, nil, lookFunc(nil), protected)
 			if d.Block != tc.block {
 				t.Fatalf("Block = %v, want %v (msg=%q)", d.Block, tc.block, d.Message)
 			}
@@ -446,6 +446,118 @@ func TestPreToolUse_ProtectedBinaryDeny(t *testing.T) {
 				t.Errorf("Message = %q, want substring %q", d.Message, tc.substr)
 			}
 		})
+	}
+}
+
+func TestPreToolUse_ForbiddenArgvGlobDeny(t *testing.T) {
+	forbidden := []ForbiddenArgv{
+		{
+			Description:    "gh writes",
+			MatchesGlobAny: []string{"gh * create*", "gh * delete*", "gh * edit*"},
+			Hint:           "use the relevant issue tracker, not gh.",
+		},
+		{
+			Description:    "substring deny on gh / forgejo",
+			MatchesGlobAny: []string{"gh *secret*", "forgejo *secret*"},
+			// no Hint: synthesized message expected.
+		},
+	}
+	cases := []struct {
+		name    string
+		command string
+		block   bool
+		substr  string
+	}{
+		// Allowed read verbs and unrelated commands pass through.
+		{"gh pr view", "gh pr view 1", false, ""},
+		{"gh issue list", "gh issue list", false, ""},
+		{"gh api read", "gh api repos/foo/bar", false, ""},
+		{"gh api graphql", "gh api graphql -f query=foo", false, ""},
+		// Write verbs are denied, with the custom hint surfaced.
+		{"gh issue create", "gh issue create", true, "use the relevant issue tracker, not gh."},
+		{"gh pr create flags", "gh pr create -t foo", true, "blocked argv (gh writes)"},
+		{"gh repo delete", "gh repo delete", true, "gh writes"},
+		// env prefix is stripped before the glob runs.
+		{"env-prefixed edit", "env GH_TOKEN=x gh release edit", true, "gh writes"},
+		// Substring rule fires across '/' and synthesizes a hint from the glob.
+		{"substring across slash", "gh api repos/secret/foo", true, `argv matched "gh *secret*"`},
+		{"forgejo substring", "forgejo issue create --repo secret/x", true, `argv matched "forgejo *secret*"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := Payload{ToolName: "Bash", ToolInput: map[string]any{"command": tc.command}}
+			d := PreToolUse(payload, "test", nil, nil, lookFunc(nil), nil, forbidden...)
+			if d.Block != tc.block {
+				t.Fatalf("Block = %v, want %v (msg=%q)", d.Block, tc.block, d.Message)
+			}
+			if tc.substr != "" && !strings.Contains(d.Message, tc.substr) {
+				t.Errorf("Message = %q, want substring %q", d.Message, tc.substr)
+			}
+		})
+	}
+}
+
+func TestPreToolUse_ForbiddenArgvFirstMatchWins(t *testing.T) {
+	// Two rules can match the same segment; the first declared wins.
+	forbidden := []ForbiddenArgv{
+		{Description: "first", MatchesGlobAny: []string{"gh *create*"}, Hint: "first hint"},
+		{Description: "second", MatchesGlobAny: []string{"gh issue *"}, Hint: "second hint"},
+	}
+	payload := Payload{ToolName: "Bash", ToolInput: map[string]any{"command": "gh issue create"}}
+	d := PreToolUse(payload, "test", nil, nil, lookFunc(nil), nil, forbidden...)
+	if !d.Block {
+		t.Fatalf("expected block, got pass-through")
+	}
+	if !strings.Contains(d.Message, "first hint") {
+		t.Errorf("first match should win: %q", d.Message)
+	}
+}
+
+func TestPreToolUse_ForbiddenArgvSynthesizedHint(t *testing.T) {
+	forbidden := []ForbiddenArgv{
+		{Description: "no hint rule", MatchesGlobAny: []string{"gh * create*"}},
+	}
+	payload := Payload{ToolName: "Bash", ToolInput: map[string]any{"command": "gh issue create"}}
+	d := PreToolUse(payload, "test", nil, nil, lookFunc(nil), nil, forbidden...)
+	if !d.Block {
+		t.Fatalf("expected block, got pass-through")
+	}
+	if strings.Contains(d.Message, "Recovery:") {
+		t.Errorf("absent hint should not synthesize a Recovery clause: %q", d.Message)
+	}
+	if !strings.Contains(d.Message, "no hint rule") || !strings.Contains(d.Message, `argv matched "gh * create*"`) {
+		t.Errorf("synthesized message missing description or glob: %q", d.Message)
+	}
+}
+
+func TestPreToolUse_ForbiddenArgvNoneIsPassThrough(t *testing.T) {
+	// A consumer passing no forbidden rules sees identical behavior: the
+	// segment falls through to routes (here, none) and passes.
+	payload := Payload{ToolName: "Bash", ToolInput: map[string]any{"command": "gh issue create"}}
+	if d := PreToolUse(payload, "test", nil, nil, lookFunc(nil), nil); d.Block {
+		t.Errorf("no forbidden rules should pass through: %q", d.Message)
+	}
+}
+
+func TestMatchGlob(t *testing.T) {
+	cases := []struct {
+		pattern string
+		seg     string
+		want    bool
+	}{
+		{"gh * create*", "gh issue create", true},
+		{"gh * create*", "gh pr create -t foo", true},
+		{"gh * create*", "gh issue list", false},
+		{"gh * create*", "gh pr view", false},
+		{"gh *secret*", "gh api repos/secret/foo", true}, // * crosses '/'
+		{"gh *secret*", "gh api repos/foo/bar", false},
+		{"forgejo *secret*", "forgejo issue create --repo secret/x", true},
+		{"[bad", "anything", false}, // malformed pattern never matches
+	}
+	for _, tc := range cases {
+		if got := matchGlob(tc.pattern, tc.seg); got != tc.want {
+			t.Errorf("matchGlob(%q, %q) = %v, want %v", tc.pattern, tc.seg, got, tc.want)
+		}
 	}
 }
 
