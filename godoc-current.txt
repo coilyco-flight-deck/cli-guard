@@ -1369,6 +1369,10 @@ type Spec struct {
 	// ResolveInvokeCWD, when set, returns the operator's invoke-time cwd
 	// (distinct from os.Getwd() which captures the post-cd subprocess
 	ResolveInvokeCWD func() string
+
+	// EvaluatorConfigHint, when non-empty, names the consumer's config file
+	// surfaced in the evaluator_failed hint; empty keeps the hint generic.
+	EvaluatorConfigHint string
 }
     Spec describes a verb before it is wrapped into a cli.ActionFunc.
 

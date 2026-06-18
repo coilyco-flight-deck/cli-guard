@@ -29,6 +29,20 @@ const lockdownAxisReason = "a lockdown profile is the boundary that stops an age
 	"widening its own permissions; a denied axis can only be relaxed from outside the agent by editing the " +
 	"verb's profile in its declaring config, never by the caller bypassing the gate"
 
+// evaluatorFailedHint names the config role, not any consumer's filename, so
+// a non-coily consumer never sees a foreign path in its denial output.
+const evaluatorFailedHint = "profile evaluator returned an internal error; " +
+	"check the lockdown profile config is well-formed"
+
+// evaluatorFailedHintFor names the consumer's own config file when the spec
+// supplies one, else falls back to the consumer-agnostic hint.
+func evaluatorFailedHintFor(configHint string) string {
+	if configHint == "" {
+		return evaluatorFailedHint
+	}
+	return fmt.Sprintf("profile evaluator returned an internal error; check %s is well-formed", configHint)
+}
+
 // Spec describes a verb before it is wrapped into a cli.ActionFunc.
 type Spec struct {
 	// Name is the dotted verb path used for audit logging, e.g.
@@ -61,6 +75,10 @@ type Spec struct {
 	// ResolveInvokeCWD, when set, returns the operator's invoke-time cwd
 	// (distinct from os.Getwd() which captures the post-cd subprocess
 	ResolveInvokeCWD func() string
+
+	// EvaluatorConfigHint, when non-empty, names the consumer's config file
+	// surfaced in the evaluator_failed hint; empty keeps the hint generic.
+	EvaluatorConfigHint string
 }
 
 // Wrap returns a cli.ActionFunc that runs the full verb pipeline.
@@ -151,7 +169,7 @@ func runOnEvaluate(ctx context.Context, cmd *cli.Command, spec Spec, base audit.
 		return pd, coded
 	}
 	coded := exitcode.New(exitcode.Generic, "evaluator_failed", evalErr,
-		"profile evaluator returned an internal error; check ~/.coily/coily.yaml is well-formed")
+		evaluatorFailedHintFor(spec.EvaluatorConfigHint))
 	logReject(writer, spec.Name, argv, coded)
 	return pd, coded
 }
