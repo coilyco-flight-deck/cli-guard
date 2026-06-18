@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/profiles"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/audit"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/policy"
@@ -150,8 +151,12 @@ func runOnEvaluate(ctx context.Context, cmd *cli.Command, spec Spec, base audit.
 		writeDenyRecord(writer, base, pd, evalErr)
 		return pd, coded
 	}
+	registry := "the global profile registry file"
+	if p, perr := profiles.OverridePath(); perr == nil {
+		registry = p
+	}
 	coded := exitcode.New(exitcode.Generic, "evaluator_failed", evalErr,
-		"profile evaluator returned an internal error; check ~/.coily/coily.yaml is well-formed")
+		"profile evaluator returned an internal error; check "+registry+" is well-formed")
 	logReject(writer, spec.Name, argv, coded)
 	return pd, coded
 }

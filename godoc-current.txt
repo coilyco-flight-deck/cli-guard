@@ -930,7 +930,14 @@ func TiersFor(a Axis) []Tier
 package profiles // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/profiles"
 
 Package profiles loads the per-host lockdown profile registry from
-~/.coily/coily.yaml and resolves named profiles to cli-guard/profile
+~/<app-dir>/<registry-file> and resolves named profiles to cli-guard/profile
+
+CONSTANTS
+
+const FallbackRegistryFile = "profiles.yaml"
+    FallbackRegistryFile is the registry filename used when the consumer never
+    calls SetRegistryFile - consumer-neutral, mirroring config.FallbackAppDir.
+
 
 VARIABLES
 
@@ -939,16 +946,24 @@ var DefaultYAML []byte
 FUNCTIONS
 
 func LoadOverride() (map[string]profile.Coordinate, error)
-    LoadOverride reads and validates ~/.coily/coily.yaml. Returns (nil,
+    LoadOverride reads and validates the profile registry file. Returns (nil,
     os.ErrNotExist) when the file is absent so callers can fall
 
 func OverridePath() (string, error)
-    OverridePath returns ~/.coily/coily.yaml. Caller stat()s it; the loader
-    treats os.ErrNotExist as the deny-everything fallback signal.
+    OverridePath returns ~/<app-dir>/<registry-file>, routed through
+    config.GlobalDir and RegistryFile so no consumer name is baked in.
 
 func ParseAndValidate(body []byte, sourceDesc string) (map[string]profile.Coordinate, error)
     ParseAndValidate decodes a YAML body and validates every profile. Exposed
     for tests and for the consumer's `lockdown init-config` to check the
+
+func RegistryFile() string
+    RegistryFile returns the value the consumer set, or FallbackRegistryFile
+    when unset.
+
+func SetRegistryFile(name string)
+    SetRegistryFile registers the basename of the global profile registry file
+    (coily "coily.yaml"); with config.SetAppDir it forms ~/<app-dir>/<file>.
 
 
 TYPES
@@ -956,8 +971,8 @@ TYPES
 type File struct {
 	Profiles map[string]rawCoordinate `yaml:"profiles"`
 }
-    File is the on-disk shape of ~/.coily/coily.yaml. One field today; future
-    schema additions land alongside without breaking the loader.
+    File is the on-disk shape of the profile registry file. One field today;
+    future schema additions land alongside without breaking the loader.
 
 type Resolution struct {
 	Coord  profile.Coordinate
@@ -980,7 +995,7 @@ const (
 	// override file and its tiers are in effect.
 	SourceOverride Source = "override"
 
-	// SourceMissingFile means ~/.coily/coily.yaml was absent. Every
+	// SourceMissingFile means the profile registry file was absent. Every
 	// axis falls back to Strictest().
 	SourceMissingFile Source = "missing_file"
 
@@ -1172,8 +1187,9 @@ const (
 
 FUNCTIONS
 
-func IsJailInvocation(_ []string) bool
-    IsJailInvocation is always false off Linux.
+func IsJailInvocation(argv []string) bool
+    IsJailInvocation reports whether argv is the internal jail-helper re-exec;
+    the consumer's main calls RunJail when true.
 
 func Jailed() bool
     Jailed reports whether the current process is already running inside a jail.
@@ -1190,16 +1206,19 @@ func RealBinEnv(tool string) string
     RealBinEnv returns the env-var name carrying tool's stashed real path,
     upper-casing the name and mapping non-alphanumerics to '_'.
 
-func RunJail(_ []string) error
-    RunJail is unsupported off Linux.
+func RunJail(args []string) error
+    RunJail is the in-namespace helper: it shims the wrapped tools, installs the
+    seccomp denylist, and execs the real tool (args is os.Args[2:]).
 
-func SetupDenied(_ *exec.Cmd, _ error) bool
-    SetupDenied is always false off Linux: nothing was jailed, so there is no
-    namespace-denial to degrade from.
+func SetupDenied(cmd *exec.Cmd, err error) bool
+    SetupDenied reports whether a jailed cmd failed to *start* on a clone
+    denial (EPERM/EACCES, child never ran), so the caller may retry it.
+    See docs/sandbox.md.
 
-func Wrap(_ *exec.Cmd, _ string, _ []string, _ *Spec)
-    Wrap is a no-op off Linux: OS-level jailing is unsupported, so the caller
-    execs the real binary directly (pre-sandbox behavior).
+func Wrap(cmd *exec.Cmd, realPath string, argv []string, spec *Spec)
+    Wrap rewrites cmd to re-exec the consumer binary as the jail helper in a
+    fresh user+mount namespace. No-op when jailed, opted out (EnvNoSandbox),
+    or spec nil.
 
 
 TYPES
