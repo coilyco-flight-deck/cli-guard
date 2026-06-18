@@ -1,11 +1,9 @@
 # complex actions
 
 A **complex action** is a named composite verb authored inside a `wrap` block: it
-orchestrates a bounded sequence of already-granted leaves with control flow. It
-is sugar over the allowlist, never an escape from it. The first use case is a
-native CI-watch verb (poll a CI run to completion, then surface failing jobs),
-retiring the hand-written poll loop in ward's `scripts/watch-ci.sh`. See
-[specverb.md](specverb.md) for the engine and cli-guard#140 for the design.
+orchestrates a bounded sequence of already-granted leaves with control flow. It is
+sugar over the allowlist, never an escape from it. See [specverb.md](specverb.md)
+for the engine and cli-guard#140 for the design.
 
 ## The five invariants
 
@@ -14,8 +12,7 @@ retiring the hand-written poll loop in ward's `scripts/watch-ci.sh`. See
 2. **Bounded.** Every poll loop carries a mandatory `every` and `timeout`. No
    unbounded iteration exists in the grammar - that is what makes it reviewable.
 3. **Per-call audit.** Each poll tick writes its own leaf `verb.Wrap` audit row
-   (named for the leaf, e.g. `ward.ops.forgejo.task.list`), and the action
-   writes one envelope row (`...action.<name>`) tying them together.
+   (e.g. `ward.ops.forgejo.task.list`); the action writes one envelope row.
 4. **Dry-run is a plan.** `--dry-run` prints the call with its bound params and
    the compiled `until`, firing nothing.
 5. **One expression engine.** Conditions are JMESPath, the same engine `--query`
@@ -60,21 +57,24 @@ wrap ward ops forgejo {
   final response to `as`.
 - Inputs reach conditions as native `$variables` through the jmespath-community
   interpreter's scope injection (`respfmt.Eval`), **not** string substitution -
-  no injection surface. A numeric input is coerced so `run_number==$run`
-  compares number to number. An unset optional flag binds in no scope, so a
-  condition naming it fails closed rather than looping on a silent null.
+  no injection surface. A numeric input is coerced so `run_number==$run` compares
+  number to number. An unset optional flag binds in no scope, failing closed.
 - Author the multiline `until` as a KDL `"""..."""` string: the parser dedents
   it and JMESPath treats the newlines as whitespace, so it reads like formatted
   code, not a blob. Use a raw `#"""..."""#` only for a literal `"`.
 - `fail-when` runs after the loop against the final response, with the `as`
   binding available as a `$variable`. Truthy is a non-zero exit - how a CI-watch
   tells the shell a job failed.
-- An `input` may carry a `default <jmespath>` that pre-flights the poll leaf to
-  bind it when absent: [specverb-action-defaults.md](specverb-action-defaults.md).
+- An `input` may carry a `default <jmespath>` pre-flighting the poll leaf to bind it when absent: [specverb-action-defaults.md](specverb-action-defaults.md).
+
+## Mount actions: shadowing a generated leaf
+
+A two-arg `action <verb> <resource>` mounts at that leaf path, replacing the leaf
+and combining its `call` chain. See [specverb-action-mount.md](specverb-action-mount.md).
 
 ## Reserved for later (do not author in v1)
 
 The grammar reserves, and fails closed on, the forward-design keywords so log
-tailing is a later addition, not a rewrite: `emit`, `cursor`, `each`/`yield`,
-and `call`/`read`/`follow`/`stream`/`tail`. The leaf seam is kind-agnostic: a
-poll target may be a generated op now or a hand-written gated leaf later.
+tailing is a later addition, not a rewrite: `emit`, `cursor`, `each`/`yield`, and
+`read`/`follow`/`stream`/`tail`. The leaf seam is kind-agnostic: a poll or call
+target may be a generated op now or a hand-written gated leaf later.

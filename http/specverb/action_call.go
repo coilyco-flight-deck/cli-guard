@@ -52,12 +52,15 @@ func resolveCallAction(spec *spec, gf *guardfile.Guardfile, granted map[grantKey
 		}
 	}
 	return actionDescriptor{
-		Name:     a.Name,
-		VerbName: strings.Join(gf.Group, ".") + "." + actionGroup + "." + a.Name,
-		Describe: a.Describe,
-		Inputs:   a.Inputs,
-		Calls:    steps,
-		FailWhen: a.FailWhen,
+		Name:          a.Name,
+		VerbName:      actionVerbName(gf.Group, a),
+		Describe:      a.Describe,
+		Inputs:        a.Inputs,
+		Calls:         steps,
+		FailWhen:      a.FailWhen,
+		MountVerb:     a.MountVerb,
+		MountResource: a.MountResource,
+		Combine:       a.IsMount(), // a shadow renders the whole chain, not just the last call
 	}, nil
 }
 
@@ -144,10 +147,29 @@ func (rt *runtime) runCallAction(ctx context.Context, c *cli.Command, ad actionD
 	if dry {
 		return rt.renderCallPlan(ad, plan, c.String(flagOutput))
 	}
-	if err := renderFinal(lastRaw, c.String(flagOutput)); err != nil {
+	if err := rt.renderCallResult(ad, bindings, lastRaw, c.String(flagOutput)); err != nil {
 		return err
 	}
 	return rt.applyFailWhen(ad, lastRaw, bindings)
+}
+
+// renderCallResult prints a call action's output: a mount action (Combine) emits
+// every `as` binding as one object; a named action prints just its final response.
+func (rt *runtime) renderCallResult(ad actionDescriptor, bindings map[string]any, lastRaw []byte, output string) error {
+	if !ad.Combine {
+		return renderFinal(lastRaw, output)
+	}
+	combined := map[string]any{}
+	for _, step := range ad.Calls {
+		if step.As != "" {
+			combined[step.As] = bindings[step.As]
+		}
+	}
+	raw, err := json.Marshal(combined)
+	if err != nil {
+		return exitcode.New(exitcode.Internal, "internal", err, "")
+	}
+	return renderFinal(raw, output)
 }
 
 // fireCallAudited fires one call through the verb pipeline so it writes its own

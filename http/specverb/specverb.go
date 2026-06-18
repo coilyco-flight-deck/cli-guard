@@ -124,9 +124,14 @@ func Build(cfg Config) (*cli.Command, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A mount action shadows the generated leaf at its path: drop the leaf so the
+	// action takes its place (the grant still resolves for the inner call).
+	mountActions, namedActions := splitMountActions(actionDescs)
+	descs = suppressShadowed(descs, mountActions)
 	denies := denyDescriptors(gf)
 	groupCmds := rt.buildGroups(descs, denies)
-	if ag := rt.buildActionGroup(actionDescs); ag != nil {
+	groupCmds = rt.mountShadowLeaves(groupCmds, mountActions)
+	if ag := rt.buildActionGroup(namedActions); ag != nil {
 		groupCmds = append(groupCmds, ag)
 	}
 	surface := buildSurface(gf, baseURLDisplay(gf, rt.baseURL), descs, actionDescs)
@@ -137,6 +142,65 @@ func Build(cfg Config) (*cli.Command, error) {
 		Commands: groupCmds,
 	}
 	return root, nil
+}
+
+// splitMountActions partitions resolved actions into those that shadow a leaf
+// path (`action <verb> <resource>`) and the rest (named `action` leaves).
+func splitMountActions(actions []actionDescriptor) (mount, named []actionDescriptor) {
+	for _, a := range actions {
+		if a.isMount() {
+			mount = append(mount, a)
+		} else {
+			named = append(named, a)
+		}
+	}
+	return mount, named
+}
+
+// suppressShadowed drops every generated descriptor a mount action shadows, so the
+// action - not the bare leaf - mounts at that path. The grant is untouched.
+func suppressShadowed(descs []opDescriptor, mount []actionDescriptor) []opDescriptor {
+	if len(mount) == 0 {
+		return descs
+	}
+	shadowed := map[grantKey]bool{}
+	for _, a := range mount {
+		shadowed[grantKey{Verb: a.MountVerb, Resource: a.MountResource}] = true
+	}
+	out := descs[:0:0]
+	for _, d := range descs {
+		if shadowed[grantKey{Verb: d.Leaf, Resource: d.Group}] {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// mountShadowLeaves grafts each mount action into its resource group as that
+// group's verb leaf, creating the group when no generated leaf seeded it.
+func (rt *runtime) mountShadowLeaves(groupCmds []*cli.Command, mount []actionDescriptor) []*cli.Command {
+	for _, ad := range mount {
+		grp := findCommand(groupCmds, ad.MountResource)
+		if grp == nil {
+			grp = &cli.Command{Name: ad.MountResource, Usage: fmt.Sprintf("%s operations", ad.MountResource)}
+			groupCmds = append(groupCmds, grp)
+		}
+		leaf := rt.buildActionLeaf(ad)
+		leaf.Name = ad.MountVerb // mount at the verb, not the synthesized action name
+		grp.Commands = append(grp.Commands, leaf)
+	}
+	return groupCmds
+}
+
+// findCommand returns the command named name among cmds, or nil.
+func findCommand(cmds []*cli.Command, name string) *cli.Command {
+	for _, c := range cmds {
+		if c.Name == name {
+			return c
+		}
+	}
+	return nil
 }
 
 // Mount builds the guarded group and grafts it onto root, generating the

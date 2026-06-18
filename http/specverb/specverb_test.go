@@ -274,9 +274,8 @@ func withGate(t *testing.T, gf *guardfile.Guardfile, spec []byte) Config {
 	}
 }
 
-// TestBodyParamExemptFromMetacharGate proves the shell-metachar gate is
-// location-aware: a `(` in a body field is JSON-encoded, never shell- or
-// URL-bound, so it must pass — the regression #136 reports.
+// TestBodyParamExemptFromMetacharGate proves the gate is location-aware: a `(` in
+// a body field is JSON-encoded, never shell/URL-bound, so it must pass. See #136.
 func TestBodyParamExemptFromMetacharGate(t *testing.T) {
 	gf, spec := loadFixtures(t)
 	cfg := withGate(t, gf, spec)

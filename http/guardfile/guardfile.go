@@ -123,7 +123,15 @@ type Action struct {
 	Poll     *Poll
 	Calls    []Call // ordered multi-call sequence; mutually exclusive with Poll
 	FailWhen string // JMESPath over the bindings; truthy => non-zero exit
+
+	// MountVerb/MountResource: the two-arg `action <verb> <resource>` mount form
+	// shadows that leaf path. Empty for `action <name>`. See specverb-actions.md.
+	MountVerb     string
+	MountResource string
 }
+
+// IsMount reports whether the action shadows a leaf path (two-arg form).
+func (a Action) IsMount() bool { return a.MountResource != "" }
 
 // Guardfile is the parsed form of one wrap block.
 type Guardfile struct {
@@ -482,23 +490,40 @@ func parseRestrict(n *kdl.Node) (Restriction, error) {
 // parseAction reads one `action <name> { ... }` block into an Action. It fails
 // closed: an unknown body node, a missing poll, or a reserved keyword is an error.
 func parseAction(n *kdl.Node) (Action, error) {
-	name, err := singleArg(n)
+	act, err := actionHeader(n)
 	if err != nil {
-		return Action{}, fmt.Errorf("guardfile: action: %w (name it: `action ci-watch { ... }`)", err)
+		return Action{}, err
 	}
-	act := Action{Name: name}
 	for _, c := range n.Children().Nodes {
 		if err := applyActionChild(&act, c); err != nil {
-			return Action{}, fmt.Errorf("guardfile: action %q: %w", name, err)
+			return Action{}, fmt.Errorf("guardfile: action %q: %w", act.Name, err)
 		}
 	}
 	switch {
 	case act.Poll == nil && len(act.Calls) == 0:
-		return Action{}, fmt.Errorf("guardfile: action %q: needs a `poll` block or at least one `call` step", name)
+		return Action{}, fmt.Errorf("guardfile: action %q: needs a `poll` block or at least one `call` step", act.Name)
 	case act.Poll != nil && len(act.Calls) > 0:
-		return Action{}, fmt.Errorf("guardfile: action %q: `poll` and `call` are mutually exclusive (watch one leaf, or chain leaves)", name)
+		return Action{}, fmt.Errorf("guardfile: action %q: `poll` and `call` are mutually exclusive (watch one leaf, or chain leaves)", act.Name)
 	}
 	return act, nil
+}
+
+// actionHeader reads an action's header: one arg is `action <name>` (mounts under
+// the `action` noun), two is the `action <verb> <resource>` mount form.
+func actionHeader(n *kdl.Node) (Action, error) {
+	args := n.Arguments()
+	switch len(args) {
+	case 1:
+		return Action{Name: args[0].String()}, nil
+	case 2:
+		verb, resource := args[0].String(), args[1].String()
+		if verb == "" || resource == "" {
+			return Action{}, fmt.Errorf("guardfile: action: mount form needs a non-empty verb and resource (`action view issue { ... }`)")
+		}
+		return Action{Name: verb + "-" + resource, MountVerb: verb, MountResource: resource}, nil
+	default:
+		return Action{}, fmt.Errorf("guardfile: action: name it `action ci-watch { ... }` or mount it `action view issue { ... }` (got %d header arg(s))", len(args))
+	}
 }
 
 // applyActionChild dispatches one child node of an action body onto act.

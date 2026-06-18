@@ -61,6 +61,11 @@ type ActionInfo struct {
 	// the polled leaf before the loop starts. Empty when the action declares none.
 	Defaults []ActionDefaultInfo `json:"defaults,omitempty"`
 
+	// MountVerb/MountResource: set when the action shadows a leaf path (mounts at
+	// `<resource> <verb>`, not the `action` noun). Empty for a named action.
+	MountVerb     string `json:"mount_verb,omitempty"`
+	MountResource string `json:"mount_resource,omitempty"`
+
 	// Calls is the resolved step sequence for a multi-call action; empty for a poll.
 	Calls []ActionCallInfo `json:"calls,omitempty"`
 }
@@ -135,6 +140,10 @@ func Describe(cfg Config) (*Surface, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Match Build: a mount action shadows its generated leaf, so the surface
+	// must drop that leaf too (the action stands in for it).
+	mountActions, _ := splitMountActions(actionDescs)
+	descs = suppressShadowed(descs, mountActions)
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		baseURL = gf.BaseURL
@@ -166,7 +175,7 @@ func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor,
 		})
 	}
 	for _, a := range actions {
-		info := ActionInfo{Name: a.VerbName, Leaf: a.Name, Describe: a.Describe, FailWhen: a.FailWhen}
+		info := ActionInfo{Name: a.VerbName, Leaf: a.Name, Describe: a.Describe, FailWhen: a.FailWhen, MountVerb: a.MountVerb, MountResource: a.MountResource}
 		if a.isCall() {
 			for _, step := range a.Calls {
 				info.Calls = append(info.Calls, ActionCallInfo{Method: step.Leaf.Method, Path: step.Leaf.Path, Grant: step.Leaf.Grant, As: step.As})
@@ -296,11 +305,14 @@ func writeActions(b *strings.Builder, prefix string, actions []ActionInfo) {
 		return
 	}
 	for _, a := range actions {
-		heading := fmt.Sprintf("## %s %s %s", prefix, actionGroup, a.Leaf)
+		heading := actionHeading(prefix, a)
 		if a.Describe != "" {
 			heading += " - " + a.Describe
 		}
 		fmt.Fprintf(b, "\n%s\n\n", heading)
+		if a.MountResource != "" {
+			fmt.Fprintf(b, "Shadows the generated `%s %s` leaf: invoking it runs this composite in the leaf's place.\n\n", a.MountResource, a.MountVerb)
+		}
 		if len(a.Calls) > 0 {
 			writeCallAction(b, a)
 		} else {
@@ -319,6 +331,15 @@ func writeActions(b *strings.Builder, prefix string, actions []ActionInfo) {
 		}
 	}
 	b.WriteString(conditionLanguageNote)
+}
+
+// actionHeading is an action stanza's title: a mount action reads at the leaf
+// path it shadows (`<prefix> <resource> <verb>`), a named action under `action`.
+func actionHeading(prefix string, a ActionInfo) string {
+	if a.MountResource != "" {
+		return fmt.Sprintf("## %s %s %s", prefix, a.MountResource, a.MountVerb)
+	}
+	return fmt.Sprintf("## %s %s %s", prefix, actionGroup, a.Leaf)
 }
 
 // writeCallAction renders a multi-call action stanza: the ordered call sequence,

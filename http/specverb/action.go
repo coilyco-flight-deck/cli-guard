@@ -45,7 +45,16 @@ type actionDescriptor struct {
 	// Calls is the resolved multi-call sequence; non-empty marks a call action,
 	// mutually exclusive with the poll fields above.
 	Calls []callStep
+
+	// MountVerb/MountResource: the mount form shadows that leaf path instead of
+	// mounting under the `action` noun. Empty for a named action.
+	MountVerb     string
+	MountResource string
+	Combine       bool // render all `as` bindings together (mount call-actions)
 }
+
+// isMount reports whether ad shadows a leaf path (the `action <verb> <resource>` form).
+func (ad actionDescriptor) isMount() bool { return ad.MountResource != "" }
 
 // callStep is one resolved step of a multi-call action: a granted leaf, its arg
 // bindings, and the optional `as` name its response binds to for later steps.
@@ -114,18 +123,29 @@ func resolveAction(spec *spec, gf *guardfile.Guardfile, granted map[grantKey]gua
 		return actionDescriptor{}, err
 	}
 	return actionDescriptor{
-		Name:     a.Name,
-		VerbName: strings.Join(gf.Group, ".") + "." + actionGroup + "." + a.Name,
-		Describe: a.Describe,
-		Inputs:   a.Inputs,
-		Leaf:     leaf,
-		Args:     p.Args,
-		Until:    p.Until,
-		Every:    every,
-		Timeout:  timeout,
-		As:       p.As,
-		FailWhen: a.FailWhen,
+		Name:          a.Name,
+		VerbName:      actionVerbName(gf.Group, a),
+		Describe:      a.Describe,
+		Inputs:        a.Inputs,
+		Leaf:          leaf,
+		Args:          p.Args,
+		Until:         p.Until,
+		Every:         every,
+		Timeout:       timeout,
+		As:            p.As,
+		FailWhen:      a.FailWhen,
+		MountVerb:     a.MountVerb,
+		MountResource: a.MountResource,
 	}, nil
+}
+
+// actionVerbName is the action's dotted audit identity: a mount action mirrors the
+// shadowed leaf (`<group>.<resource>.<verb>`), a named one is `<group>.action.<name>`.
+func actionVerbName(group []string, a guardfile.Action) string {
+	if a.IsMount() {
+		return strings.Join(group, ".") + "." + a.MountResource + "." + a.MountVerb
+	}
+	return strings.Join(group, ".") + "." + actionGroup + "." + a.Name
 }
 
 // validateArgs checks every poll arg resolves: a `$ref` names a declared input,
@@ -234,12 +254,8 @@ func (rt *runtime) buildActionLeaf(ad actionDescriptor) *cli.Command {
 	}
 }
 
-// actionArgsFunc feeds the shell-metacharacter gate, location-aware: only inputs
-// whose value reaches a URL location (a path or query param of some leaf) are
-// gated, since the URL is the injection surface. Inputs that flow only into a
-// request body are exempt — gating them false-positives on free text. Every
-// gated input goes through the named map (keyed by input name) so its index in
-// the positional slice never matters. See #136.
+// actionArgsFunc feeds the shell-metachar gate, location-aware: only inputs whose
+// value reaches a URL path/query are gated (the injection surface). See #136.
 func actionArgsFunc(ad actionDescriptor) func(*cli.Command) (map[string]string, []string) {
 	urlBound := urlBoundInputs(ad)
 	return func(c *cli.Command) (map[string]string, []string) {
@@ -268,10 +284,8 @@ func actionArgsFunc(ad actionDescriptor) func(*cli.Command) (map[string]string, 
 	}
 }
 
-// urlBoundInputs returns the set of input names whose value binds to a URL
-// location — a path param (directly or via the owner-repo sugar) or a query
-// param — in any of the action's leaves. Inputs that flow only into request
-// bodies are absent, so the shell-metachar gate skips them. See #136.
+// urlBoundInputs returns input names whose value binds to a URL location (path or
+// query, incl. owner-repo sugar) in any leaf; body-only inputs are absent. See #136.
 func urlBoundInputs(ad actionDescriptor) map[string]bool {
 	bound := map[string]bool{}
 	mark := func(leaf opDescriptor, args []guardfile.ArgBind) {

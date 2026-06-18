@@ -1,33 +1,34 @@
 # cli-guard features
 
-Inventory of what cli-guard does today; scope changes land with the code. See `examples/<feature>/` for each primitive end-to-end.
+Inventory of what cli-guard does today. See `examples/<feature>/` for each primitive end-to-end.
 
 ## Framework primitives
 
-Packages are grouped by **guarded surface** plus a shared `pkg/` core; `cli/`, `http/`, `mcp/` depend downward on `pkg/`, never on each other. See [architecture.md](architecture.md).
+Packages are grouped by **guarded surface** plus a shared `pkg/` core; `cli/`, `http/`, `mcp/` depend downward on `pkg/`. See [architecture.md](architecture.md).
 
 ### CLI passthrough surface (`cli/`)
 
 - **passthrough** - Audited urfave subcommand around an existing binary.
-- **execverb** - Exec-dialect KDL verbs with `argv` overrides + `value`-source exec-time env injection. See [execverb.md](execverb.md).
+- **execverb** - Exec-dialect KDL verbs with `argv` overrides + `value`-source env injection. See [execverb.md](execverb.md).
 - **awsgate** - Deny sensitive-glob aws reads.
 - **verb** - Middleware around every `*cli.Command.Action`.
-- **shell** / **sandbox** - Subprocess exec + seccomp/namespace jail (Linux), the execve boundary. See [sandbox](sandbox.md).
+- **shell** / **sandbox** - Subprocess exec + seccomp/namespace jail (Linux). See [sandbox](sandbox.md).
 - **gittree** - Clean+synced gate for repo-shaped verbs.
-- **repocfg** / **allowlist** - Per-repo command allowlist from a YAML, validated against the Makefile.
-- **catalog** - Assert a repo's config YAML carries a `catalog:` block with the required keys.
+- **repocfg** / **allowlist** - Per-repo command allowlist from a YAML, validated vs the Makefile.
+- **catalog** - Assert a repo's config YAML carries a `catalog:` block with required keys.
 - **hook** / **hookcfg** - PreToolUse engine; `repocfg.Security` -> `hook.Protected` / `hook.ForbiddenArgv` maps.
 - **shim** - PATH shim per protected binary (UX shadowing, not enforcement). See [deny-by-structure.md](deny-by-structure.md).
-- **doctor** - Verify the deny-by-structure floor (no passwordless sudo, real binary not agent-executable, no cred env).
-- **sudo** - Policy-free interactive sudo plumbing over any stdin-piping transport.
-- **dispatch** - Fire `claude` against a real open issue; consumer swaps the resolver via `Config.IssueFetcher`.
-- **lockdown** / **profiles** / **profile** / **decision** - Permission-file writer, per-host profile registry, per-call evaluator.
-- **cmd/cli-guard-hook** - Buildable PreToolUse binary for shell-only consumers.
+- **doctor** - Verify the deny-by-structure floor (no passwordless sudo, no agent-executable real binary, no cred env).
+- **sudo** - Policy-free interactive sudo plumbing over any stdin transport.
+- **dispatch** - Fire `claude` against a real open issue; consumer swaps the resolver.
+- **lockdown** / **profiles** / **profile** / **decision** - Permission-file writer, per-host profile registry, evaluator.
+- **cmd/cli-guard-hook** - PreToolUse binary for shell-only consumers.
 
 ### HTTP request surface (`http/`)
 
 - **egress** - Per-invocation CONNECT proxy with consumer allowlist.
 - **guardfile** / **specverb** / **specgen** / **specdrv** - Spec-driven verbs from a Guardfile; each `can` resolves its op by convention across Swagger 2 / OpenAPI 3; pluggable `value <provider>` sources. See [specverb.md](specverb.md).
+- **complex actions** - `wrap`-block `poll`/`call` verbs; `action <verb> <resource>` shadows that leaf. See [specverb-actions.md](specverb-actions.md).
 - **respfmt** - JSON response renderer with JMESPath + five output formats.
 - **ghcache** / **ghidcache** / **ghratelimit** / **stscache** - Forgejo/GitHub response, id, rate-limit, STS caches.
 

@@ -225,6 +225,64 @@ func TestParseInputDefault(t *testing.T) {
 	}
 }
 
+// TestParseMountAction asserts the two-arg `action <verb> <resource>` form
+// parses into a mount action: Name synthesized, MountVerb/MountResource set.
+func TestParseMountAction(t *testing.T) {
+	gf, err := Parse([]byte(`wrap ward ops forgejo {
+		spec s
+		auth header-token { header H; value ssm S }
+		can view issue { op "issueGetIssue" }
+		can list issue-comment { op "issueGetComments" }
+		action view issue {
+			describe "View an issue with its full comment thread."
+			input source { positional; required; help "owner/name" }
+			input index  { positional; required; help "issue number" }
+			call view issue {
+				args { owner-repo $source; index $index }
+				as issue
+			}
+			call list issue-comment {
+				args { owner-repo $source; index $index }
+				as comments
+			}
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(gf.Actions) != 1 {
+		t.Fatalf("Actions = %d, want 1", len(gf.Actions))
+	}
+	act := gf.Actions[0]
+	if !act.IsMount() {
+		t.Fatalf("IsMount() = false, want true")
+	}
+	if act.MountVerb != "view" || act.MountResource != "issue" {
+		t.Errorf("mount target = %q %q, want view issue", act.MountVerb, act.MountResource)
+	}
+	if act.Name != "view-issue" {
+		t.Errorf("synthesized Name = %q, want view-issue", act.Name)
+	}
+	if len(act.Calls) != 2 || act.Calls[0].As != "issue" || act.Calls[1].As != "comments" {
+		t.Errorf("calls = %+v, want two with as issue/comments", act.Calls)
+	}
+}
+
+// TestParseMountActionFailsClosed rejects a three-arg action header.
+func TestParseMountActionFailsClosed(t *testing.T) {
+	src := `wrap ward ops forgejo {
+		spec s
+		auth header-token { header H; value ssm S }
+		can view issue { op "issueGetIssue" }
+		action view issue extra {
+			call view issue { args { owner-repo $source } as issue }
+		}
+	}`
+	if _, err := Parse([]byte(src)); err == nil {
+		t.Fatal("expected an error for a three-arg action header, got nil")
+	}
+}
+
 // TestParseAuthSchemes asserts the three auth schemes round-trip: header-token,
 // bearer (Authorization + "Bearer " implied), and query-param dual-secret.
 func TestParseAuthSchemes(t *testing.T) {

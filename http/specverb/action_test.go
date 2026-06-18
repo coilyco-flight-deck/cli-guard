@@ -228,9 +228,8 @@ func TestActionGrantedOnlyFailsClosed(t *testing.T) {
 	}
 }
 
-// metacharActionGuardfile declares a one-call action whose `repo` input binds a
-// path location (owner-repo) and whose `title` input binds a body field, so the
-// location-aware metachar gate can be exercised on each. See #136.
+// metacharActionGuardfile declares a one-call action whose `repo` binds a path
+// (owner-repo) and `title` a body field, to exercise the metachar gate. See #136.
 func metacharActionGuardfile(t *testing.T) *guardfile.Guardfile {
 	t.Helper()
 	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
@@ -253,10 +252,8 @@ func metacharActionGuardfile(t *testing.T) *guardfile.Guardfile {
 	return gf
 }
 
-// TestActionBodyInputExemptFromMetacharGate proves an action input that flows
-// only into a request body (here `title`) is exempt from the shell-metachar
-// gate, while the path-bound `repo` input is unaffected. The body regression
-// #136, at the action envelope rather than a bare leaf.
+// TestActionBodyInputExemptFromMetacharGate proves a body-only action input
+// (`title`) is gate-exempt while the path-bound `repo` is unaffected. See #136.
 func TestActionBodyInputExemptFromMetacharGate(t *testing.T) {
 	var gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -283,9 +280,8 @@ func TestActionBodyInputExemptFromMetacharGate(t *testing.T) {
 	}
 }
 
-// TestActionPathInputStillGated proves location-awareness keeps the gate armed
-// on the URL surface: a metacharacter in the path-bound `repo` input is rejected
-// before any call fires.
+// TestActionPathInputStillGated proves the gate stays armed on the URL surface: a
+// metacharacter in the path-bound `repo` input is rejected before any call fires.
 func TestActionPathInputStillGated(t *testing.T) {
 	cfg := Config{
 		Guardfile:  metacharActionGuardfile(t),
