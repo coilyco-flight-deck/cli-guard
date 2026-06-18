@@ -16,7 +16,7 @@ Packages are grouped by **guarded surface** plus a shared `pkg/` core; `cli/`, `
 - **gittree** - Clean+synced gate for repo-shaped verbs.
 - **repocfg** / **allowlist** - Per-repo command allowlist from a YAML, validated against the Makefile.
 - **catalog** - Assert a repo's config YAML carries a `catalog:` block with the required keys.
-- **hook** / **hookcfg** - Claude Code PreToolUse engine and the `repocfg.Security` -> `hook.Protected` map.
+- **hook** / **hookcfg** - PreToolUse engine; `repocfg.Security` -> `hook.Protected` / `hook.ForbiddenArgv` maps.
 - **shim** - PATH shim per protected binary (UX shadowing, not enforcement). See [deny-by-structure.md](deny-by-structure.md).
 - **doctor** - Verify the deny-by-structure floor (no passwordless sudo, real binary not agent-executable, no cred env).
 - **sudo** - Policy-free interactive sudo plumbing over any stdin-piping transport.

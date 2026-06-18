@@ -47,6 +47,19 @@ type Protected struct {
 	Wrappers []string
 }
 
+// ForbiddenArgv denies a whole command segment by glob, distinguishing read
+// from write verbs where the basename-only Protected cannot. See docs/FEATURES.md.
+type ForbiddenArgv struct {
+	// Description is the required human label, surfaced in the deny message.
+	Description string
+	// MatchesGlobAny holds POSIX fnmatch patterns (path/filepath.Match grammar,
+	// but * and ? cross '/'); the first to match the whole segment wins.
+	MatchesGlobAny []string
+	// Hint is the optional recovery sentence; empty synthesizes "argv matched
+	// <glob>".
+	Hint string
+}
+
 // Decision is what PreToolUse returns. Block=true means the caller
 // should emit Message to stderr and exit with the host's hook-block
 type Decision struct {
@@ -65,9 +78,9 @@ type Payload struct {
 // LookPath mirrors exec.LookPath. Injected for tests.
 type LookPath func(name string) (string, error)
 
-// PreToolUse evaluates a payload against integrity rules, routes, and
-// the engine-level arbitrary-code-execution deny. Returns
-func PreToolUse(payload Payload, source string, rules []IntegrityRule, routes []Route, lookup LookPath, protected ...Protected) Decision {
+// PreToolUse evaluates a payload against integrity rules, routes, protected
+// basenames, and the trailing forbidden-argv glob deny. Returns
+func PreToolUse(payload Payload, source string, rules []IntegrityRule, routes []Route, lookup LookPath, protected []Protected, forbidden ...ForbiddenArgv) Decision {
 	if payload.ToolName != "Bash" {
 		return Decision{}
 	}
@@ -83,7 +96,7 @@ func PreToolUse(payload Payload, source string, rules []IntegrityRule, routes []
 		if seg == "" {
 			continue
 		}
-		if d := evaluateSegment(seg, source, payload.CWD, integrity, routeByToken, protectedByBase, lookup); d.Block {
+		if d := evaluateSegment(seg, source, payload.CWD, integrity, routeByToken, protectedByBase, forbidden, lookup); d.Block {
 			return d
 		}
 	}
@@ -114,7 +127,7 @@ func indexProtected(protected []Protected) map[string]Protected {
 	return out
 }
 
-func evaluateSegment(seg, source, cwd string, integrity map[string][]string, routeByToken map[string]Route, protectedByBase map[string]Protected, lookup LookPath) Decision {
+func evaluateSegment(seg, source, cwd string, integrity map[string][]string, routeByToken map[string]Route, protectedByBase map[string]Protected, forbidden []ForbiddenArgv, lookup LookPath) Decision {
 	token := LeadingToken(seg)
 
 	// Engine-level arbitrary-code-execution deny, checked before any
@@ -139,6 +152,12 @@ func evaluateSegment(seg, source, cwd string, integrity map[string][]string, rou
 	// same as the bare token. Checked before integrity/route.
 	if p, ok := protectedByBase[Basename(token)]; ok {
 		return Decision{Block: true, Message: protectedDeny(p, token, source)}
+	}
+
+	// Forbidden-argv deny: glob-match the whole segment before falling through
+	// to integrity/route. First matching glob across all rules wins.
+	if f, glob, ok := matchForbidden(seg, forbidden); ok {
+		return Decision{Block: true, Message: forbiddenDeny(f, glob, source)}
 	}
 
 	if allowed, ok := integrity[token]; ok {
@@ -274,6 +293,39 @@ func protectedDeny(p Protected, token, source string) string {
 	default:
 		return msg + "."
 	}
+}
+
+// matchForbidden returns the first ForbiddenArgv whose glob matches seg and the
+// glob that matched, scanning rules then globs in declaration order.
+func matchForbidden(seg string, forbidden []ForbiddenArgv) (ForbiddenArgv, string, bool) {
+	for _, f := range forbidden {
+		for _, glob := range f.MatchesGlobAny {
+			if matchGlob(glob, seg) {
+				return f, glob, true
+			}
+		}
+	}
+	return ForbiddenArgv{}, "", false
+}
+
+// matchGlob reports whether seg matches the fnmatch pattern. It substitutes '/'
+// with a sentinel before filepath.Match so * and ? cross separators (no FNM_PATHNAME).
+func matchGlob(pattern, seg string) bool {
+	const sentinel = "\x00"
+	p := strings.ReplaceAll(pattern, "/", sentinel)
+	s := strings.ReplaceAll(seg, "/", sentinel)
+	ok, err := filepath.Match(p, s)
+	return err == nil && ok
+}
+
+// forbiddenDeny renders the deny message for a matched ForbiddenArgv,
+// preferring the Hint, else synthesizing one from the matched glob.
+func forbiddenDeny(f ForbiddenArgv, glob, source string) string {
+	msg := fmt.Sprintf("%s hook: blocked argv (%s)", source, f.Description)
+	if f.Hint != "" {
+		return msg + ". Recovery: " + f.Hint
+	}
+	return fmt.Sprintf("%s: argv matched %q.", msg, glob)
 }
 
 // interpreterTokens is the set of program basenames that denote
