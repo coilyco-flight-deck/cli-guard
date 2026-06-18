@@ -100,7 +100,7 @@ func TestOpenAPI3TailscaleResolvesComponentParams(t *testing.T) {
 	if err != nil {
 		t.Fatalf("findOp setPolicyFile: %v", err)
 	}
-	if _, ok, _ := spec.bodySchema(op); !ok {
+	if _, ok := spec.bodySchema(op); !ok {
 		t.Error("setPolicyFile should expose a request body schema")
 	}
 }

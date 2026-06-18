@@ -60,7 +60,7 @@ func (ad actionDescriptor) isCall() bool { return len(ad.Calls) > 0 }
 
 // resolveActions resolves every Guardfile action into a descriptor, failing
 // closed at each gate; granted is the (verb, resource) set the Guardfile grants.
-func resolveActions(spec *swaggerSpec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant) ([]actionDescriptor, error) {
+func resolveActions(spec *spec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant) ([]actionDescriptor, error) {
 	var out []actionDescriptor
 	for _, a := range gf.Actions {
 		ad, err := resolveAction(spec, gf, granted, a)
@@ -72,7 +72,7 @@ func resolveActions(spec *swaggerSpec, gf *guardfile.Guardfile, granted map[gran
 	return out, nil
 }
 
-func resolveAction(spec *swaggerSpec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant, a guardfile.Action) (actionDescriptor, error) {
+func resolveAction(spec *spec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant, a guardfile.Action) (actionDescriptor, error) {
 	// Parser guarantees exactly one of Poll/Calls is set.
 	if len(a.Calls) > 0 {
 		return resolveCallAction(spec, gf, granted, a)
@@ -234,18 +234,72 @@ func (rt *runtime) buildActionLeaf(ad actionDescriptor) *cli.Command {
 	}
 }
 
-// actionArgsFunc feeds the shell-metacharacter gate: flag inputs are the named
-// args, positional inputs the positional slice.
+// actionArgsFunc feeds the shell-metacharacter gate, location-aware: only inputs
+// whose value reaches a URL location (a path or query param of some leaf) are
+// gated, since the URL is the injection surface. Inputs that flow only into a
+// request body are exempt — gating them false-positives on free text. Every
+// gated input goes through the named map (keyed by input name) so its index in
+// the positional slice never matters. See #136.
 func actionArgsFunc(ad actionDescriptor) func(*cli.Command) (map[string]string, []string) {
+	urlBound := urlBoundInputs(ad)
 	return func(c *cli.Command) (map[string]string, []string) {
 		named := map[string]string{}
+		positional := c.Args().Slice()
+		pi := 0
 		for _, in := range ad.Inputs {
-			if !in.Positional && c.IsSet(in.Name) {
-				named[in.Name] = c.String(in.Name)
+			var val string
+			switch {
+			case in.Positional:
+				if pi >= len(positional) {
+					continue
+				}
+				val = positional[pi]
+				pi++
+			case c.IsSet(in.Name):
+				val = c.String(in.Name)
+			default:
+				continue
+			}
+			if urlBound[in.Name] {
+				named[in.Name] = val
 			}
 		}
-		return named, c.Args().Slice()
+		return named, nil
 	}
+}
+
+// urlBoundInputs returns the set of input names whose value binds to a URL
+// location — a path param (directly or via the owner-repo sugar) or a query
+// param — in any of the action's leaves. Inputs that flow only into request
+// bodies are absent, so the shell-metachar gate skips them. See #136.
+func urlBoundInputs(ad actionDescriptor) map[string]bool {
+	bound := map[string]bool{}
+	mark := func(leaf opDescriptor, args []guardfile.ArgBind) {
+		path := map[string]bool{}
+		for _, p := range leaf.PathParams {
+			path[p] = true
+		}
+		query := map[string]bool{}
+		for _, f := range leaf.QueryFlags {
+			query[f.Name] = true
+		}
+		for _, arg := range args {
+			if !strings.HasPrefix(arg.Value, "$") {
+				continue // literal binding: author-supplied, not operator argv
+			}
+			if arg.Name == ownerRepoArg || path[arg.Name] || query[arg.Name] {
+				bound[strings.TrimPrefix(arg.Value, "$")] = true
+			}
+		}
+	}
+	if ad.isCall() {
+		for _, s := range ad.Calls {
+			mark(s.Leaf, s.Args)
+		}
+		return bound
+	}
+	mark(ad.Leaf, ad.Args)
+	return bound
 }
 
 // runAction binds inputs, then runs the action: a multi-call sequence, or the

@@ -34,7 +34,7 @@ The auth schemes (header-token, bearer, query-param dual-secret), the deny seman
 
 `specverb.Build(Config)` assembles the guarded `*cli.Command` tree:
 
-1. Parse the embedded spec, dispatching on version: a Swagger 2.0 reader, or an OpenAPI 3.x reader (via `kin-openapi`) that resolves `components` `$ref`s, reads `requestBody.content`, promotes `in:query`/`in:path` params, and collapses 3.1 type-lists.
+1. Parse the embedded spec into one `kin-openapi` `openapi3.T` IR (Swagger 2.0 upgraded via `openapi2conv`) that resolves `$ref`s, reads `requestBody.content`, promotes `in:query`/`in:path` params, and collapses 3.1 type-lists.
 2. For each `can` grant, resolve its operation (by convention or `op`) to a `{method, path, params, body}` descriptor; resource is the CLI group, verb the leaf. **Deny-by-default: an unresolvable or ambiguous grant, or an op the spec lacks, fails closed.**
 3. Mount each op as a guarded leaf under `verb.Wrap` (audit + argv gate). A reserved-flag collision is fail-closed; the restrict gate runs at invocation.
 

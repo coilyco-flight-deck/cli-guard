@@ -35,12 +35,14 @@ func run(args []string, stdin io.Reader, stderr io.Writer, getenv func(string) s
 		return 0
 	}
 
-	protected := loadProtected(configPath)
-	if len(protected) == 0 {
+	sec := loadSecurity(configPath)
+	protected := hookcfg.ProtectedFor(sec)
+	forbidden := hookcfg.ForbiddenFor(sec)
+	if len(protected) == 0 && len(forbidden) == 0 {
 		return 0
 	}
 
-	d := hook.PreToolUse(payload, source, nil, nil, lookup, protected...)
+	d := hook.PreToolUse(payload, source, nil, nil, lookup, protected, forbidden...)
 	if d.Block {
 		_, _ = fmt.Fprintln(stderr, d.Message)
 		return exitBlock
@@ -72,18 +74,18 @@ func parseFlags(args []string, getenv func(string) string) (configPath, source s
 	return configPath, source
 }
 
-// loadProtected reads the config file and returns the mapped Protected list.
-// Best-effort: empty path, missing file, or any parse error returns nil.
-func loadProtected(path string) []hook.Protected {
+// loadSecurity reads the config file and returns its Security block. Best-effort:
+// empty path, missing file, or any parse error returns a zero (pass-through) Security.
+func loadSecurity(path string) repocfg.Security {
 	if path == "" {
-		return nil
+		return repocfg.Security{}
 	}
 	cfg, err := repocfg.Load(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil
+			return repocfg.Security{}
 		}
-		return nil
+		return repocfg.Security{}
 	}
-	return hookcfg.ProtectedFor(cfg.Security)
+	return cfg.Security
 }

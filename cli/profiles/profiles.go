@@ -1,5 +1,5 @@
 // Package profiles loads the per-host lockdown profile registry from
-// ~/.coily/coily.yaml and resolves named profiles to cli-guard/profile
+// ~/<app-dir>/<registry-file> and resolves named profiles to cli-guard/profile
 package profiles
 
 import (
@@ -8,15 +8,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/profile"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/config"
 	"gopkg.in/yaml.v3"
 )
 
 //go:embed default.yaml
 var DefaultYAML []byte
 
-// File is the on-disk shape of ~/.coily/coily.yaml. One field today;
+// File is the on-disk shape of the profile registry file. One field today;
 // future schema additions land alongside without breaking the loader.
 type File struct {
 	Profiles map[string]rawCoordinate `yaml:"profiles"`
@@ -40,7 +42,7 @@ const (
 	// override file and its tiers are in effect.
 	SourceOverride Source = "override"
 
-	// SourceMissingFile means ~/.coily/coily.yaml was absent. Every
+	// SourceMissingFile means the profile registry file was absent. Every
 	// axis falls back to Strictest().
 	SourceMissingFile Source = "missing_file"
 
@@ -61,24 +63,54 @@ type Resolution struct {
 	Note   string
 }
 
-// OverridePath returns ~/.coily/coily.yaml. Caller stat()s it; the
-// loader treats os.ErrNotExist as the deny-everything fallback signal.
-func OverridePath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("profiles: resolve home: %w", err)
-	}
-	return filepath.Join(home, ".coily", "coily.yaml"), nil
+// FallbackRegistryFile is the registry filename used when the consumer never
+// calls SetRegistryFile - consumer-neutral, mirroring config.FallbackAppDir.
+const FallbackRegistryFile = "profiles.yaml"
+
+// registryFile is the consumer-supplied basename of the profile registry file,
+// guarded because the loader resolves it lazily and a consumer may race it.
+var (
+	registryFileMu sync.RWMutex
+	registryFile   string
+)
+
+// SetRegistryFile registers the basename of the global profile registry file
+// (coily "coily.yaml"); with config.SetAppDir it forms ~/<app-dir>/<file>.
+func SetRegistryFile(name string) {
+	registryFileMu.Lock()
+	defer registryFileMu.Unlock()
+	registryFile = name
 }
 
-// LoadOverride reads and validates ~/.coily/coily.yaml. Returns
+// RegistryFile returns the value the consumer set, or FallbackRegistryFile when
+// unset.
+func RegistryFile() string {
+	registryFileMu.RLock()
+	defer registryFileMu.RUnlock()
+	if registryFile == "" {
+		return FallbackRegistryFile
+	}
+	return registryFile
+}
+
+// OverridePath returns ~/<app-dir>/<registry-file>, routed through
+// config.GlobalDir and RegistryFile so no consumer name is baked in.
+func OverridePath() (string, error) {
+	dir, err := config.GlobalDir()
+	if err != nil {
+		return "", fmt.Errorf("profiles: %w", err)
+	}
+	return filepath.Join(dir, RegistryFile()), nil
+}
+
+// LoadOverride reads and validates the profile registry file. Returns
 // (nil, os.ErrNotExist) when the file is absent so callers can fall
 func LoadOverride() (map[string]profile.Coordinate, error) {
 	path, err := OverridePath()
 	if err != nil {
 		return nil, err
 	}
-	b, err := os.ReadFile(path) //nolint:gosec // path is under $HOME/.coily, fixed name
+	b, err := os.ReadFile(path) //nolint:gosec // path is under $HOME/<app-dir>, consumer-set name
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, err

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/profile"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/config"
 )
 
 // TestDefaultYAML_ParsesAndValidates confirms the embedded template
@@ -87,13 +88,55 @@ func TestParseAndValidate_BadProfileNameFails(t *testing.T) {
 	}
 }
 
-// withHome stages a tempdir as $HOME, returning the override path.
+// withHome stages a tempdir as $HOME, returning the override path derived from
+// the live app-dir and registry-file getters so it tracks OverridePath.
 func withHome(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
-	return filepath.Join(dir, ".coily", "coily.yaml")
+	return filepath.Join(dir, config.AppDir(), RegistryFile())
+}
+
+// TestOverridePath_RoutesThroughAppDir confirms the registry path tracks the
+// consumer's app-dir and filename, not the old hardcoded ~/.coily/coily.yaml.
+func TestOverridePath_RoutesThroughAppDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	t.Cleanup(func() {
+		config.SetAppDir("")
+		SetRegistryFile("")
+	})
+	config.SetAppDir(".ward")
+	SetRegistryFile("ward.yaml")
+
+	got, err := OverridePath()
+	if err != nil {
+		t.Fatalf("OverridePath: %v", err)
+	}
+	want := filepath.Join(home, ".ward", "ward.yaml")
+	if got != want {
+		t.Errorf("OverridePath = %q, want %q", got, want)
+	}
+}
+
+// TestOverridePath_DefaultIsConsumerNeutral confirms the unconfigured default
+// names no consumer - ~/<framework-dir>/profiles.yaml.
+func TestOverridePath_DefaultIsConsumerNeutral(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	got, err := OverridePath()
+	if err != nil {
+		t.Fatalf("OverridePath: %v", err)
+	}
+	want := filepath.Join(home, config.FallbackAppDir, FallbackRegistryFile)
+	if got != want {
+		t.Errorf("OverridePath = %q, want %q", got, want)
+	}
 }
 
 func TestResolve_MissingFileFallsBackToStrictest(t *testing.T) {

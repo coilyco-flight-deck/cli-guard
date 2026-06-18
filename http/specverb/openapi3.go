@@ -1,18 +1,69 @@
-// OpenAPI 3.x reader: parses a 3.0 or 3.1 document (JSON or YAML) via
-// kin-openapi and adapts it into the engine's internal model. See docs/specverb.md.
+// The engine IR: a resolved OpenAPI 3.x document (kin-openapi's openapi3.T) plus
+// a path/method operation index the engine binds to. A Swagger 2.0 document is
+// upgraded to this same model in swagger.go. See docs/specverb.md.
 
 package specverb
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
-// jsonMediaTypes are the request-body content types the reader prefers, in
-// order; the first present one supplies the body schema (Tailscale ACL: hujson).
-var jsonMediaTypes = []string{"application/json", "application/hujson", "application/json5"}
+// jsonMediaTypes are the body content types read as JSON, first present wins. The
+// "*/*" fallback is where an upgraded Swagger-2.0 body lands (Forgejo: no consumes).
+var jsonMediaTypes = []string{"application/json", "application/hujson", "application/json5", "*/*"}
+
+// formMediaTypes are the body content types whose schema properties lower to form
+// flags; an upgraded Swagger-2.0 `in: formData` set lands here (file uploads, scalars).
+var formMediaTypes = []string{"multipart/form-data", "application/x-www-form-urlencoded"}
+
+// spec is the engine's resolved view of an API document: an operation index over
+// kin-openapi's fully dereferenced model, keyed by path and lowercase method.
+type spec struct {
+	ops map[string]map[string]operation
+}
+
+// operation is one resolved path+method operation: the kin-openapi operation and
+// the path item it inherits shared parameters from, plus its placement.
+type operation struct {
+	operationID string
+	method      string // upper-case HTTP method
+	path        string
+	item        *openapi3.PathItem
+	op          *openapi3.Operation
+}
+
+// param is one promoted spec input the engine reads off the resolved model: a
+// scalar query parameter, or a form-body property (a "file" upload or a scalar).
+type param struct {
+	Name        string
+	Required    bool
+	Type        string // scalar swagger type, or "file" for a binary form upload
+	Description string
+}
+
+// newSpec indexes a resolved document by path and lowercase method, the form the
+// engine's resolution and descriptor passes bind to.
+func newSpec(doc *openapi3.T) *spec {
+	s := &spec{ops: map[string]map[string]operation{}}
+	for path, item := range doc.Paths.Map() {
+		methods := map[string]operation{}
+		for method, op := range item.Operations() {
+			methods[strings.ToLower(method)] = operation{
+				operationID: op.OperationID,
+				method:      strings.ToUpper(method),
+				path:        path,
+				item:        item,
+				op:          op,
+			}
+		}
+		s.ops[path] = methods
+	}
+	return s
+}
 
 // sniffOpenAPI3 reports whether raw loads as an OpenAPI 3.x document, the YAML
 // fallback path when JSON version-sniffing did not settle the version.
@@ -24,9 +75,9 @@ func sniffOpenAPI3(raw []byte) (is3 bool, ok bool) {
 	return strings.HasPrefix(doc.OpenAPI, "3."), true
 }
 
-// parseOpenAPI3 loads an OpenAPI 3.x document and adapts it into a swaggerSpec.
+// parseOpenAPI3 loads an OpenAPI 3.x document (JSON or YAML) into the engine IR.
 // kin-openapi dereferences internal $refs as it loads. See docs/specverb.md.
-func parseOpenAPI3(raw []byte) (*swaggerSpec, error) {
+func parseOpenAPI3(raw []byte) (*spec, error) {
 	loader := openapi3.NewLoader()
 	doc, err := loader.LoadFromData(raw)
 	if err != nil {
@@ -35,76 +86,126 @@ func parseOpenAPI3(raw []byte) (*swaggerSpec, error) {
 	if doc.Paths == nil || doc.Paths.Len() == 0 {
 		return nil, fmt.Errorf("specverb: spec has no paths")
 	}
-	spec := &swaggerSpec{Swagger: doc.OpenAPI, Paths: map[string]map[string]swaggerOp{}}
-	for path, item := range doc.Paths.Map() {
-		methods := map[string]swaggerOp{}
-		for method, op := range item.Operations() {
-			methods[strings.ToLower(method)] = adaptOperation(item, op)
-		}
-		spec.Paths[path] = methods
-	}
-	return spec, nil
+	return newSpec(doc), nil
 }
 
-// adaptOperation lowers one OpenAPI 3.x operation into a swaggerOp: path-item
-// and operation parameters, plus the request body flattened to an `in: body` param.
-func adaptOperation(item *openapi3.PathItem, op *openapi3.Operation) swaggerOp {
-	sop := swaggerOp{OperationID: op.OperationID}
-	for _, ref := range append(append(openapi3.Parameters{}, item.Parameters...), op.Parameters...) {
+// findOp locates the operation with the given operationId, failing closed when
+// it is absent (an undeclared op can never be mounted).
+func (s *spec) findOp(operationID string) (method, path string, op operation, err error) {
+	for _, methods := range s.ops {
+		for _, o := range methods {
+			if o.operationID == operationID {
+				return o.method, o.path, o, nil
+			}
+		}
+	}
+	return "", "", operation{}, fmt.Errorf("specverb: operationId %q not found in spec (fail-closed)", operationID)
+}
+
+// parameters returns the operation's effective parameters: the path-item's shared
+// parameters followed by the operation's own, the order kin-openapi merges them.
+func (op operation) parameters() openapi3.Parameters {
+	var item openapi3.Parameters
+	if op.item != nil {
+		item = op.item.Parameters
+	}
+	var own openapi3.Parameters
+	if op.op != nil {
+		own = op.op.Parameters
+	}
+	return append(append(openapi3.Parameters{}, item...), own...)
+}
+
+// bodySchema resolves an operation's JSON request-body schema. ok is false when
+// the op takes no JSON body (a normal case, e.g. a form-body or body-less op).
+func (s *spec) bodySchema(op operation) (schema *openapi3.Schema, ok bool) {
+	return contentSchema(op, jsonMediaTypes)
+}
+
+// contentSchema returns the first present media type's resolved schema among the
+// preferred types, the shared lookup behind the JSON-body and form-body readers.
+func contentSchema(op operation, mediaTypes []string) (*openapi3.Schema, bool) {
+	if op.op == nil || op.op.RequestBody == nil || op.op.RequestBody.Value == nil {
+		return nil, false
+	}
+	content := op.op.RequestBody.Value.Content
+	for _, mt := range mediaTypes {
+		if media, present := content[mt]; present && media.Schema != nil && media.Schema.Value != nil {
+			return media.Schema.Value, true
+		}
+	}
+	return nil, false
+}
+
+// queryParamsOf returns the operation's scalar `in: query` parameters, the ones
+// that lower to a typed CLI flag; non-scalar (array/object) query params are skipped.
+func queryParamsOf(op operation) []param {
+	var out []param
+	for _, ref := range op.parameters() {
 		if ref == nil || ref.Value == nil {
 			continue
 		}
 		p := ref.Value
-		sop.Parameters = append(sop.Parameters, swaggerParam{
-			Name:        p.Name,
-			In:          p.In,
-			Required:    p.Required,
-			Type:        schemaRefType(p.Schema),
-			Description: p.Description,
-		})
-	}
-	if body := requestBodyParam(op); body != nil {
-		sop.Parameters = append(sop.Parameters, *body)
-	}
-	return sop
-}
-
-// requestBodyParam flattens an operation's requestBody into an `in: body` param
-// carrying the inline-converted schema; nil when the op takes no JSON body.
-func requestBodyParam(op *openapi3.Operation) *swaggerParam {
-	if op.RequestBody == nil || op.RequestBody.Value == nil {
-		return nil
-	}
-	content := op.RequestBody.Value.Content
-	for _, mt := range jsonMediaTypes {
-		if media, ok := content[mt]; ok && media.Schema != nil && media.Schema.Value != nil {
-			return &swaggerParam{In: "body", Required: op.RequestBody.Value.Required, Schema: convertSchema(media.Schema.Value)}
+		t := schemaRefType(p.Schema)
+		if p.In != "query" || !isScalar(t) {
+			continue
 		}
+		out = append(out, param{Name: p.Name, Required: p.Required, Type: t, Description: p.Description})
 	}
-	return nil
+	return out
 }
 
-// convertSchema lowers a resolved openapi3.Schema into the engine's swaggerSchema,
-// one level deep: object properties (scalar or array-of-scalar) and array items.
-func convertSchema(s *openapi3.Schema) *swaggerSchema {
-	if s == nil {
+// formParamsOf returns an operation's form-body inputs: the multipart/url-encoded
+// requestBody's scalar and "file" (binary) properties, the asset-upload surface.
+func formParamsOf(op operation) []param {
+	schema, ok := contentSchema(op, formMediaTypes)
+	if !ok {
 		return nil
 	}
-	out := &swaggerSchema{Type: schemaType(s), Description: s.Description, Required: s.Required}
-	if out.Type == "array" && s.Items != nil && s.Items.Value != nil {
-		out.Items = &swaggerSchema{Type: schemaType(s.Items.Value)}
-	}
-	if len(s.Properties) > 0 {
-		out.Properties = make(map[string]swaggerSchema, len(s.Properties))
-		for name, ref := range s.Properties {
-			if ref == nil || ref.Value == nil {
-				continue
-			}
-			child := convertSchema(ref.Value)
-			out.Properties[name] = *child
+	required := requiredSet(schema.Required)
+	var out []param
+	for _, name := range sortedSchemaNames(schema.Properties) {
+		if p, ok := formParam(name, schema.Properties[name], required[name]); ok {
+			out = append(out, p)
 		}
 	}
 	return out
+}
+
+// formParam lowers one form-body property to a param: a "file" upload (the binary
+// string an `in: formData` file became) or a scalar; ok=false for other shapes.
+func formParam(name string, ref *openapi3.SchemaRef, required bool) (param, bool) {
+	if ref == nil || ref.Value == nil {
+		return param{}, false
+	}
+	ps := ref.Value
+	switch {
+	case ps.Format == "binary":
+		return param{Name: name, Required: required, Type: "file", Description: ps.Description}, true
+	case isScalar(schemaType(ps)):
+		return param{Name: name, Required: required, Type: schemaType(ps), Description: ps.Description}, true
+	}
+	return param{}, false
+}
+
+// requiredSet lifts a schema's required-field list into a membership set.
+func requiredSet(required []string) map[string]bool {
+	set := make(map[string]bool, len(required))
+	for _, r := range required {
+		set[r] = true
+	}
+	return set
+}
+
+// sortedSchemaNames returns a schema property map's keys in stable order, so the
+// promoted flag set and help stay deterministic across runs (map iteration is random).
+func sortedSchemaNames(props openapi3.Schemas) []string {
+	names := make([]string, 0, len(props))
+	for name := range props {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // schemaRefType returns the scalar type of a parameter's schema, "string" when

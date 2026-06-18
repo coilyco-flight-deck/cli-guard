@@ -5,12 +5,12 @@ package specverb
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/urfave/cli/v3"
 )
 
@@ -242,7 +242,7 @@ func grantedGrants(gf *guardfile.Guardfile) map[grantKey]guardfile.Grant {
 
 // resolveDescriptors resolves every `can` grant into a concrete descriptor, in
 // first-seen order, dropping any `can` a deny also names (deny beats allow).
-func resolveDescriptors(spec *swaggerSpec, gf *guardfile.Guardfile) ([]opDescriptor, error) {
+func resolveDescriptors(spec *spec, gf *guardfile.Guardfile) ([]opDescriptor, error) {
 	denied := deniedKeys(gf)
 	var descs []opDescriptor
 	for _, g := range gf.Grants {
@@ -292,7 +292,7 @@ func (rt *runtime) buildGroups(descs []opDescriptor, denies []denyDescriptor) []
 
 // resolveDescriptor turns one grant into a concrete descriptor via resolveOp,
 // failing closed (unresolvable verb+resource, or an op the spec lacks).
-func resolveDescriptor(spec *swaggerSpec, group []string, g guardfile.Grant) (opDescriptor, error) {
+func resolveDescriptor(spec *spec, group []string, g guardfile.Grant) (opDescriptor, error) {
 	opID, err := resolveOp(spec, g)
 	if err != nil {
 		return opDescriptor{}, err
@@ -301,10 +301,7 @@ func resolveDescriptor(spec *swaggerSpec, group []string, g guardfile.Grant) (op
 	if err != nil {
 		return opDescriptor{}, err
 	}
-	bodySchema, _, err := spec.bodySchema(op)
-	if err != nil {
-		return opDescriptor{}, err
-	}
+	bodySchema, _ := spec.bodySchema(op)
 	desc := opDescriptor{
 		VerbName:    strings.Join(group, ".") + "." + g.Resource + "." + g.Verb,
 		Group:       g.Resource,
@@ -361,24 +358,20 @@ func formatGrant(g guardfile.Grant) string {
 
 // bodyFlagsFrom promotes a body schema's scalar and array-of-scalar properties
 // to typed flags; required-ness is enforced at assembly, not the CLI layer.
-func bodyFlagsFrom(schema *swaggerSchema) []fieldFlag {
+func bodyFlagsFrom(schema *openapi3.Schema) []fieldFlag {
 	if schema == nil {
 		return nil
 	}
-	required := map[string]bool{}
-	for _, r := range schema.Required {
-		required[r] = true
-	}
-	// Stable order: sort property names so the flag set and help are
-	// deterministic across runs (Go map iteration is randomized).
-	names := make([]string, 0, len(schema.Properties))
-	for name := range schema.Properties {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	required := requiredSet(schema.Required)
+	// Stable order: sortedSchemaNames sorts property names so the flag set and
+	// help are deterministic across runs (Go map iteration is randomized).
 	var flags []fieldFlag
-	for _, name := range names {
-		if f, ok := fieldFlagFor(name, schema.Properties[name], required[name]); ok {
+	for _, name := range sortedSchemaNames(schema.Properties) {
+		ref := schema.Properties[name]
+		if ref == nil || ref.Value == nil {
+			continue
+		}
+		if f, ok := fieldFlagFor(name, ref.Value, required[name]); ok {
 			flags = append(flags, f)
 		}
 	}
@@ -386,19 +379,25 @@ func bodyFlagsFrom(schema *swaggerSchema) []fieldFlag {
 }
 
 // fieldFlagFor lowers one body property to a flag; ok=false for shapes only
-// --body-file can express (nested objects).
-func fieldFlagFor(name string, prop swaggerSchema, required bool) (fieldFlag, bool) {
+// --body-file can express (nested objects, arrays of objects).
+func fieldFlagFor(name string, prop *openapi3.Schema, required bool) (fieldFlag, bool) {
 	f := fieldFlag{Name: name, Required: required, Desc: prop.Description}
+	t := schemaType(prop)
 	switch {
-	case isScalar(prop.Type):
-		f.Type = prop.Type
-	case prop.Type == "array" && prop.Items != nil && isScalar(prop.Items.Type):
-		f.Type = "array"
-		f.Items = prop.Items.Type
-	case prop.Type == "array" && prop.Items != nil && prop.Items.Type == "":
-		// untyped union items (forgejo's "label ids or names") lower to strings
-		f.Type = "array"
-		f.Items = "string"
+	case isScalar(t):
+		f.Type = t
+	case t == "array" && prop.Items != nil && prop.Items.Value != nil:
+		switch it := schemaType(prop.Items.Value); {
+		case isScalar(it):
+			f.Type = "array"
+			f.Items = it
+		case it == "":
+			// untyped union items (forgejo's "label ids or names") lower to strings
+			f.Type = "array"
+			f.Items = "string"
+		default:
+			return fieldFlag{}, false
+		}
 	default:
 		return fieldFlag{}, false
 	}
@@ -406,7 +405,7 @@ func fieldFlagFor(name string, prop swaggerSchema, required bool) (fieldFlag, bo
 }
 
 // queryFlagsFrom promotes an operation's scalar query parameters to flags.
-func queryFlagsFrom(op swaggerOp) []fieldFlag {
+func queryFlagsFrom(op operation) []fieldFlag {
 	var flags []fieldFlag
 	for _, p := range queryParamsOf(op) {
 		flags = append(flags, fieldFlag{
@@ -421,7 +420,7 @@ func queryFlagsFrom(op swaggerOp) []fieldFlag {
 
 // formFlagsFrom promotes an operation's formData parameters to flags; a "file"
 // param mounts as a path-taking string flag the action streams into multipart.
-func formFlagsFrom(op swaggerOp) []fieldFlag {
+func formFlagsFrom(op operation) []fieldFlag {
 	var flags []fieldFlag
 	for _, p := range formParamsOf(op) {
 		flags = append(flags, fieldFlag{

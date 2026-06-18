@@ -588,3 +588,78 @@ security:
 		t.Fatal("Load: want error for duplicate name, got nil")
 	}
 }
+
+func TestLoad_ForbiddenArgvRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, `
+commands:
+  build: make build
+security:
+  forbidden_argv:
+    - description: "gh writes"
+      matches_glob_any:
+        - "gh * create*"
+        - "gh * delete*"
+      hint: "use the relevant issue tracker, not gh."
+    - description: "substring deny"
+      matches_glob_any:
+        - "gh *secret*"
+`)
+	cfg, err := repocfg.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	fa := cfg.Security.ForbiddenArgv
+	if len(fa) != 2 {
+		t.Fatalf("got %d forbidden_argv rules, want 2", len(fa))
+	}
+	if fa[0].Description != "gh writes" || fa[0].Hint != "use the relevant issue tracker, not gh." {
+		t.Errorf("fa[0] = %+v", fa[0])
+	}
+	if len(fa[0].MatchesGlobAny) != 2 || fa[0].MatchesGlobAny[0] != "gh * create*" {
+		t.Errorf("fa[0].MatchesGlobAny = %v", fa[0].MatchesGlobAny)
+	}
+	// Optional hint omitted leaves an empty string for the engine to synthesize.
+	if fa[1].Hint != "" {
+		t.Errorf("fa[1].Hint = %q, want empty", fa[1].Hint)
+	}
+}
+
+func TestLoad_ForbiddenArgvRejectsMissingDescription(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, `
+security:
+  forbidden_argv:
+    - matches_glob_any: ["gh * create*"]
+`)
+	if _, err := repocfg.Load(path); err == nil {
+		t.Fatal("Load: want error for missing description, got nil")
+	}
+}
+
+func TestLoad_ForbiddenArgvRejectsEmptyGlobs(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, `
+security:
+  forbidden_argv:
+    - description: "no globs"
+      matches_glob_any: []
+`)
+	if _, err := repocfg.Load(path); err == nil {
+		t.Fatal("Load: want error for empty matches_glob_any, got nil")
+	}
+}
+
+func TestLoad_ForbiddenArgvRejectsBadGlob(t *testing.T) {
+	dir := t.TempDir()
+	path := writeConfig(t, dir, `
+security:
+  forbidden_argv:
+    - description: "malformed glob"
+      matches_glob_any:
+        - "gh [unterminated"
+`)
+	if _, err := repocfg.Load(path); err == nil {
+		t.Fatal("Load: want error for invalid glob syntax, got nil")
+	}
+}

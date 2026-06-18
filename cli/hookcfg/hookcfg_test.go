@@ -70,3 +70,31 @@ func TestProtectedFor_SkipsEmptyNames(t *testing.T) {
 		t.Fatalf("want 2 (skipping empties), got %d: %+v", len(got), got)
 	}
 }
+
+func TestForbiddenFor_Empty(t *testing.T) {
+	if got := ForbiddenFor(repocfg.Security{}); got != nil {
+		t.Fatalf("empty Security -> nil, got %+v", got)
+	}
+}
+
+func TestForbiddenFor_Mapped(t *testing.T) {
+	sec := repocfg.Security{
+		ForbiddenArgv: []repocfg.ForbiddenArgv{
+			{
+				Description:    "gh writes",
+				MatchesGlobAny: []string{"gh * create*", "gh * delete*"},
+				Hint:           "use the tracker.",
+			},
+		},
+	}
+	got := ForbiddenFor(sec)
+	if len(got) != 1 {
+		t.Fatalf("want 1, got %d: %+v", len(got), got)
+	}
+	if got[0].Description != "gh writes" || got[0].Hint != "use the tracker." {
+		t.Errorf("wrong mapping: %+v", got[0])
+	}
+	if len(got[0].MatchesGlobAny) != 2 || got[0].MatchesGlobAny[1] != "gh * delete*" {
+		t.Errorf("globs not threaded: %+v", got[0].MatchesGlobAny)
+	}
+}

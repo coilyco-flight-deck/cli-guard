@@ -161,6 +161,71 @@ func TestOnEvaluate_DenyShortCircuitsAndExitsPolicyDenied(t *testing.T) {
 	}
 }
 
+// TestOnEvaluate_EvaluatorFailedHintIsConsumerAgnostic: an internal evaluator
+// error surfaces a hint that names no consumer filename (cli-guard#110).
+func TestOnEvaluate_EvaluatorFailedHintIsConsumerAgnostic(t *testing.T) {
+	w, _ := newWriterForTest(t)
+	wrapped := verb.Wrap(verb.Spec{
+		Name:   "test.evalfail",
+		Action: func(_ context.Context, _ *cli.Command) error { return nil },
+		OnEvaluate: func(_ context.Context, _ *cli.Command) (*audit.ProfileDecision, error) {
+			return nil, errors.New("boom")
+		},
+	}, w)
+	cmd := &cli.Command{
+		Name:           "test",
+		Action:         wrapped,
+		ExitErrHandler: func(_ context.Context, _ *cli.Command, _ error) {},
+	}
+	err := cmd.Run(context.Background(), []string{"test"})
+	if err == nil {
+		t.Fatal("expected evaluator_failed error, got nil")
+	}
+	var coded *exitcode.CodedError
+	if !errors.As(err, &coded) {
+		t.Fatalf("error is not a *exitcode.CodedError: %v", err)
+	}
+	if coded.Kind() != "evaluator_failed" {
+		t.Errorf("kind = %q, want evaluator_failed", coded.Kind())
+	}
+	if strings.Contains(coded.HintText(), "coily") {
+		t.Errorf("hint leaks a consumer path: %q", coded.HintText())
+	}
+	if !strings.Contains(coded.HintText(), "lockdown profile config") {
+		t.Errorf("hint = %q, want the consumer-agnostic config role", coded.HintText())
+	}
+}
+
+// TestOnEvaluate_EvaluatorFailedHintNamesConfiguredFile confirms a consumer
+// that sets EvaluatorConfigHint gets its own filename surfaced.
+func TestOnEvaluate_EvaluatorFailedHintNamesConfiguredFile(t *testing.T) {
+	w, _ := newWriterForTest(t)
+	wrapped := verb.Wrap(verb.Spec{
+		Name:                "test.evalfail",
+		EvaluatorConfigHint: ".myapp/myapp.yaml",
+		Action:              func(_ context.Context, _ *cli.Command) error { return nil },
+		OnEvaluate: func(_ context.Context, _ *cli.Command) (*audit.ProfileDecision, error) {
+			return nil, errors.New("boom")
+		},
+	}, w)
+	cmd := &cli.Command{
+		Name:           "test",
+		Action:         wrapped,
+		ExitErrHandler: func(_ context.Context, _ *cli.Command, _ error) {},
+	}
+	err := cmd.Run(context.Background(), []string{"test"})
+	if err == nil {
+		t.Fatal("expected evaluator_failed error, got nil")
+	}
+	var coded *exitcode.CodedError
+	if !errors.As(err, &coded) {
+		t.Fatalf("error is not a *exitcode.CodedError: %v", err)
+	}
+	if !strings.Contains(coded.HintText(), ".myapp/myapp.yaml") {
+		t.Errorf("hint = %q, want the configured filename", coded.HintText())
+	}
+}
+
 func TestProfileDecision_RoundTripsJSON(t *testing.T) {
 	pd := audit.ProfileDecision{
 		Allowed: true,
