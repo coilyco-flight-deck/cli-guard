@@ -86,7 +86,7 @@ func pruneSwagger2(spec []byte, gf *guardfile.Guardfile) ([]byte, error) {
 
 // grantedPathMethods resolves each `can` grant to its (path, lowercase method),
 // failing closed like the engine so the lock holds exactly the buildable surface.
-func grantedPathMethods(spec *swaggerSpec, gf *guardfile.Guardfile) (map[string]map[string]bool, error) {
+func grantedPathMethods(spec *spec, gf *guardfile.Guardfile) (map[string]map[string]bool, error) {
 	denied := deniedKeys(gf)
 	keep := map[string]map[string]bool{}
 	for _, g := range gf.Grants {

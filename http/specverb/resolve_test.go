@@ -10,7 +10,7 @@ import (
 )
 
 // loadProvingSpec reads and parses the proving-slice Forgejo spec from testdata.
-func loadProvingSpec(t *testing.T) *swaggerSpec {
+func loadProvingSpec(t *testing.T) *spec {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("testdata", "forgejo.swagger.v1.json"))
 	if err != nil {
@@ -71,9 +71,9 @@ func TestResolveOpExplicitOverride(t *testing.T) {
 // TestResolveOpLeastNested asserts the canonical (shallowest) path wins when a
 // deeper nested path shares the resource segment.
 func TestResolveOpLeastNested(t *testing.T) {
-	spec := &swaggerSpec{Paths: map[string]map[string]swaggerOp{
-		"/repos/{owner}/{repo}":          {"get": {OperationID: "repoGet"}},
-		"/teams/{id}/repos/{org}/{repo}": {"get": {OperationID: "orgListTeamRepo"}},
+	spec := &spec{ops: map[string]map[string]operation{
+		"/repos/{owner}/{repo}":          {"get": {operationID: "repoGet"}},
+		"/teams/{id}/repos/{org}/{repo}": {"get": {operationID: "orgListTeamRepo"}},
 	}}
 	got, err := resolveOp(spec, guardfile.Grant{Modal: "can", Verb: "get", Resource: "repo"})
 	if err != nil {
@@ -87,9 +87,9 @@ func TestResolveOpLeastNested(t *testing.T) {
 // TestResolveOpPreferPluralCollection asserts a true (plural) collection segment
 // wins over a singular singleton at the same depth (createKey vs updateDeviceKey).
 func TestResolveOpPreferPluralCollection(t *testing.T) {
-	spec := &swaggerSpec{Paths: map[string]map[string]swaggerOp{
-		"/tailnet/{tailnet}/keys": {"post": {OperationID: "createKey"}},
-		"/device/{deviceId}/key":  {"post": {OperationID: "updateDeviceKey"}},
+	spec := &spec{ops: map[string]map[string]operation{
+		"/tailnet/{tailnet}/keys": {"post": {operationID: "createKey"}},
+		"/device/{deviceId}/key":  {"post": {operationID: "updateDeviceKey"}},
 	}}
 	got, err := resolveOp(spec, guardfile.Grant{Modal: "can", Verb: "create", Resource: "keys"})
 	if err != nil {
@@ -102,9 +102,9 @@ func TestResolveOpPreferPluralCollection(t *testing.T) {
 
 // TestResolveOpSearch asserts the search verb matches the `<resource>/search` suffix.
 func TestResolveOpSearch(t *testing.T) {
-	spec := &swaggerSpec{Paths: map[string]map[string]swaggerOp{
-		"/repos/search": {"get": {OperationID: "repoSearch"}},
-		"/user/repos":   {"get": {OperationID: "userCurrentListRepos"}},
+	spec := &spec{ops: map[string]map[string]operation{
+		"/repos/search": {"get": {operationID: "repoSearch"}},
+		"/user/repos":   {"get": {operationID: "userCurrentListRepos"}},
 	}}
 	got, err := resolveOp(spec, guardfile.Grant{Modal: "can", Verb: "search", Resource: "repo"})
 	if err != nil {
@@ -117,8 +117,8 @@ func TestResolveOpSearch(t *testing.T) {
 
 // TestResolveOpListChild asserts `list-<child>` lists a sub-collection of the resource.
 func TestResolveOpListChild(t *testing.T) {
-	spec := &swaggerSpec{Paths: map[string]map[string]swaggerOp{
-		"/boards/{id}/lists": {"get": {OperationID: "get-boards-id-lists"}},
+	spec := &spec{ops: map[string]map[string]operation{
+		"/boards/{id}/lists": {"get": {operationID: "get-boards-id-lists"}},
 	}}
 	got, err := resolveOp(spec, guardfile.Grant{Modal: "can", Verb: "list-lists", Resource: "board"})
 	if err != nil {
@@ -132,9 +132,9 @@ func TestResolveOpListChild(t *testing.T) {
 // TestResolveOpOperationIDFallback asserts that when no path-structure candidate
 // matches, verb+resource match the operationId words (`get policy` -> getPolicyFile).
 func TestResolveOpOperationIDFallback(t *testing.T) {
-	spec := &swaggerSpec{Paths: map[string]map[string]swaggerOp{
-		"/tailnet/{tailnet}/acl":          {"get": {OperationID: "getPolicyFile"}, "post": {OperationID: "setPolicyFile"}},
-		"/tailnet/{tailnet}/acl/validate": {"post": {OperationID: "validateAndTestPolicyFile"}},
+	spec := &spec{ops: map[string]map[string]operation{
+		"/tailnet/{tailnet}/acl":          {"get": {operationID: "getPolicyFile"}, "post": {operationID: "setPolicyFile"}},
+		"/tailnet/{tailnet}/acl/validate": {"post": {operationID: "validateAndTestPolicyFile"}},
 	}}
 	cases := []struct{ verb, want string }{{"get", "getPolicyFile"}, {"set", "setPolicyFile"}}
 	for _, c := range cases {
@@ -165,9 +165,9 @@ func TestResolveOpFailsClosed(t *testing.T) {
 // TestResolveOpAmbiguousFailsClosed asserts a genuine depth tie (two equally-shallow
 // paths) fails closed, naming both candidates.
 func TestResolveOpAmbiguousFailsClosed(t *testing.T) {
-	spec := &swaggerSpec{Paths: map[string]map[string]swaggerOp{
-		"/orgs/{org}/repos": {"post": {OperationID: "createOrgRepo"}},
-		"/teams/{id}/repos": {"post": {OperationID: "createTeamRepo"}},
+	spec := &spec{ops: map[string]map[string]operation{
+		"/orgs/{org}/repos": {"post": {operationID: "createOrgRepo"}},
+		"/teams/{id}/repos": {"post": {operationID: "createTeamRepo"}},
 	}}
 	_, err := resolveOp(spec, guardfile.Grant{Modal: "can", Verb: "create", Resource: "repo"})
 	if err == nil {

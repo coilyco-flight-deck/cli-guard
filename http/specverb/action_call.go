@@ -19,7 +19,7 @@ import (
 
 // resolveCallAction resolves a multi-call action, failing closed at each gate
 // (granted-only leaf, valid args, valid refs). See docs/specverb-actions.md.
-func resolveCallAction(spec *swaggerSpec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant, a guardfile.Action) (actionDescriptor, error) {
+func resolveCallAction(spec *spec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant, a guardfile.Action) (actionDescriptor, error) {
 	inputNames := map[string]bool{}
 	for _, in := range a.Inputs {
 		inputNames[in.Name] = true

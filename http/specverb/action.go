@@ -60,7 +60,7 @@ func (ad actionDescriptor) isCall() bool { return len(ad.Calls) > 0 }
 
 // resolveActions resolves every Guardfile action into a descriptor, failing
 // closed at each gate; granted is the (verb, resource) set the Guardfile grants.
-func resolveActions(spec *swaggerSpec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant) ([]actionDescriptor, error) {
+func resolveActions(spec *spec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant) ([]actionDescriptor, error) {
 	var out []actionDescriptor
 	for _, a := range gf.Actions {
 		ad, err := resolveAction(spec, gf, granted, a)
@@ -72,7 +72,7 @@ func resolveActions(spec *swaggerSpec, gf *guardfile.Guardfile, granted map[gran
 	return out, nil
 }
 
-func resolveAction(spec *swaggerSpec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant, a guardfile.Action) (actionDescriptor, error) {
+func resolveAction(spec *spec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant, a guardfile.Action) (actionDescriptor, error) {
 	// Parser guarantees exactly one of Poll/Calls is set.
 	if len(a.Calls) > 0 {
 		return resolveCallAction(spec, gf, granted, a)

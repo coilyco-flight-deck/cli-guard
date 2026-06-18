@@ -72,7 +72,7 @@ type resolvePlan struct {
 
 // resolveOp returns the operationId a grant authorizes. An explicit g.Op wins;
 // otherwise verb+resource resolve by convention, failing closed unless unique.
-func resolveOp(spec *swaggerSpec, g guardfile.Grant) (string, error) {
+func resolveOp(spec *spec, g guardfile.Grant) (string, error) {
 	if g.Op != "" {
 		return g.Op, nil
 	}
@@ -110,17 +110,17 @@ func idTokens(id string) []string {
 
 // operationIDCandidates returns operations whose operationId words contain the
 // verb and the singularized resource (the fallback). See docs/specverb-resolution.md.
-func operationIDCandidates(spec *swaggerSpec, verb, resource string) []candidate {
+func operationIDCandidates(spec *spec, verb, resource string) []candidate {
 	want := singularize(resource)
 	var out []candidate
-	for path, methods := range spec.Paths {
+	for path, methods := range spec.ops {
 		for _, op := range methods {
-			if op.OperationID == "" {
+			if op.operationID == "" {
 				continue
 			}
-			toks := idTokens(op.OperationID)
+			toks := idTokens(op.operationID)
 			if tokensHave(toks, verb) && tokensHaveSingular(toks, want) {
-				out = append(out, candidate{op: op.OperationID, depth: len(splitPath(path)), plural: true})
+				out = append(out, candidate{op: op.operationID, depth: len(splitPath(path)), plural: true})
 			}
 		}
 	}
@@ -190,11 +190,11 @@ func classify(verb, resource string) resolvePlan {
 
 // gather returns the candidates whose method, path resource segment, and ancestor
 // chain match the plan.
-func gather(spec *swaggerSpec, method string, plan resolvePlan) []candidate {
+func gather(spec *spec, method string, plan resolvePlan) []candidate {
 	var out []candidate
-	for path, methods := range spec.Paths {
+	for path, methods := range spec.ops {
 		op, ok := methods[strings.ToLower(method)]
-		if !ok || op.OperationID == "" {
+		if !ok || op.operationID == "" {
 			continue
 		}
 		seg, idx, ok := resourceSegment(path, plan.shape)
@@ -205,18 +205,18 @@ func gather(spec *swaggerSpec, method string, plan resolvePlan) []candidate {
 		if !ancestorsMatch(segs[:idx], plan.ancestors) {
 			continue
 		}
-		out = append(out, candidate{op: op.OperationID, depth: len(segs), plural: isPlural(seg)})
+		out = append(out, candidate{op: op.operationID, depth: len(segs), plural: isPlural(seg)})
 	}
 	return out
 }
 
 // searchCandidates matches the search-suffix shape: GET a path ending in
 // `<leaf-collection>/search`, with the plan's ancestors appearing before it.
-func searchCandidates(spec *swaggerSpec, plan resolvePlan) []candidate {
+func searchCandidates(spec *spec, plan resolvePlan) []candidate {
 	var out []candidate
-	for path, methods := range spec.Paths {
+	for path, methods := range spec.ops {
 		op, ok := methods["get"]
-		if !ok || op.OperationID == "" {
+		if !ok || op.operationID == "" {
 			continue
 		}
 		segs := splitPath(path)
@@ -227,7 +227,7 @@ func searchCandidates(spec *swaggerSpec, plan resolvePlan) []candidate {
 		if !ancestorsMatch(segs[:n-2], plan.ancestors) {
 			continue
 		}
-		out = append(out, candidate{op: op.OperationID, depth: n, plural: true})
+		out = append(out, candidate{op: op.operationID, depth: n, plural: true})
 	}
 	return out
 }
