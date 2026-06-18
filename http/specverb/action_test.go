@@ -2,6 +2,7 @@ package specverb
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -225,6 +226,93 @@ func TestActionGrantedOnlyFailsClosed(t *testing.T) {
 	if !strings.Contains(err.Error(), "deny-by-default") {
 		t.Errorf("error = %v, want a deny-by-default message", err)
 	}
+}
+
+// metacharActionGuardfile declares a one-call action whose `repo` input binds a
+// path location (owner-repo) and whose `title` input binds a body field, so the
+// location-aware metachar gate can be exercised on each. See #136.
+func metacharActionGuardfile(t *testing.T) *guardfile.Guardfile {
+	t.Helper()
+	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
+		spec forgejo.swagger.v1.json
+		base-url "https://forgejo.coilysiren.me/api/v1"
+		auth header-token { header Authorization; prefix "token "; value ssm "/forgejo/api-token" }
+		can create issue { op "issueCreateIssue" }
+		action file {
+			describe "File an issue."
+			input repo  { positional; required; help "owner/name" }
+			input title { flag; required; help "issue title" }
+			call create issue {
+				args { owner-repo $repo; title $title }
+			}
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("parse metachar-action guardfile: %v", err)
+	}
+	return gf
+}
+
+// TestActionBodyInputExemptFromMetacharGate proves an action input that flows
+// only into a request body (here `title`) is exempt from the shell-metachar
+// gate, while the path-bound `repo` input is unaffected. The body regression
+// #136, at the action envelope rather than a bare leaf.
+func TestActionBodyInputExemptFromMetacharGate(t *testing.T) {
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"number":1}`))
+	}))
+	defer srv.Close()
+
+	cfg := Config{
+		Guardfile: metacharActionGuardfile(t),
+		Spec:      actionSpec(t),
+		BaseURL:   srv.URL,
+		Wrap:      func(s verb.Spec) cli.ActionFunc { return verb.Wrap(s, gateWriter(t)) },
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "x", nil }},
+	}
+	if _, err := runTree(t, cfg, "forgejo", "action", "file", "kai/demo",
+		"--title", "crash on save (data loss)", "--output", "json"); err != nil {
+		t.Fatalf("body-bound input with `(` must not trip the metachar gate: %v", err)
+	}
+	if !strings.Contains(gotBody, "data loss") {
+		t.Errorf("title did not reach the request body: %q", gotBody)
+	}
+}
+
+// TestActionPathInputStillGated proves location-awareness keeps the gate armed
+// on the URL surface: a metacharacter in the path-bound `repo` input is rejected
+// before any call fires.
+func TestActionPathInputStillGated(t *testing.T) {
+	cfg := Config{
+		Guardfile:  metacharActionGuardfile(t),
+		Spec:       actionSpec(t),
+		Wrap:       func(s verb.Spec) cli.ActionFunc { return verb.Wrap(s, gateWriter(t)) },
+		HTTPClient: &http.Client{Transport: failingTransport{t}},
+		Providers:  map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "x", nil }},
+	}
+	_, err := runTree(t, cfg, "forgejo", "action", "file", "kai$(whoami)/demo", "--title", "ok")
+	if err == nil {
+		t.Fatal("a metacharacter in a path-bound action input must still be rejected")
+	}
+	if !strings.Contains(err.Error(), "shell metacharacter") {
+		t.Errorf("want a shell-metacharacter rejection, got: %v", err)
+	}
+}
+
+// gateWriter is a throwaway audit writer for tests that need the real verb
+// pipeline (and thus its argv gate) without inspecting the audit rows.
+func gateWriter(t *testing.T) *audit.Writer {
+	t.Helper()
+	w := &audit.Writer{
+		Path: filepath.Join(t.TempDir(), "audit.jsonl"),
+		Now:  func() time.Time { return time.Date(2026, 6, 18, 0, 0, 0, 0, time.UTC) },
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	return w
 }
 
 // TestActionWritesPerCallAndEnvelopeAudit asserts each poll tick writes its own

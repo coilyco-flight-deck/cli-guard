@@ -150,19 +150,20 @@ func argsUsage(params []string) string {
 	return strings.Join(parts, " ")
 }
 
-// argsFuncFor extracts the user strings for the policy shell-metachar gate;
-// --body-file contributes its path, never its contents (the gate-safe spill).
+// argsFuncFor extracts the user strings for the policy shell-metachar gate,
+// location-aware: only path params (the positional slice) and query flags
+// compose into the request URL, which is the injection surface the gate guards.
+// Body and form params are JSON/multipart-encoded into the HTTP body and never
+// reach a shell or the URL, so gating them is a false positive that mangles
+// legitimate free text (descriptions, commit messages, issue bodies); they are
+// exempt, as is --body-file (a path to body contents, body-bound). See #136.
 func argsFuncFor(desc opDescriptor) func(*cli.Command) (map[string]string, []string) {
 	return func(c *cli.Command) (map[string]string, []string) {
 		named := map[string]string{}
-		all := append(append([]fieldFlag{}, desc.QueryFlags...), desc.BodyFlags...)
-		for _, f := range append(all, desc.FormFlags...) {
+		for _, f := range desc.QueryFlags {
 			if c.IsSet(f.Name) {
 				named[f.Name] = stringifyFlag(c, f)
 			}
-		}
-		if c.IsSet(flagBodyFile) {
-			named[flagBodyFile] = c.String(flagBodyFile)
 		}
 		return named, c.Args().Slice()
 	}

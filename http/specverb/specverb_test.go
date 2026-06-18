@@ -256,6 +256,81 @@ func TestComposesWithVerbWrap(t *testing.T) {
 	}
 }
 
+// withGate wires the real verb pipeline (audit writer + shell-metachar gate) so
+// a leaf's argsFuncFor is actually enforced, not bypassed by the identity wrap.
+func withGate(t *testing.T, gf *guardfile.Guardfile, spec []byte) Config {
+	t.Helper()
+	w := &audit.Writer{
+		Path: filepath.Join(t.TempDir(), "audit.jsonl"),
+		Now:  func() time.Time { return time.Date(2026, 6, 6, 0, 0, 0, 0, time.UTC) },
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	return Config{
+		Guardfile:  gf,
+		Spec:       spec,
+		Wrap:       func(s verb.Spec) cli.ActionFunc { return verb.Wrap(s, w) },
+		HTTPClient: &http.Client{Transport: failingTransport{t}},
+		Providers:  map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "x", nil }},
+	}
+}
+
+// TestBodyParamExemptFromMetacharGate proves the shell-metachar gate is
+// location-aware: a `(` in a body field is JSON-encoded, never shell- or
+// URL-bound, so it must pass — the regression #136 reports.
+func TestBodyParamExemptFromMetacharGate(t *testing.T) {
+	gf, spec := loadFixtures(t)
+	cfg := withGate(t, gf, spec)
+	out, err := runTree(t, cfg, "forgejo", "repo", "create",
+		"--name", "demo", "--description", "Game projects (eco + factorio)", "--dry-run")
+	if err != nil {
+		t.Fatalf("body param with `(` must not trip the metachar gate: %v", err)
+	}
+	if !strings.Contains(out, "eco + factorio") {
+		t.Errorf("description did not survive into the request body:\n%s", out)
+	}
+}
+
+// TestPathParamStillGated proves location-awareness does not disarm the gate on
+// the URL injection surface: a metacharacter in a path positional is rejected.
+func TestPathParamStillGated(t *testing.T) {
+	gf, spec := loadFixtures(t)
+	cfg := withGate(t, gf, spec)
+	_, err := runTree(t, cfg, "forgejo", "repo", "delete", "kai$(whoami)", "demo")
+	if err == nil {
+		t.Fatal("a metacharacter in a path param must still be rejected")
+	}
+	if !strings.Contains(err.Error(), "shell metacharacter") {
+		t.Errorf("want a shell-metacharacter rejection, got: %v", err)
+	}
+}
+
+// TestQueryParamStillGated proves a query flag — which composes into the URL —
+// is still gated, while sitting beside the now-exempt body params.
+func TestQueryParamStillGated(t *testing.T) {
+	kdl, err := os.ReadFile(filepath.Join("testdata", "forgejo.kdl"))
+	if err != nil {
+		t.Fatalf("read guardfile: %v", err)
+	}
+	// Grant a query-bearing leaf (issueListIssues has ?state&labels&...).
+	kdl = append(kdl[:len(kdl)-2], []byte("\n    can list issues\n}\n")...)
+	gf, err := guardfile.Parse(kdl)
+	if err != nil {
+		t.Fatalf("parse guardfile: %v", err)
+	}
+	spec, err := os.ReadFile(filepath.Join("testdata", "forgejo.swagger.v1.json"))
+	if err != nil {
+		t.Fatalf("read spec: %v", err)
+	}
+	cfg := withGate(t, gf, spec)
+	_, err = runTree(t, cfg, "forgejo", "issues", "list", "kai", "demo", "--labels", "a|b")
+	if err == nil {
+		t.Fatal("a metacharacter in a query flag must still be rejected")
+	}
+	if !strings.Contains(err.Error(), "shell metacharacter") {
+		t.Errorf("want a shell-metacharacter rejection, got: %v", err)
+	}
+}
+
 // TestMountGeneratesIntermediatePath proves Mount grafts the built group onto a
 // root, creating the `ops` path segment the Guardfile names but root lacks.
 func TestMountGeneratesIntermediatePath(t *testing.T) {
