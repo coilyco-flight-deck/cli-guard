@@ -1222,8 +1222,9 @@ const (
 
 FUNCTIONS
 
-func IsJailInvocation(_ []string) bool
-    IsJailInvocation is always false off Linux.
+func IsJailInvocation(argv []string) bool
+    IsJailInvocation reports whether argv is the internal jail-helper re-exec;
+    the consumer's main calls RunJail when true.
 
 func Jailed() bool
     Jailed reports whether the current process is already running inside a jail.
@@ -1240,16 +1241,19 @@ func RealBinEnv(tool string) string
     RealBinEnv returns the env-var name carrying tool's stashed real path,
     upper-casing the name and mapping non-alphanumerics to '_'.
 
-func RunJail(_ []string) error
-    RunJail is unsupported off Linux.
+func RunJail(args []string) error
+    RunJail is the in-namespace helper: it shims the wrapped tools, installs the
+    seccomp denylist, and execs the real tool (args is os.Args[2:]).
 
-func SetupDenied(_ *exec.Cmd, _ error) bool
-    SetupDenied is always false off Linux: nothing was jailed, so there is no
-    namespace-denial to degrade from.
+func SetupDenied(cmd *exec.Cmd, err error) bool
+    SetupDenied reports whether a jailed cmd failed to *start* on a clone
+    denial (EPERM/EACCES, child never ran), so the caller may retry it.
+    See docs/sandbox.md.
 
-func Wrap(_ *exec.Cmd, _ string, _ []string, _ *Spec)
-    Wrap is a no-op off Linux: OS-level jailing is unsupported, so the caller
-    execs the real binary directly (pre-sandbox behavior).
+func Wrap(cmd *exec.Cmd, realPath string, argv []string, spec *Spec)
+    Wrap rewrites cmd to re-exec the consumer binary as the jail helper in a
+    fresh user+mount namespace. No-op when jailed, opted out (EnvNoSandbox),
+    or spec nil.
 
 
 TYPES
@@ -1624,6 +1628,7 @@ type Action struct {
 	Inputs   []Input
 	Poll     *Poll
 	Calls    []Call // ordered multi-call sequence; mutually exclusive with Poll
+	Collect  *Collect
 	FailWhen string // JMESPath over the bindings; truthy => non-zero exit
 
 	// MountVerb/MountResource: the two-arg `action <verb> <resource>` mount form
@@ -1631,9 +1636,8 @@ type Action struct {
 	MountVerb     string
 	MountResource string
 }
-    Action is a named composite verb: EITHER a Poll (watch one leaf) or an
-    ordered Calls sequence (chain leaves), plus an optional FailWhen exit.
-    See specverb-actions.md.
+    Action is a named composite verb: exactly one of Poll, Calls, or Collect,
+    plus an optional FailWhen exit. See specverb-actions.md.
 
 func (a Action) IsMount() bool
     IsMount reports whether the action shadows a leaf path (two-arg form).
@@ -1668,6 +1672,20 @@ type Call struct {
 }
     Call is one step of a multi-call action: fires a granted leaf with Args,
     binds the response to As for `$As.field` data-flow. See specverb-actions.md.
+
+type Collect struct {
+	Verb         string
+	Resource     string
+	Args         []ArgBind
+	PageParam    string
+	LimitParam   string
+	Limit        string
+	DefaultLimit string
+	As           string
+}
+    Collect walks a paginated granted leaf, incrementing PageParam and
+    appending each array response until the page returns fewer than Limit.
+    See specverb-actions.md.
 
 type Grant struct {
 	Modal      string
@@ -2012,6 +2030,18 @@ type ActionCallInfo struct {
 }
     ActionCallInfo is one step of a multi-call action for the describe surface.
 
+type ActionCollectInfo struct {
+	Method       string `json:"method"`
+	Path         string `json:"path"`
+	Grant        string `json:"grant"`
+	PageParam    string `json:"page_param"`
+	LimitParam   string `json:"limit_param"`
+	DefaultLimit int    `json:"default_limit"`
+	As           string `json:"as"`
+}
+    ActionCollectInfo is the resolved auto-pagination leaf for the describe
+    surface.
+
 type ActionDefaultInfo struct {
 	Input    string `json:"input"`
 	JMESPath string `json:"jmespath"`
@@ -2043,6 +2073,9 @@ type ActionInfo struct {
 
 	// Calls is the resolved step sequence for a multi-call action; empty for a poll.
 	Calls []ActionCallInfo `json:"calls,omitempty"`
+
+	// Collect describes an auto-pagination action; nil for poll/call actions.
+	Collect *ActionCollectInfo `json:"collect,omitempty"`
 }
     ActionInfo is one mounted complex action for the describe surface:
     its envelope name, the polled leaf, the bounds, and the conditions.

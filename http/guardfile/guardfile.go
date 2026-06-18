@@ -114,14 +114,29 @@ type Call struct {
 	As       string // binding name for this call's response
 }
 
-// Action is a named composite verb: EITHER a Poll (watch one leaf) or an ordered
-// Calls sequence (chain leaves), plus an optional FailWhen exit. See specverb-actions.md.
+// Collect walks a paginated granted leaf, incrementing PageParam and appending
+// each array response until the page returns fewer than Limit. See
+// specverb-actions.md.
+type Collect struct {
+	Verb         string
+	Resource     string
+	Args         []ArgBind
+	PageParam    string
+	LimitParam   string
+	Limit        string
+	DefaultLimit string
+	As           string
+}
+
+// Action is a named composite verb: exactly one of Poll, Calls, or Collect, plus
+// an optional FailWhen exit. See specverb-actions.md.
 type Action struct {
 	Name     string
 	Describe string
 	Inputs   []Input
 	Poll     *Poll
 	Calls    []Call // ordered multi-call sequence; mutually exclusive with Poll
+	Collect  *Collect
 	FailWhen string // JMESPath over the bindings; truthy => non-zero exit
 
 	// MountVerb/MountResource: the two-arg `action <verb> <resource>` mount form
@@ -500,12 +515,26 @@ func parseAction(n *kdl.Node) (Action, error) {
 		}
 	}
 	switch {
-	case act.Poll == nil && len(act.Calls) == 0:
-		return Action{}, fmt.Errorf("guardfile: action %q: needs a `poll` block or at least one `call` step", act.Name)
-	case act.Poll != nil && len(act.Calls) > 0:
-		return Action{}, fmt.Errorf("guardfile: action %q: `poll` and `call` are mutually exclusive (watch one leaf, or chain leaves)", act.Name)
+	case act.Poll == nil && len(act.Calls) == 0 && act.Collect == nil:
+		return Action{}, fmt.Errorf("guardfile: action %q: needs a `poll`, `collect`, or at least one `call` step", act.Name)
+	case countActionKinds(act) > 1:
+		return Action{}, fmt.Errorf("guardfile: action %q: `poll`, `collect`, and `call` are mutually exclusive", act.Name)
 	}
 	return act, nil
+}
+
+func countActionKinds(act Action) int {
+	var n int
+	if act.Poll != nil {
+		n++
+	}
+	if len(act.Calls) > 0 {
+		n++
+	}
+	if act.Collect != nil {
+		n++
+	}
+	return n
 }
 
 // actionHeader reads an action's header: one arg is `action <name>` (mounts under
@@ -542,6 +571,8 @@ func applyActionChild(act *Action, c *kdl.Node) error {
 		return nil
 	case "poll":
 		return addPoll(act, c)
+	case "collect":
+		return addCollect(act, c)
 	case "call":
 		call, err := parseCall(c)
 		if err != nil {
@@ -574,6 +605,20 @@ func addPoll(act *Action, c *kdl.Node) error {
 		return err
 	}
 	act.Poll = &p
+	return nil
+}
+
+// addCollect parses a collect child and attaches it to act, rejecting a second
+// collect block.
+func addCollect(act *Action, c *kdl.Node) error {
+	if act.Collect != nil {
+		return fmt.Errorf("v1 allows exactly one `collect` per action")
+	}
+	col, err := parseCollect(c)
+	if err != nil {
+		return err
+	}
+	act.Collect = &col
 	return nil
 }
 
@@ -692,6 +737,65 @@ func parsePoll(n *kdl.Node) (Poll, error) {
 		return Poll{}, fmt.Errorf("poll: `as` is required (the binding name for the final response)")
 	}
 	return p, nil
+}
+
+// parseCollect reads a `collect <verb> <resource> { args {...}; page-param;
+// limit-param; limit; default-limit; as }` block.
+func parseCollect(n *kdl.Node) (Collect, error) {
+	args := n.Arguments()
+	if len(args) != 2 {
+		return Collect{}, fmt.Errorf("collect needs a verb and a resource, e.g. `collect list issues { ... }`")
+	}
+	col := Collect{Verb: args[0].String(), Resource: args[1].String()}
+	for _, c := range n.Children().Nodes {
+		if err := applyCollectChild(&col, c); err != nil {
+			return Collect{}, err
+		}
+	}
+	switch {
+	case col.PageParam == "":
+		return Collect{}, fmt.Errorf("collect: `page-param` is required")
+	case col.LimitParam == "":
+		return Collect{}, fmt.Errorf("collect: `limit-param` is required")
+	case col.DefaultLimit == "":
+		return Collect{}, fmt.Errorf("collect: `default-limit` is required")
+	case col.As == "":
+		return Collect{}, fmt.Errorf("collect: `as` is required (the binding name for the accumulated array)")
+	}
+	return col, nil
+}
+
+func applyCollectChild(col *Collect, c *kdl.Node) error {
+	if c.Name() == "args" {
+		for _, a := range c.Children().Nodes {
+			v, err := singleArg(a)
+			if err != nil {
+				return fmt.Errorf("collect args %q: %w", a.Name(), err)
+			}
+			col.Args = append(col.Args, ArgBind{Name: a.Name(), Value: v})
+		}
+		return nil
+	}
+	scalars := map[string]*string{
+		"page-param":    &col.PageParam,
+		"limit-param":   &col.LimitParam,
+		"limit":         &col.Limit,
+		"default-limit": &col.DefaultLimit,
+		"as":            &col.As,
+	}
+	target, ok := scalars[c.Name()]
+	if !ok {
+		if reservedActionKeywords[c.Name()] {
+			return fmt.Errorf("collect: %q is reserved for a future version (fail-closed)", c.Name())
+		}
+		return fmt.Errorf("collect: unknown body node %q (want args | page-param | limit-param | limit | default-limit | as; fail-closed)", c.Name())
+	}
+	v, err := singleArg(c)
+	if err != nil {
+		return fmt.Errorf("collect %s: %w", c.Name(), err)
+	}
+	*target = v
+	return nil
 }
 
 // applyPollChild dispatches one child node of a poll body onto p; the scalar
