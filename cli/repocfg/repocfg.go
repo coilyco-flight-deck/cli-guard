@@ -120,9 +120,19 @@ func isFile(path string) (bool, error) {
 	return false, fmt.Errorf("repocfg: stat %s: %w", path, err)
 }
 
-// DiscoverChildren scans direct children of parentDir for a
-// ./.coily/coily.yaml overlay, loads each one, and returns the resulting
+// DefaultChildDepth is how many directory levels below a parent
+// DiscoverChildren descends; 2 covers the grouping-dir/repo layout.
+const DefaultChildDepth = 2
+
+// DiscoverChildren scans descendants of parentDir for a ./.coily/coily.yaml
+// overlay to DefaultChildDepth levels, loaded into a path-sorted pool.
 func DiscoverChildren(parentDir string) ([]*Config, error) {
+	return DiscoverChildrenDepth(parentDir, DefaultChildDepth)
+}
+
+// DiscoverChildrenDepth scans descendants of parentDir up to depth levels deep
+// for ./.coily/coily.yaml overlays (depth=1 is direct children only).
+func DiscoverChildrenDepth(parentDir string, depth int) ([]*Config, error) {
 	abs, err := filepath.Abs(parentDir)
 	if err != nil {
 		return nil, fmt.Errorf("repocfg: abs %s: %w", parentDir, err)
@@ -135,28 +145,38 @@ func DiscoverChildren(parentDir string) ([]*Config, error) {
 		return nil, fmt.Errorf("repocfg: readdir %s: %w", abs, err)
 	}
 	var configs []*Config
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		if strings.HasPrefix(e.Name(), ".") {
-			continue
-		}
-		candidate := filepath.Join(abs, e.Name(), LocalDirName, Filename)
-		ok, statErr := isFile(candidate)
-		if statErr != nil || !ok {
-			continue
-		}
-		cfg, loadErr := Load(candidate)
-		if loadErr != nil {
-			continue
-		}
-		configs = append(configs, cfg)
-	}
+	scanChildLevel(abs, entries, depth, &configs)
 	sort.Slice(configs, func(i, j int) bool {
 		return configs[i].Path < configs[j].Path
 	})
 	return configs, nil
+}
+
+// scanChildLevel collects overlay configs from entries and descends into
+// subdirectories until remaining hits zero, skipping unreadable branches.
+func scanChildLevel(dir string, entries []os.DirEntry, remaining int, out *[]*Config) {
+	if remaining < 1 {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		childDir := filepath.Join(dir, e.Name())
+		candidate := filepath.Join(childDir, LocalDirName, Filename)
+		if ok, statErr := isFile(candidate); statErr == nil && ok {
+			if cfg, loadErr := Load(candidate); loadErr == nil {
+				*out = append(*out, cfg)
+			}
+		}
+		if remaining > 1 {
+			sub, subErr := os.ReadDir(childDir)
+			if subErr != nil {
+				continue
+			}
+			scanChildLevel(childDir, sub, remaining-1, out)
+		}
+	}
 }
 
 // DiscoverAll returns every coily.yaml reachable from start in a single

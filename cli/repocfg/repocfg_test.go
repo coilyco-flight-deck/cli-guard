@@ -279,6 +279,99 @@ func TestDiscoverChildren_FindsOverlayInChild(t *testing.T) {
 	}
 }
 
+func TestDiscoverChildren_FindsGrandchildOverlay(t *testing.T) {
+	// Layout: /parent/group/repo/.coily/coily.yaml. The grouping dir has no
+	// config of its own; discovery from parent must still reach the repo.
+	parent := t.TempDir()
+	grandchildOverlay := filepath.Join(parent, "group", "repo", repocfg.LocalDirName)
+	if err := os.MkdirAll(grandchildOverlay, 0o700); err != nil {
+		t.Fatalf("mkdir grandchild overlay: %v", err)
+	}
+	writeConfig(t, grandchildOverlay, "commands: {test: go test ./...}\n")
+	configs, err := repocfg.DiscoverChildren(parent)
+	if err != nil {
+		t.Fatalf("DiscoverChildren: %v", err)
+	}
+	if len(configs) != 1 {
+		t.Fatalf("len(configs) = %d, want 1", len(configs))
+	}
+	if configs[0].Commands[0].Name != "test" {
+		t.Errorf("got %q, want test", configs[0].Commands[0].Name)
+	}
+}
+
+func TestDiscoverChildren_FindsChildAndGrandchildTogether(t *testing.T) {
+	// A direct-child repo and a grandchild repo under a grouping directory are
+	// both returned in one deterministic, path-sorted pool.
+	parent := t.TempDir()
+	child := filepath.Join(parent, "child", repocfg.LocalDirName)
+	grandchild := filepath.Join(parent, "group", "repo", repocfg.LocalDirName)
+	for _, dir := range []string{child, grandchild} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+		writeConfig(t, dir, "commands: {test: go test}\n")
+	}
+	configs, err := repocfg.DiscoverChildren(parent)
+	if err != nil {
+		t.Fatalf("DiscoverChildren: %v", err)
+	}
+	if len(configs) != 2 {
+		t.Fatalf("len(configs) = %d, want 2", len(configs))
+	}
+}
+
+func TestDiscoverChildren_RejectsDepth3(t *testing.T) {
+	// A config three levels below the parent is past the default depth-2 reach
+	// and must not be discovered, keeping recursion bounded.
+	parent := t.TempDir()
+	tooDeep := filepath.Join(parent, "a", "b", "c", repocfg.LocalDirName)
+	if err := os.MkdirAll(tooDeep, 0o700); err != nil {
+		t.Fatalf("mkdir too-deep overlay: %v", err)
+	}
+	writeConfig(t, tooDeep, "commands: {test: go test}\n")
+	configs, err := repocfg.DiscoverChildren(parent)
+	if err != nil {
+		t.Fatalf("DiscoverChildren: %v", err)
+	}
+	if len(configs) != 0 {
+		t.Errorf("len(configs) = %d, want 0 (depth-3 config is out of reach)", len(configs))
+	}
+}
+
+func TestDiscoverChildrenDepth_HonorsExplicitDepth(t *testing.T) {
+	// Depth-1 sees only the direct child; depth-2 also reaches the grandchild;
+	// depth-3 reaches all three.
+	parent := t.TempDir()
+	for _, dir := range []string{
+		filepath.Join(parent, "lvl1", repocfg.LocalDirName),
+		filepath.Join(parent, "lvl1", "lvl2", repocfg.LocalDirName),
+		filepath.Join(parent, "lvl1", "lvl2", "lvl3", repocfg.LocalDirName),
+	} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+		writeConfig(t, dir, "commands: {test: go test}\n")
+	}
+	for _, tc := range []struct {
+		depth int
+		want  int
+	}{
+		{depth: 0, want: 0},
+		{depth: 1, want: 1},
+		{depth: 2, want: 2},
+		{depth: 3, want: 3},
+	} {
+		configs, err := repocfg.DiscoverChildrenDepth(parent, tc.depth)
+		if err != nil {
+			t.Fatalf("DiscoverChildrenDepth(depth=%d): %v", tc.depth, err)
+		}
+		if len(configs) != tc.want {
+			t.Errorf("depth=%d: len(configs) = %d, want %d", tc.depth, len(configs), tc.want)
+		}
+	}
+}
+
 func TestDiscoverChildren_SkipsLegacyRootForm(t *testing.T) {
 	// A legacy /parent/child/coily.yaml (no .coily/ overlay) is intentionally
 	// ignored. Child discovery is opt-in via the .coily/ overlay so unrelated

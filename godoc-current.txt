@@ -1002,6 +1002,10 @@ discovered by walking up from the current working directory. Each command
 
 CONSTANTS
 
+const DefaultChildDepth = 2
+    DefaultChildDepth is how many directory levels below a parent
+    DiscoverChildren descends; 2 covers the grouping-dir/repo layout.
+
 const EnvOverride = "COILY_REPO_CONFIG"
     EnvOverride, when set, is treated as the absolute path to the repo config
     and skips directory walking. Primarily for tests and advanced users.
@@ -1075,8 +1079,12 @@ func DiscoverAll(start string) ([]*Config, error)
     deterministic pool: every level of the ancestor walk from start up to
 
 func DiscoverChildren(parentDir string) ([]*Config, error)
-    DiscoverChildren scans direct children of parentDir for a
-    ./.coily/coily.yaml overlay, loads each one, and returns the resulting
+    DiscoverChildren scans descendants of parentDir for a ./.coily/coily.yaml
+    overlay to DefaultChildDepth levels, loaded into a path-sorted pool.
+
+func DiscoverChildrenDepth(parentDir string, depth int) ([]*Config, error)
+    DiscoverChildrenDepth scans descendants of parentDir up to depth levels deep
+    for ./.coily/coily.yaml overlays (depth=1 is direct children only).
 
 func Load(path string) (*Config, error)
     Load parses the yaml at path. Every command is validated against
