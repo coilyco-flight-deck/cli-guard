@@ -26,10 +26,23 @@ const (
 	// realBinPrefix + sanitized tool name holds the stashed real-binary path
 	// the gate execs once the canonical path is masked by the shim.
 	realBinPrefix = "CLIGUARD_REALBIN_"
+	// EnvNoSandbox, when truthy, opts out of the jail: Wrap no-ops, tools run
+	// directly (for containers / namespace-denying shells). See docs/sandbox.md.
+	EnvNoSandbox = "CLIGUARD_NO_SANDBOX"
 )
 
 // Jailed reports whether the current process is already running inside a jail.
 func Jailed() bool { return os.Getenv(EnvJailed) == "1" }
+
+// NoSandbox reports whether the operator opted out of the jail via
+// EnvNoSandbox. Accepts 1/true/yes/on (case-insensitive).
+func NoSandbox() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvNoSandbox))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
 
 // RealBinEnv returns the env-var name carrying tool's stashed real path,
 // upper-casing the name and mapping non-alphanumerics to '_'.

@@ -11,6 +11,10 @@ func Wrap(_ *exec.Cmd, _ string, _ []string, _ *Spec) {}
 // IsJailInvocation is always false off Linux.
 func IsJailInvocation(_ []string) bool { return false }
 
+// SetupDenied is always false off Linux: nothing was jailed, so there is no
+// namespace-denial to degrade from.
+func SetupDenied(_ *exec.Cmd, _ error) bool { return false }
+
 // RunJail is unsupported off Linux.
 func RunJail(_ []string) error {
 	return errUnsupported

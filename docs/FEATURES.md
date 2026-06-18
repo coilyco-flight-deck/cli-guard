@@ -9,10 +9,10 @@ Packages are grouped by **guarded surface** plus a shared `pkg/` core; `cli/`, `
 ### CLI passthrough surface (`cli/`)
 
 - **passthrough** - Audited urfave subcommand around an existing binary.
-- **execverb** - Exec-dialect KDL verbs, with per-grant `argv` overrides and exec-time env injection from `value <provider>` sources. See [execverb.md](execverb.md).
+- **execverb** - Exec-dialect KDL verbs with `argv` overrides + `value`-source exec-time env injection. See [execverb.md](execverb.md).
 - **awsgate** - Deny sensitive-glob aws reads.
 - **verb** - Middleware around every `*cli.Command.Action`.
-- **shell** / **sandbox** - Subprocess execution + seccomp/namespace jail (Linux), the execve boundary.
+- **shell** / **sandbox** - Subprocess exec + seccomp/namespace jail (Linux), the execve boundary. See [sandbox](sandbox.md).
 - **gittree** - Clean+synced gate for repo-shaped verbs.
 - **repocfg** / **allowlist** - Per-repo command allowlist from a YAML, validated against the Makefile.
 - **catalog** - Assert a repo's config YAML carries a `catalog:` block with the required keys.

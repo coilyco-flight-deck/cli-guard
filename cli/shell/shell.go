@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sync"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/sandbox"
 )
@@ -82,21 +83,46 @@ func (r *Runner) execIn(ctx context.Context, dir, bin string, argv ...string) er
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, path, argv...)
-	cmd.Stdout = r.Stdout
-	cmd.Stderr = r.Stderr
-	cmd.Stdin = r.Stdin
-	if dir != "" {
-		cmd.Dir = dir
+	build := func() *exec.Cmd {
+		cmd := exec.CommandContext(ctx, path, argv...)
+		cmd.Stdout = r.Stdout
+		cmd.Stderr = r.Stderr
+		cmd.Stdin = r.Stdin
+		if dir != "" {
+			cmd.Dir = dir
+		}
+		if r.Env != nil {
+			cmd.Env = append(os.Environ(), r.Env...)
+		}
+		return cmd
 	}
-	if r.Env != nil {
-		cmd.Env = append(os.Environ(), r.Env...)
-	}
+	cmd := build()
 	if r.Sandbox != nil {
 		// Linux + not-already-jailed: re-exec through the jail helper; else no-op.
 		sandbox.Wrap(cmd, path, argv, r.Sandbox)
 	}
-	return cmd.Run()
+	runErr := cmd.Run()
+	if sandbox.SetupDenied(cmd, runErr) {
+		// The environment denied the jail (restricted shell / container without
+		// userns). Degrade to an unsandboxed run rather than dying. See docs/sandbox.md.
+		r.warnSandboxDenied()
+		return build().Run()
+	}
+	return runErr
+}
+
+// sandboxDenyWarnOnce ensures the degrade warning prints at most once per
+// process, not per exec (the reaper shells out several times).
+var sandboxDenyWarnOnce sync.Once
+
+// warnSandboxDenied emits the one-time degrade notice to the Runner's Stderr.
+func (r *Runner) warnSandboxDenied() {
+	sandboxDenyWarnOnce.Do(func() {
+		if r.Stderr == nil {
+			return
+		}
+		_, _ = fmt.Fprintf(r.Stderr, "cli-guard: namespace sandbox unavailable here; running tools unsandboxed (set %s=1 to silence). See docs/sandbox.md.\n", sandbox.EnvNoSandbox)
+	})
 }
 
 // Capture runs bin with argv and returns stdout as bytes. Stderr is forwarded

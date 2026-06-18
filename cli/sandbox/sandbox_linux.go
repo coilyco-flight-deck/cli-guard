@@ -3,6 +3,7 @@
 package sandbox
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,9 +20,9 @@ import (
 const jailArgv0 = "__jail"
 
 // Wrap rewrites cmd to re-exec the consumer binary as the jail helper in a fresh
-// user+mount namespace. No-op when already jailed or spec is unusable.
+// user+mount namespace. No-op when jailed, opted out (EnvNoSandbox), or spec nil.
 func Wrap(cmd *exec.Cmd, realPath string, argv []string, spec *Spec) {
-	if spec == nil || spec.SelfExe == "" || Jailed() {
+	if spec == nil || spec.SelfExe == "" || Jailed() || NoSandbox() {
 		return
 	}
 	execTool := filepath.Base(realPath)
@@ -66,6 +67,18 @@ func jailSysProcAttr() *syscall.SysProcAttr {
 // the consumer's main calls RunJail when true.
 func IsJailInvocation(argv []string) bool {
 	return len(argv) > 1 && argv[1] == jailArgv0
+}
+
+// SetupDenied reports whether a jailed cmd failed to *start* on a clone denial
+// (EPERM/EACCES, child never ran), so the caller may retry it. See docs/sandbox.md.
+func SetupDenied(cmd *exec.Cmd, err error) bool {
+	if err == nil || cmd == nil || !IsJailInvocation(cmd.Args) {
+		return false
+	}
+	if cmd.ProcessState != nil {
+		return false
+	}
+	return errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES)
 }
 
 // RunJail is the in-namespace helper: it shims the wrapped tools, installs the
