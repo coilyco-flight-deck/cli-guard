@@ -22,6 +22,10 @@ import (
 // over the inherited environment. Injected for tests; nil execs for real.
 type Runner func(ctx context.Context, bin string, argv, env []string) error
 
+// HostResolver resolves a `shell <cmd>` selector: it execs cmd and returns the
+// trimmed stdout. Injected for tests; nil execs for real. An error fails closed.
+type HostResolver func(ctx context.Context, cmd []string) (string, error)
+
 // Config is everything the engine needs to build a command tree.
 type Config struct {
 	// Guardfile is the parsed exec-dialect policy.
@@ -37,6 +41,10 @@ type Config struct {
 
 	// Run fires the command. nil execs for real.
 	Run Runner
+
+	// Host resolves `shell <cmd>` selectors for wrap-level guards. nil execs for
+	// real (cli/exec). Injected for tests.
+	Host HostResolver
 }
 
 // Build assembles the guarded command tree and returns the Guardfile group's
@@ -54,6 +62,10 @@ func Build(cfg Config) (*cli.Command, error) {
 	if run == nil {
 		run = realRunner
 	}
+	host := cfg.Host
+	if host == nil {
+		host = realHost
+	}
 	providers := valuesource.Merge(cfg.Providers)
 	root := &cli.Command{
 		Name:  gf.Group[len(gf.Group)-1],
@@ -64,9 +76,9 @@ func Build(cfg Config) (*cli.Command, error) {
 			if len(gf.Grants) != 1 {
 				return nil, fmt.Errorf("execverb: `can run *` must be the only grant (fail-closed)")
 			}
-			return mountWildcard(root, gf, g, wrap, run, providers)
+			return mountWildcard(root, gf, g, wrap, run, host, providers)
 		}
-		if err := mountGrant(root, gf, g, wrap, run, providers); err != nil {
+		if err := mountGrant(root, gf, g, wrap, run, host, providers); err != nil {
 			return nil, err
 		}
 	}
@@ -75,7 +87,7 @@ func Build(cfg Config) (*cli.Command, error) {
 
 // mountWildcard turns the group itself into one open passthrough leaf; the
 // grant's gates and flag policy still decide whether the call happens.
-func mountWildcard(root *cli.Command, gf *Guardfile, g Grant, wrap func(verb.Spec) cli.ActionFunc, run Runner, providers map[string]valuesource.Provider) (*cli.Command, error) {
+func mountWildcard(root *cli.Command, gf *Guardfile, g Grant, wrap func(verb.Spec) cli.ActionFunc, run Runner, host HostResolver, providers map[string]valuesource.Provider) (*cli.Command, error) {
 	gates, err := buildGates(g)
 	if err != nil {
 		return nil, err
@@ -87,7 +99,7 @@ func mountWildcard(root *cli.Command, gf *Guardfile, g Grant, wrap func(verb.Spe
 		ArgsFunc: func(c *cli.Command) (map[string]string, []string) {
 			return nil, c.Args().Slice()
 		},
-		Action: actionFor(gf, g, gates, run, providers),
+		Action: actionFor(gf, g, gates, run, host, providers),
 	})
 	return root, nil
 }
@@ -114,7 +126,7 @@ func Mount(root *cli.Command, cfg Config) error {
 }
 
 // mountGrant places one grant's leaf at its subcommand path under root.
-func mountGrant(root *cli.Command, gf *Guardfile, g Grant, wrap func(verb.Spec) cli.ActionFunc, run Runner, providers map[string]valuesource.Provider) error {
+func mountGrant(root *cli.Command, gf *Guardfile, g Grant, wrap func(verb.Spec) cli.ActionFunc, run Runner, host HostResolver, providers map[string]valuesource.Provider) error {
 	if len(g.Subcommand) == 0 {
 		return fmt.Errorf("execverb: grant with empty subcommand")
 	}
@@ -140,7 +152,7 @@ func mountGrant(root *cli.Command, gf *Guardfile, g Grant, wrap func(verb.Spec) 
 			ArgsFunc: func(c *cli.Command) (map[string]string, []string) {
 				return nil, c.Args().Slice()
 			},
-			Action: actionFor(gf, g, gates, run, providers),
+			Action: actionFor(gf, g, gates, run, host, providers),
 		}),
 	})
 	return nil
@@ -180,9 +192,9 @@ func buildGates(g Grant) ([]gateFunc, error) {
 	return gates, nil
 }
 
-// actionFor returns the leaf action: gates, flag policy, env resolution, then
-// exec with the fixed prefix + subcommand + caller args (all immutable).
-func actionFor(gf *Guardfile, g Grant, gates []gateFunc, run Runner, providers map[string]valuesource.Provider) cli.ActionFunc {
+// actionFor returns the leaf action: gates, wrap-level + grant guards, flag
+// policy, env resolution, then exec with the fixed, immutable argv.
+func actionFor(gf *Guardfile, g Grant, gates []gateFunc, run Runner, host HostResolver, providers map[string]valuesource.Provider) cli.ActionFunc {
 	return func(ctx context.Context, c *cli.Command) error {
 		args := c.Args().Slice()
 		for _, gate := range gates {
@@ -190,7 +202,12 @@ func actionFor(gf *Guardfile, g Grant, gates []gateFunc, run Runner, providers m
 				return exitcode.New(exitcode.UserError, "user_error", err, "this call is refused by a Guardfile gate")
 			}
 		}
-		if err := checkWhens(args, g); err != nil {
+		// wrap-level guards (the passthrough host gate) apply to every leaf, then
+		// the grant's own argv guards.
+		if err := checkWhens(ctx, gf.Whens, g, args, host); err != nil {
+			return exitcode.New(exitcode.UserError, "user_error", err, "this call is refused by a Guardfile guard")
+		}
+		if err := checkWhens(ctx, g.Whens, g, args, host); err != nil {
 			return exitcode.New(exitcode.UserError, "user_error", err, "this call is refused by a Guardfile guard")
 		}
 		if err := checkFlagPolicy(args, g); err != nil {
@@ -251,38 +268,72 @@ func checkFlagPolicy(args []string, g Grant) error {
 	return nil
 }
 
-// checkWhens enforces the grant's `when` / `deny-when` guards over the caller
-// args. The first guard to refuse stops the call, before any exec happens.
-func checkWhens(args []string, g Grant) error {
-	for _, wc := range g.Whens {
-		if err := evalWhen(wc, g, args); err != nil {
+// checkWhens enforces a set of when/deny-when (or wrap-level never/only pass)
+// guards; the first to refuse stops the call before any exec.
+func checkWhens(ctx context.Context, whens []WhenClause, g Grant, args []string, host HostResolver) error {
+	for _, wc := range whens {
+		if err := evalWhen(ctx, wc, g, args, host); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// evalWhen resolves a guard's selector and applies its match rule: `when`
-// refuses on no match, `deny-when` on a match. See docs/execverb.md.
-func evalWhen(wc WhenClause, g Grant, args []string) error {
+// evalWhen applies a guard's match rule: only/when refuses on no match, never/
+// deny-when on a match. Selector is argv or a `shell <cmd>` fact. See docs.
+func evalWhen(ctx context.Context, wc WhenClause, g Grant, args []string, host HostResolver) error {
 	if wc.OnlyReads {
 		full := append(append([]string{}, g.Subcommand...), args...)
 		if !awsgate.IsReadOnly(full) {
 			return nil // guard is scoped to reads; this is not one
 		}
 	}
-	val, pat, matched := firstMatch(resolveSelector(wc.Selector, args), wc.Patterns)
-	label := g.subcommandLabel()
+	values, err := selectorValues(ctx, wc, args, host)
+	if err != nil {
+		return err // a shell source that fails to resolve fails the guard closed
+	}
+	val, pat, matched := firstMatch(values, wc.Patterns)
 	if wc.Deny {
 		if matched {
-			return fmt.Errorf("`%s` denied: %s %q matched %q", label, wc.Selector, val, pat)
+			return fmt.Errorf("%s denied: %s %q matched %q", whenLabel(wc, g), selectorName(wc), val, pat)
 		}
 		return nil
 	}
 	if !matched {
-		return fmt.Errorf("`%s` denied: %s did not match any allowed pattern %v", label, wc.Selector, wc.Patterns)
+		return fmt.Errorf("%s denied: %s did not match any allowed pattern %v (fail-closed)", whenLabel(wc, g), selectorName(wc), wc.Patterns)
 	}
 	return nil
+}
+
+// selectorValues resolves a guard's value(s): an argv slot for an argv selector,
+// or the trimmed stdout of a `shell <cmd>` source resolved once via host.
+func selectorValues(ctx context.Context, wc WhenClause, args []string, host HostResolver) ([]string, error) {
+	if len(wc.SourceCmd) == 0 {
+		return resolveSelector(wc.Selector, args), nil
+	}
+	out, err := host(ctx, wc.SourceCmd)
+	if err != nil {
+		return nil, fmt.Errorf("resolving `shell %s` failed", strings.Join(wc.SourceCmd, " "))
+	}
+	return []string{out}, nil
+}
+
+// selectorName renders a guard's selector for an error: the shell source for an
+// ambient guard, else the argv selector slot.
+func selectorName(wc WhenClause) string {
+	if len(wc.SourceCmd) > 0 {
+		return "shell " + strings.Join(wc.SourceCmd, " ")
+	}
+	return wc.Selector
+}
+
+// whenLabel renders the subject of a guard denial: the host gate for an ambient
+// (`shell <cmd>`) guard, else the grant's subcommand path.
+func whenLabel(wc WhenClause, g Grant) string {
+	if len(wc.SourceCmd) > 0 {
+		return "host gate"
+	}
+	return "`" + g.subcommandLabel() + "`"
 }
 
 // firstMatch returns the first (value, pattern) pair where a selector value
@@ -372,6 +423,19 @@ func realRunner(ctx context.Context, bin string, argv, env []string) error {
 		cmd.Env = append(os.Environ(), env...)
 	}
 	return cmd.Run()
+}
+
+// realHost resolves a `shell <cmd>` selector by execing the command directly
+// (no shell interpretation) and returning its trimmed stdout. The real resolver.
+func realHost(ctx context.Context, cmd []string) (string, error) {
+	if len(cmd) == 0 {
+		return "", fmt.Errorf("empty shell selector source")
+	}
+	out, err := exec.CommandContext(ctx, cmd[0], cmd[1:]...).Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // findChild returns parent's child named name, nil when absent.

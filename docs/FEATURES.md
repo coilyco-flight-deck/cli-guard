@@ -9,7 +9,7 @@ Packages are grouped by **guarded surface** plus a shared `pkg/` core; `cli/`, `
 ### CLI passthrough surface (`cli/`)
 
 - **passthrough** - Audited urfave subcommand around an existing binary.
-- **execverb** - Exec-dialect KDL verbs with `argv` overrides + `value`-source env injection. See [execverb.md](execverb.md).
+- **execverb** - Exec-dialect KDL verbs + the default-allow `passthrough <bin>` funnel. See [execverb.md](execverb.md).
 - **awsgate** - Deny sensitive-glob aws reads.
 - **verb** - Middleware around every `*cli.Command.Action`.
 - **shell** / **sandbox** - Subprocess exec + seccomp/namespace jail (Linux). See [sandbox](sandbox.md).

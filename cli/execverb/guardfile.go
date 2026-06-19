@@ -11,11 +11,16 @@ import (
 
 // Guardfile is the parsed form of one exec-dialect wrap block.
 type Guardfile struct {
-	Group      []string // command path, e.g. ["ward", "git"]
-	Bin        string   // the real binary, fixed at parse
-	ArgvPrefix []string // unoverridable leading argv (remote-exec transport)
-	Env        []EnvVar // environment vars set on the wrapped process
-	Grants     []Grant
+	Group      []string     // command path, e.g. ["ward", "git"]
+	Bin        string       // the real binary, fixed at parse
+	ArgvPrefix []string     // unoverridable leading argv (remote-exec transport)
+	Env        []EnvVar     // environment vars set on the wrapped process
+	Grants     []Grant      // mounted leaves
+	Whens      []WhenClause // wrap-level guards, enforced on every leaf (the passthrough host gate)
+
+	// passthrough marks the `passthrough <bin>` sugar: exec + an implicit
+	// `can run *` funnel. It can never coexist with `exec` or a `can run` grant.
+	passthrough bool
 }
 
 // EnvVar is one `env` injection: an environment variable set on the wrapped
@@ -65,20 +70,29 @@ func (g Grant) ExecArgv() []string {
 	return g.Subcommand
 }
 
-// WhenClause is a `when` / `deny-when` argv guard in CLI vocabulary.
-// Grammar and selector forms: docs/execverb.md.
+// WhenClause is a `when`/`deny-when` argv guard, or a wrap-level `never pass`/
+// `only pass` passthrough guard. Grammar and selectors: docs/passthrough.md.
 type WhenClause struct {
-	// Selector names the argv slot: flag name, `any-arg`, or `argN`.
+	// Selector names the argv slot: flag name, `any-arg`, or `argN`. Empty when
+	// SourceCmd is set (the value comes from a shell fact, not argv).
 	Selector string
+
+	// SourceCmd is the ambient `shell <cmd>` selector source: exec'd once, its
+	// trimmed stdout is the value. nil means the value comes from argv (Selector).
+	SourceCmd []string
 
 	// Patterns are globs matched case-insensitively against the value(s).
 	Patterns []string
 
-	// Deny is true for `deny-when` (refuse on match), false for `when`.
+	// Deny is true for `deny-when` / `never pass` (refuse on match), false for
+	// `when` / `only pass` (refuse on no match).
 	Deny bool
 
 	// OnlyReads scopes the guard to read-only aws operations.
 	OnlyReads bool
+
+	// Describe is the optional teaching note rendered in the describe surface.
+	Describe string
 }
 
 // GateSpec names a registered preflight gate plus its declarative config.
@@ -112,7 +126,7 @@ func Parse(src []byte) (*Guardfile, error) {
 		}
 	}
 	if gf.Bin == "" {
-		return nil, fmt.Errorf("execverb: `exec <bin>` is required")
+		return nil, fmt.Errorf("execverb: `exec <bin>` or `passthrough <bin>` is required")
 	}
 	if len(gf.Grants) == 0 {
 		return nil, fmt.Errorf("execverb: no `can run` grants (nothing to mount)")
@@ -124,8 +138,16 @@ func Parse(src []byte) (*Guardfile, error) {
 func (gf *Guardfile) applyNode(n *kdl.Node) error {
 	switch n.Name() {
 	case "exec":
+		if gf.passthrough {
+			return fmt.Errorf("execverb: `exec` and `passthrough` are mutually exclusive (fail-closed)")
+		}
 		return gf.parseExec(n)
+	case "passthrough":
+		return gf.parsePassthrough(n)
 	case "can":
+		if gf.passthrough {
+			return fmt.Errorf("execverb: `can run` cannot appear under `passthrough` - the funnel is the whole surface (fail-closed)")
+		}
 		g, err := parseGrant(n)
 		if err != nil {
 			return err
@@ -133,12 +155,160 @@ func (gf *Guardfile) applyNode(n *kdl.Node) error {
 		gf.Grants = append(gf.Grants, g)
 		return nil
 	case "never", "cannot":
-		// explicit denials parse (documentation value) but mount nothing
-		_, err := parseGrant(n)
-		return err
+		return gf.applyNever(n)
+	case "only":
+		wc, err := parsePassClause(n, false)
+		if err != nil {
+			return err
+		}
+		gf.Whens = append(gf.Whens, wc)
+		return nil
 	default:
 		return fmt.Errorf("execverb: unknown node %q in wrap body (fail-closed)", n.Name())
 	}
+}
+
+// applyNever routes a `never`/`cannot` node: `never pass ...` enforces a
+// wrap-level guard, `never run ...` is a doc-only grant that mounts nothing.
+func (gf *Guardfile) applyNever(n *kdl.Node) error {
+	if firstArg(n) == "pass" {
+		wc, err := parsePassClause(n, true)
+		if err != nil {
+			return err
+		}
+		gf.Whens = append(gf.Whens, wc)
+		return nil
+	}
+	_, err := parseGrant(n)
+	return err
+}
+
+// parsePassthrough reads `passthrough <bin> [prefix...]`: sets Bin + ArgvPrefix
+// and synthesizes the wildcard funnel grant. See docs/passthrough.md.
+func (gf *Guardfile) parsePassthrough(n *kdl.Node) error {
+	if gf.Bin != "" {
+		return fmt.Errorf("execverb: `passthrough` and `exec` are mutually exclusive (fail-closed)")
+	}
+	if len(gf.Grants) > 0 {
+		return fmt.Errorf("execverb: `passthrough` cannot coexist with `can run` grants (fail-closed)")
+	}
+	args := stringArgs(n)
+	if len(args) < 1 {
+		return fmt.Errorf("execverb: `passthrough` needs a binary, e.g. `passthrough ssh` or `passthrough tailscale ssh`")
+	}
+	gf.passthrough = true
+	gf.Bin = args[0]
+	gf.ArgvPrefix = append(gf.ArgvPrefix, args[1:]...)
+	for _, c := range n.Children().Nodes {
+		switch c.Name() {
+		case "env":
+			ev, err := parseEnv(c)
+			if err != nil {
+				return err
+			}
+			gf.Env = append(gf.Env, ev)
+		default:
+			return fmt.Errorf("execverb: passthrough body: unknown node %q (want env; fail-closed)", c.Name())
+		}
+	}
+	gf.Grants = append(gf.Grants, Grant{Wildcard: true})
+	return nil
+}
+
+// parsePassClause reads a wrap-level `never pass` / `only pass` guard; deny is
+// true for `never pass` (refuse on match). Grammar: docs/passthrough.md.
+func parsePassClause(n *kdl.Node, deny bool) (WhenClause, error) {
+	args := stringArgs(n)
+	if len(args) < 1 || args[0] != "pass" {
+		return WhenClause{}, fmt.Errorf("execverb: `%s` guard must read `%s pass ...`", n.Name(), n.Name())
+	}
+	rest := args[1:]
+	wc := WhenClause{Deny: deny}
+	switch {
+	case len(rest) > 0 && rest[0] == "when":
+		if err := parseWhenCond(&wc, n.Name(), rest[1:]); err != nil {
+			return WhenClause{}, err
+		}
+	case deny && len(rest) > 0:
+		// `never pass <token...>`: deny any positional matching a token.
+		wc.Selector = "any-arg"
+		wc.Patterns = rest
+	default:
+		return WhenClause{}, fmt.Errorf("execverb: `%s pass` needs a token or a `when` clause", n.Name())
+	}
+	if err := parsePassDescribe(&wc, n); err != nil {
+		return WhenClause{}, err
+	}
+	return wc, nil
+}
+
+// parseWhenCond fills a clause from the tokens after `... pass when`: a selector
+// (an argv slot, or `shell <cmd>`), an `is`/`matches` comparator, then globs.
+func parseWhenCond(wc *WhenClause, node string, cond []string) error {
+	opIdx := indexOfComparator(cond)
+	if opIdx < 0 {
+		return fmt.Errorf("execverb: `%s pass when` needs an `is`/`matches` comparator", node)
+	}
+	source, patterns := cond[:opIdx], cond[opIdx+1:]
+	if len(source) == 0 || len(patterns) == 0 {
+		return fmt.Errorf("execverb: `%s pass when <selector> is <glob...>` needs both a selector and a pattern", node)
+	}
+	if source[0] == "shell" {
+		if len(source) < 2 {
+			return fmt.Errorf("execverb: `shell` selector needs a command, e.g. `shell hostname`")
+		}
+		wc.SourceCmd = source[1:]
+	} else {
+		if len(source) != 1 {
+			return fmt.Errorf("execverb: argv selector %q must be a single token (`any-arg`, `argN`, or a flag name)", strings.Join(source, " "))
+		}
+		wc.Selector = source[0]
+	}
+	wc.Patterns = patterns
+	return nil
+}
+
+// parsePassDescribe reads the optional `{ describe "..." }` body of a pass guard.
+func parsePassDescribe(wc *WhenClause, n *kdl.Node) error {
+	for _, c := range n.Children().Nodes {
+		if c.Name() != "describe" {
+			return fmt.Errorf("execverb: %s pass body: unknown node %q (want describe; fail-closed)", n.Name(), c.Name())
+		}
+		da := c.Arguments()
+		if len(da) != 1 {
+			return fmt.Errorf("execverb: %s pass: `describe` expects exactly one value", n.Name())
+		}
+		wc.Describe = da[0].String()
+	}
+	return nil
+}
+
+// firstArg returns the first string argument of n, or "" when it has none.
+func firstArg(n *kdl.Node) string {
+	a := n.Arguments()
+	if len(a) == 0 {
+		return ""
+	}
+	return a[0].String()
+}
+
+// stringArgs returns n's arguments as strings, in order.
+func stringArgs(n *kdl.Node) []string {
+	var out []string
+	for _, a := range n.Arguments() {
+		out = append(out, a.String())
+	}
+	return out
+}
+
+// indexOfComparator returns the index of the first `is`/`matches` token, or -1.
+func indexOfComparator(tokens []string) int {
+	for i, t := range tokens {
+		if t == "is" || t == "matches" {
+			return i
+		}
+	}
+	return -1
 }
 
 // parseExec reads `exec <bin>` and the optional argv-prefix child.
