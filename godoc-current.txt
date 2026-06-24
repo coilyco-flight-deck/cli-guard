@@ -405,6 +405,10 @@ type Config struct {
 
 	// Run fires the command. nil execs for real.
 	Run Runner
+
+	// Host resolves `shell <cmd>` selectors for wrap-level guards. nil execs for
+	// real (cli/exec). Injected for tests.
+	Host HostResolver
 }
     Config is everything the engine needs to build a command tree.
 
@@ -461,11 +465,12 @@ type GrantInfo struct {
     authorizes, its flag policy, and any gates/guards that can still refuse it.
 
 type Guardfile struct {
-	Group      []string // command path, e.g. ["ward", "git"]
-	Bin        string   // the real binary, fixed at parse
-	ArgvPrefix []string // unoverridable leading argv (remote-exec transport)
-	Env        []EnvVar // environment vars set on the wrapped process
-	Grants     []Grant
+	Group      []string     // command path, e.g. ["ward", "git"]
+	Bin        string       // the real binary, fixed at parse
+	ArgvPrefix []string     // unoverridable leading argv (remote-exec transport)
+	Env        []EnvVar     // environment vars set on the wrapped process
+	Grants     []Grant      // mounted leaves
+	Whens      []WhenClause // wrap-level passthrough guards (never pass/only pass), enforced on every leaf - the host gate
 
 	// Allow lists bare binaries that each mount as an independent open-passthrough
 	// funnel: inspect-list sugar, mutually exclusive with exec/can run (docs/execverb.md).
@@ -474,6 +479,8 @@ type Guardfile struct {
 	// WrapWhens are wrap-level when/deny-when guards applied to every `allow`
 	// funnel - the read-only floor over the whole inspect list (allow only).
 	WrapWhens []WhenClause
+
+	// Has unexported fields.
 }
     Guardfile is the parsed form of one exec-dialect wrap block.
 
@@ -484,6 +491,11 @@ func Parse(src []byte) (*Guardfile, error)
 func (gf *Guardfile) Providers() []string
     Providers returns the distinct value-source provider names this guardfile's
     env injections name, so the driver wires the matching resolvers.
+
+type HostResolver func(ctx context.Context, cmd []string) (string, error)
+    HostResolver resolves a `shell <cmd>` selector: it execs cmd and returns
+    the trimmed stdout. Injected for tests; nil execs for real. An error fails
+    closed.
 
 type Runner func(ctx context.Context, bin string, argv, env []string) error
     Runner fires the resolved command; env is the `NAME=VALUE` overrides to
@@ -496,6 +508,7 @@ type Surface struct {
 	ArgvPrefix []string    `json:"argv_prefix,omitempty"` // unoverridable leading argv
 	Env        []string    `json:"env,omitempty"`         // env injections as "NAME = provider address" (source, never the resolved value)
 	Inspect    bool        `json:"inspect,omitempty"`     // the `allow` inspect-list shape: each grant funnels its own binary, no single Bin
+	Guards     []string    `json:"guards,omitempty"`      // wrap-level guards (the passthrough host gate), applied to every leaf
 	Grants     []GrantInfo `json:"grants"`                // every mounted leaf, in mount order
 }
     Surface is the in-engine model of a mounted exec surface: the wrapped
@@ -510,20 +523,29 @@ func (s *Surface) Markdown() string
     exec-dialect analog of specverb's Surface.Markdown().
 
 type WhenClause struct {
-	// Selector names the argv slot: flag name, `any-arg`, or `argN`.
+	// Selector names the argv slot: flag name, `any-arg`, or `argN`. Empty when
+	// SourceCmd is set (the value comes from a shell fact, not argv).
 	Selector string
+
+	// SourceCmd is the ambient `shell <cmd>` selector source: exec'd once, its
+	// trimmed stdout is the value. nil means the value comes from argv (Selector).
+	SourceCmd []string
 
 	// Patterns are globs matched case-insensitively against the value(s).
 	Patterns []string
 
-	// Deny is true for `deny-when` (refuse on match), false for `when`.
+	// Deny is true for `deny-when` / `never pass` (refuse on match), false for
+	// `when` / `only pass` (refuse on no match).
 	Deny bool
 
 	// OnlyReads scopes the guard to read-only aws operations.
 	OnlyReads bool
+
+	// Describe is the optional teaching note rendered in the describe surface.
+	Describe string
 }
-    WhenClause is a `when` / `deny-when` argv guard in CLI vocabulary. Grammar
-    and selector forms: docs/execverb.md.
+    WhenClause is a `when`/`deny-when` argv guard, or a wrap-level `never pass`/
+    `only pass` passthrough guard. Grammar and selectors: docs/passthrough.md.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/gittree

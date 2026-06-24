@@ -626,3 +626,133 @@ func TestEnvParseFailsClosed(t *testing.T) {
 		}
 	}
 }
+
+// sshGuardfile is the shipped passthrough shape: a default-allow ssh funnel, an
+// rm deny on the funnelled args, and a host gate keyed on the local hostname.
+const sshGuardfile = `wrap ward-kdl ssh {
+	passthrough ssh
+	never pass rm
+	only pass when shell hostname is "mac*" "win*"
+}`
+
+// runArgvHost mounts src with a fixed hostname for the `shell hostname` gate,
+// recording the resolved invocation in cp.
+func runArgvHost(t *testing.T, src, hostname string, cp *capture, argv ...string) error {
+	t.Helper()
+	gf, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	host := func(_ context.Context, _ []string) (string, error) { return hostname, nil }
+	root := &cli.Command{Name: "ward"}
+	if err := Mount(root, Config{Guardfile: gf, Run: cp.run, Host: host}); err != nil {
+		t.Fatalf("Mount: %v", err)
+	}
+	return root.Run(context.Background(), append([]string{"ward"}, argv...))
+}
+
+// TestPassthroughDesugarsToWildcard proves `passthrough <bin>` mounts one open
+// funnel: any args reach the binary verbatim when the host gate allows.
+func TestPassthroughDesugarsToWildcard(t *testing.T) {
+	var cp capture
+	if err := runArgvHost(t, sshGuardfile, "mac-mini", &cp, "ssh", "kai@box", "uptime"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if cp.bin != "ssh" || strings.Join(cp.argv, " ") != "kai@box uptime" {
+		t.Errorf("invocation = %s %v, want ssh kai@box uptime", cp.bin, cp.argv)
+	}
+}
+
+// TestPassthroughArgvPrefix proves `passthrough tailscale ssh` fixes the `ssh`
+// subcommand prefix ahead of the caller args.
+func TestPassthroughArgvPrefix(t *testing.T) {
+	const src = `wrap ward-kdl tailscale ssh {
+		passthrough tailscale ssh
+		never pass rm
+		only pass when shell hostname is "mac*"
+	}`
+	var cp capture
+	if err := runArgvHost(t, src, "mac-mini", &cp, "tailscale", "ssh", "kai@box", "uptime"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if cp.bin != "tailscale" || strings.Join(cp.argv, " ") != "ssh kai@box uptime" {
+		t.Errorf("invocation = %s %v, want tailscale ssh kai@box uptime", cp.bin, cp.argv)
+	}
+}
+
+// TestNeverPassDeniesRm proves the wrap-level `never pass rm` refuses an rm
+// positional before any exec.
+func TestNeverPassDeniesRm(t *testing.T) {
+	var cp capture
+	err := runArgvHost(t, sshGuardfile, "mac-mini", &cp, "ssh", "kai@box", "rm", "-rf", "/x")
+	if err == nil {
+		t.Fatal("expected rm to be denied, got nil")
+	}
+	if cp.bin != "" {
+		t.Errorf("denied invocation still executed: %s %v", cp.bin, cp.argv)
+	}
+}
+
+// TestHostGateAllowsWorkstation proves the host gate passes a matching hostname.
+func TestHostGateAllowsWorkstation(t *testing.T) {
+	var cp capture
+	if err := runArgvHost(t, sshGuardfile, "macbook-pro", &cp, "ssh", "kai@box"); err != nil {
+		t.Fatalf("workstation host refused: %v", err)
+	}
+}
+
+// TestHostGateDeniesServer proves the host gate fails closed on a non-matching
+// hostname (a server originating ssh), before any exec.
+func TestHostGateDeniesServer(t *testing.T) {
+	var cp capture
+	err := runArgvHost(t, sshGuardfile, "kai-server", &cp, "ssh", "kai@box")
+	if err == nil {
+		t.Fatal("expected a server host to be denied, got nil")
+	}
+	if cp.bin != "" {
+		t.Errorf("denied invocation still executed: %s %v", cp.bin, cp.argv)
+	}
+	if !strings.Contains(err.Error(), "host gate") {
+		t.Errorf("denial should name the host gate: %v", err)
+	}
+}
+
+// TestHostResolverErrorFailsClosed proves a `shell` source that errors refuses
+// the call rather than silently allowing it.
+func TestHostResolverErrorFailsClosed(t *testing.T) {
+	gf, err := Parse([]byte(sshGuardfile))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	var cp capture
+	boom := func(context.Context, []string) (string, error) { return "", context.DeadlineExceeded }
+	root := &cli.Command{Name: "ward"}
+	if err := Mount(root, Config{Guardfile: gf, Run: cp.run, Host: boom}); err != nil {
+		t.Fatalf("Mount: %v", err)
+	}
+	if err := root.Run(context.Background(), []string{"ward", "ssh", "kai@box"}); err == nil {
+		t.Fatal("expected a resolver error to fail closed, got nil")
+	}
+	if cp.bin != "" {
+		t.Errorf("call ran despite an unresolved host gate: %s %v", cp.bin, cp.argv)
+	}
+}
+
+// TestPassthroughParseFailsClosed proves the funnel sugar rejects malformed or
+// conflicting shapes.
+func TestPassthroughParseFailsClosed(t *testing.T) {
+	cases := []string{
+		`wrap ward x { passthrough }`,                                    // no binary
+		`wrap ward x { exec foo; passthrough foo }`,                      // exec + passthrough
+		`wrap ward x { passthrough foo; can run bar }`,                   // funnel + grant
+		`wrap ward x { passthrough foo; only pass shell hostname }`,      // only pass without when
+		`wrap ward x { passthrough foo; never pass when shell is "a" }`,  // shell source, no command
+		`wrap ward x { passthrough foo; only pass when shell hostname }`, // no comparator/patterns
+		`wrap ward x { passthrough foo; only pass }`,                     // only pass with nothing
+	}
+	for _, src := range cases {
+		if _, err := Parse([]byte(src)); err == nil {
+			t.Errorf("expected parse failure for %q", src)
+		}
+	}
+}
