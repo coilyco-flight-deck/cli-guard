@@ -82,6 +82,14 @@ type Config struct {
 	WorktreeReapable func(ctx context.Context, runner *shell.Runner, repoPath, branch string) bool
 	WorktreeRemove   func(ctx context.Context, runner *shell.Runner, repoPath, worktreePath, branch string) error
 
+	// SpawnForeground runs claude -p in the foreground, blocking until the
+	// child exits, returning its exit code. Defaults to spawnForegroundClaude.
+	SpawnForeground func(ctx context.Context, repoPath, bin string, argv, env []string) (int, error)
+
+	// Getwd resolves the in-place checkout the CI surface runs against - the
+	// runner workspace clone. Defaults to os.Getwd.
+	Getwd func() (string, error)
+
 	// SpawnHealthWindow bounds the immediate-crash watch. Zero
 	// applies defaultSpawnHealthWindow; negative disables the check.
 	SpawnHealthWindow time.Duration
@@ -150,6 +158,12 @@ func applyConfigDefaults(cfg *Config) {
 	if cfg.SpawnDetached == nil {
 		cfg.SpawnDetached = spawnDetachedClaude
 	}
+	if cfg.SpawnForeground == nil {
+		cfg.SpawnForeground = spawnForegroundClaude
+	}
+	if cfg.Getwd == nil {
+		cfg.Getwd = os.Getwd
+	}
 	if cfg.OpenLaunch == nil {
 		cfg.OpenLaunch = defaultOpenLaunch
 	}
@@ -184,10 +198,10 @@ func (d *Dispatcher) Command() *cli.Command {
 	bin := d.cfg.BinaryName
 	return &cli.Command{
 		Name:      "dispatch",
-		Usage:     "Fire claude against a real open issue. Surface required: headless | interactive | consult | cascade.",
-		ArgsUsage: "<headless|interactive|consult|cascade> <owner/repo#N | issue-url>",
+		Usage:     "Fire claude against a real open issue. Surface required: headless | interactive | consult | cascade | ci.",
+		ArgsUsage: "<headless|interactive|consult|cascade|ci> <owner/repo#N | issue-url>",
 		Description: fmt.Sprintf(`dispatch resolves a GitHub issue reference, refuses anything outside the
-%s org or any issue that is not open, then hands off to one of four
+%s org or any issue that is not open, then hands off to one of five
 surface subverbs:
 
   %s dispatch headless    <ref>   Spawn a detached claude -p in a
@@ -209,6 +223,12 @@ surface subverbs:
                                   recursively dispatch its own sub-workers
                                   to split a too-large task. Bounded by a
                                   hard depth budget. For mass migrations.
+  %s dispatch ci          <ref>   Run claude -p in the FOREGROUND, in place
+                                  in the current checkout (the CI runner
+                                  workspace) - no worktree, no log file. The
+                                  job process is the agent lifecycle; blocks
+                                  until claude exits and fails the job on a
+                                  nonzero exit. For Forgejo Actions.
 
 It also carries three maintenance verbs:
 
@@ -221,18 +241,19 @@ It also carries three maintenance verbs:
                                   or sibling sidequest can see who is editing
                                   what before writing shared paths.
 
-Bare 'dispatch <ref>' errors. Pick a surface.`, d.cfg.allowedOwnersLabel(), bin, bin, bin, bin, bin, bin, bin),
+Bare 'dispatch <ref>' errors. Pick a surface.`, d.cfg.allowedOwnersLabel(), bin, bin, bin, bin, bin, bin, bin, bin),
 		Commands: []*cli.Command{
 			d.headlessCommand(),
 			d.interactiveCommand(),
 			d.consultCommand(),
 			d.cascadeCommand(),
+			d.ciCommand(),
 			d.reapCommand(),
 			d.statusCommand(),
 			d.registryCommand(),
 		},
 		Action: func(_ context.Context, _ *cli.Command) error {
-			return fmt.Errorf("dispatch: specify surface: headless | interactive | consult | cascade (see `%s dispatch --help`)", bin)
+			return fmt.Errorf("dispatch: specify surface: headless | interactive | consult | cascade | ci (see `%s dispatch --help`)", bin)
 		},
 	}
 }
