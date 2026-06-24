@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/policy"
 	kdl "github.com/calico32/kdl-go"
 )
 
@@ -16,6 +17,14 @@ type Guardfile struct {
 	ArgvPrefix []string // unoverridable leading argv (remote-exec transport)
 	Env        []EnvVar // environment vars set on the wrapped process
 	Grants     []Grant
+
+	// Allow lists bare binaries that each mount as an independent open-passthrough
+	// funnel: inspect-list sugar, mutually exclusive with exec/can run (docs/execverb.md).
+	Allow []string
+
+	// WrapWhens are wrap-level when/deny-when guards applied to every `allow`
+	// funnel - the read-only floor over the whole inspect list (allow only).
+	WrapWhens []WhenClause
 }
 
 // EnvVar is one `env` injection: an environment variable set on the wrapped
@@ -111,6 +120,18 @@ func Parse(src []byte) (*Guardfile, error) {
 			return nil, err
 		}
 	}
+	if len(gf.Allow) > 0 {
+		if gf.Bin != "" {
+			return nil, fmt.Errorf("execverb: `allow` is mutually exclusive with `exec` (fail-closed)")
+		}
+		if len(gf.Grants) > 0 {
+			return nil, fmt.Errorf("execverb: `allow` is mutually exclusive with `can run` (fail-closed)")
+		}
+		return gf, nil
+	}
+	if len(gf.WrapWhens) > 0 {
+		return nil, fmt.Errorf("execverb: wrap-level `when`/`deny-when` applies only to an `allow` list; scope a grant's guard inside its `can run` (fail-closed)")
+	}
 	if gf.Bin == "" {
 		return nil, fmt.Errorf("execverb: `exec <bin>` is required")
 	}
@@ -136,6 +157,15 @@ func (gf *Guardfile) applyNode(n *kdl.Node) error {
 		// explicit denials parse (documentation value) but mount nothing
 		_, err := parseGrant(n)
 		return err
+	case "allow":
+		return gf.parseAllow(n)
+	case "when", "deny-when":
+		wc, err := parseWhen(n)
+		if err != nil {
+			return err
+		}
+		gf.WrapWhens = append(gf.WrapWhens, wc)
+		return nil
 	default:
 		return fmt.Errorf("execverb: unknown node %q in wrap body (fail-closed)", n.Name())
 	}
@@ -163,6 +193,46 @@ func (gf *Guardfile) parseExec(n *kdl.Node) error {
 		default:
 			return fmt.Errorf("execverb: exec body: unknown node %q (want argv-prefix | env; fail-closed)", c.Name())
 		}
+	}
+	return nil
+}
+
+// parseAllow reads `allow <bin...>`: each bare binary becomes an independent
+// open-passthrough funnel. See docs/execverb.md for the rules; all fail closed.
+func (gf *Guardfile) parseAllow(n *kdl.Node) error {
+	if children := n.Children(); children != nil && len(children.Nodes) > 0 {
+		return fmt.Errorf("execverb: `allow` takes a flat binary list, not a block (fail-closed)")
+	}
+	args := n.Arguments()
+	if len(args) == 0 {
+		return fmt.Errorf("execverb: `allow` needs at least one binary (empty list; fail-closed)")
+	}
+	for _, a := range args {
+		name := a.String()
+		if err := validateAllowName(name); err != nil {
+			return err
+		}
+		for _, existing := range gf.Allow {
+			if existing == name {
+				return fmt.Errorf("execverb: `allow` lists %q twice (fail-closed)", name)
+			}
+		}
+		gf.Allow = append(gf.Allow, name)
+	}
+	return nil
+}
+
+// validateAllowName enforces bare-binary names for `allow`: non-empty, no path
+// separator (`/`), no shell metacharacter. A path or metachar fails closed.
+func validateAllowName(name string) error {
+	if name == "" {
+		return fmt.Errorf("execverb: `allow` binary name is empty (fail-closed)")
+	}
+	if strings.ContainsRune(name, '/') {
+		return fmt.Errorf("execverb: `allow` binary %q must be a bare name, not a path (fail-closed)", name)
+	}
+	if err := policy.ValidateArg("allow", name); err != nil {
+		return fmt.Errorf("execverb: `allow` binary %q rejected (fail-closed): %w", name, err)
 	}
 	return nil
 }

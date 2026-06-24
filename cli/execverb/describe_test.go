@@ -87,6 +87,42 @@ func TestDescribeArgvOverride(t *testing.T) {
 	}
 }
 
+func TestDescribeInspectList(t *testing.T) {
+	gf, err := Parse([]byte(`wrap ward-kdl inspect {
+		allow ls cat grep
+		deny-when any-arg matches "*secret*"
+	}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	s := Describe(gf)
+	if !s.Inspect {
+		t.Error("inspect-list surface should set Inspect")
+	}
+	if s.Bin != "" {
+		t.Errorf("inspect list has no single Bin, got %q", s.Bin)
+	}
+	if len(s.Grants) != 3 {
+		t.Fatalf("want 3 funnels, got %d", len(s.Grants))
+	}
+	// each funnel names its own binary and the per-binary dotted audit name
+	if s.Grants[1].Bin != "cat" || s.Grants[1].Name != "ward-kdl.inspect.cat" {
+		t.Errorf("funnel[1]: got bin=%q name=%q", s.Grants[1].Bin, s.Grants[1].Name)
+	}
+	md := s.Markdown()
+	for _, want := range []string{
+		"# ward-kdl inspect",
+		"Inspect-list CLI: 3 read-only binaries",
+		"## ward-kdl inspect ls",
+		"`grep <args...>` (open passthrough)",
+		"denies when any-arg matches *secret*", // wrap guard rendered on every leaf
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("markdown missing %q\n---\n%s", want, md)
+		}
+	}
+}
+
 func TestDescribeWildcard(t *testing.T) {
 	gf, err := Parse([]byte(`wrap ward ops docker { exec docker; can run * }`))
 	if err != nil {

@@ -114,9 +114,8 @@ type Call struct {
 	As       string // binding name for this call's response
 }
 
-// Collect walks a paginated granted leaf, incrementing PageParam and appending
-// each array response until the page returns fewer than Limit. See
-// specverb-actions.md.
+// Collect walks a paginated granted leaf, appending each array response until a
+// page returns fewer than Limit (PageParam increments). See specverb-actions.md.
 type Collect struct {
 	Verb         string
 	Resource     string

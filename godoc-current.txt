@@ -440,6 +440,7 @@ func (g Grant) ExecArgv() []string
 type GrantInfo struct {
 	Name       string   `json:"name"`                  // dotted audit name, e.g. ward.ops.aws.s3.ls
 	Subcommand []string `json:"subcommand,omitempty"`  // e.g. ["s3","ls"]; empty for the wildcard
+	Bin        string   `json:"bin,omitempty"`         // the funnel's own binary, set only for an inspect-list (`allow`) leaf
 	Exec       []string `json:"exec,omitempty"`        // tokens appended after the binary: the argv override when set, else the subcommand
 	Wildcard   bool     `json:"wildcard"`              // `can run *`: the whole binary passes through
 	Describe   string   `json:"describe,omitempty"`    // Guardfile describe note
@@ -457,6 +458,14 @@ type Guardfile struct {
 	ArgvPrefix []string // unoverridable leading argv (remote-exec transport)
 	Env        []EnvVar // environment vars set on the wrapped process
 	Grants     []Grant
+
+	// Allow lists bare binaries that each mount as an independent open-passthrough
+	// funnel: inspect-list sugar, mutually exclusive with exec/can run (docs/execverb.md).
+	Allow []string
+
+	// WrapWhens are wrap-level when/deny-when guards applied to every `allow`
+	// funnel - the read-only floor over the whole inspect list (allow only).
+	WrapWhens []WhenClause
 }
     Guardfile is the parsed form of one exec-dialect wrap block.
 
@@ -475,9 +484,10 @@ type Runner func(ctx context.Context, bin string, argv, env []string) error
 
 type Surface struct {
 	Group      []string    `json:"group"`                 // command path, e.g. ["ward","ops","aws"]
-	Bin        string      `json:"bin"`                   // the wrapped binary, fixed at parse
+	Bin        string      `json:"bin"`                   // the wrapped binary, fixed at parse; empty for an inspect list
 	ArgvPrefix []string    `json:"argv_prefix,omitempty"` // unoverridable leading argv
 	Env        []string    `json:"env,omitempty"`         // env injections as "NAME = provider address" (source, never the resolved value)
+	Inspect    bool        `json:"inspect,omitempty"`     // the `allow` inspect-list shape: each grant funnels its own binary, no single Bin
 	Grants     []GrantInfo `json:"grants"`                // every mounted leaf, in mount order
 }
     Surface is the in-engine model of a mounted exec surface: the wrapped
@@ -1683,9 +1693,9 @@ type Collect struct {
 	DefaultLimit string
 	As           string
 }
-    Collect walks a paginated granted leaf, incrementing PageParam and
-    appending each array response until the page returns fewer than Limit.
-    See specverb-actions.md.
+    Collect walks a paginated granted leaf, appending each array response
+    until a page returns fewer than Limit (PageParam increments). See
+    specverb-actions.md.
 
 type Grant struct {
 	Modal      string

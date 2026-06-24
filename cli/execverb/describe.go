@@ -12,9 +12,10 @@ import (
 // the fixed argv prefix, and every granted subcommand leaf.
 type Surface struct {
 	Group      []string    `json:"group"`                 // command path, e.g. ["ward","ops","aws"]
-	Bin        string      `json:"bin"`                   // the wrapped binary, fixed at parse
+	Bin        string      `json:"bin"`                   // the wrapped binary, fixed at parse; empty for an inspect list
 	ArgvPrefix []string    `json:"argv_prefix,omitempty"` // unoverridable leading argv
 	Env        []string    `json:"env,omitempty"`         // env injections as "NAME = provider address" (source, never the resolved value)
+	Inspect    bool        `json:"inspect,omitempty"`     // the `allow` inspect-list shape: each grant funnels its own binary, no single Bin
 	Grants     []GrantInfo `json:"grants"`                // every mounted leaf, in mount order
 }
 
@@ -23,6 +24,7 @@ type Surface struct {
 type GrantInfo struct {
 	Name       string   `json:"name"`                  // dotted audit name, e.g. ward.ops.aws.s3.ls
 	Subcommand []string `json:"subcommand,omitempty"`  // e.g. ["s3","ls"]; empty for the wildcard
+	Bin        string   `json:"bin,omitempty"`         // the funnel's own binary, set only for an inspect-list (`allow`) leaf
 	Exec       []string `json:"exec,omitempty"`        // tokens appended after the binary: the argv override when set, else the subcommand
 	Wildcard   bool     `json:"wildcard"`              // `can run *`: the whole binary passes through
 	Describe   string   `json:"describe,omitempty"`    // Guardfile describe note
@@ -38,12 +40,29 @@ func Describe(gf *Guardfile) *Surface {
 	if gf == nil {
 		return &Surface{}
 	}
+	if len(gf.Allow) > 0 {
+		return describeAllow(gf)
+	}
 	s := &Surface{Group: gf.Group, Bin: gf.Bin, ArgvPrefix: gf.ArgvPrefix}
 	for _, e := range gf.Env {
 		s.Env = append(s.Env, e.Name+" = "+strings.TrimSpace(e.Provider+" "+e.Address))
 	}
 	for _, g := range gf.Grants {
 		s.Grants = append(s.Grants, grantInfo(gf, g))
+	}
+	return s
+}
+
+// describeAllow renders the `allow` inspect-list surface: one open-passthrough
+// leaf per binary (each its own Bin), carrying the wrap-level guards.
+func describeAllow(gf *Guardfile) *Surface {
+	s := &Surface{Group: gf.Group, Inspect: true}
+	for _, bin := range gf.Allow {
+		member := allowMember(gf, bin)
+		gi := grantInfo(member, member.Grants[0])
+		gi.Bin = bin
+		gi.Subcommand = []string{bin}
+		s.Grants = append(s.Grants, gi)
 	}
 	return s
 }
@@ -89,6 +108,9 @@ func guardSentence(wc WhenClause) string {
 // Markdown renders the surface as the committed reference doc, the exec-dialect
 // analog of specverb's Surface.Markdown().
 func (s *Surface) Markdown() string {
+	if s.Inspect {
+		return s.markdownInspect()
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n", strings.Join(s.Group, " "))
 	invocation := strings.TrimSpace(s.Bin + " " + strings.Join(s.ArgvPrefix, " "))
@@ -110,6 +132,25 @@ func (s *Surface) Markdown() string {
 		fmt.Fprintf(&b, "\n%s\n\n", heading)
 		fmt.Fprintf(&b, "`%s`\n", strings.TrimSpace(invocation+" "+strings.Join(g.Exec, " ")))
 		writeFlagPolicy(&b, g)
+		writeGuards(&b, g)
+	}
+	return b.String()
+}
+
+// markdownInspect renders the `allow` inspect-list surface: each read-only
+// binary is its own open passthrough, with any wrap-level guard noted per leaf.
+func (s *Surface) markdownInspect() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n\n", strings.Join(s.Group, " "))
+	fmt.Fprintf(&b, "Inspect-list CLI: %d read-only binaries, each an independent open passthrough. Every leaf runs its named binary verbatim with the caller's args; the binary set is fixed at parse and the caller can never reach one not listed.\n", len(s.Grants))
+	prefix := strings.Join(s.Group, " ")
+	for _, g := range s.Grants {
+		heading := fmt.Sprintf("## %s %s", prefix, g.Bin)
+		if g.Describe != "" {
+			heading += " - " + g.Describe
+		}
+		fmt.Fprintf(&b, "\n%s\n\n", heading)
+		fmt.Fprintf(&b, "`%s <args...>` (open passthrough)\n", g.Bin)
 		writeGuards(&b, g)
 	}
 	return b.String()

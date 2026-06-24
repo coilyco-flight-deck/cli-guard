@@ -426,6 +426,129 @@ func TestArgvOverrideParseFailsClosed(t *testing.T) {
 	}
 }
 
+// inspectGuardfile is the `allow` inspect-list sugar: one wrap opening N
+// read-only binaries as a flat list, each an independent open passthrough.
+const inspectGuardfile = `wrap ward-kdl inspect {
+	allow ls cat head grep find stat jq \
+	      ps df du free uptime who id env which uname
+}`
+
+// TestAllowMountsEveryBinary proves each `allow` entry mounts as its own leaf.
+func TestAllowMountsEveryBinary(t *testing.T) {
+	gf, err := Parse([]byte(inspectGuardfile))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	root, err := Build(Config{Guardfile: gf})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	for _, want := range []string{"ls", "cat", "grep", "jq", "uname"} {
+		if findChild(root, want) == nil {
+			t.Errorf("missing inspect leaf %q", want)
+		}
+	}
+	// deny-by-default: a binary never listed must not mount.
+	if findChild(root, "rm") != nil || findChild(root, "kubectl") != nil {
+		t.Error("unlisted binary mounted")
+	}
+}
+
+// TestAllowFunnelsEachBinary proves a listed binary runs verbatim with its args:
+// the leaf execs that binary, not the group, and every arg passes through.
+func TestAllowFunnelsEachBinary(t *testing.T) {
+	var cp capture
+	if err := runArgv(t, inspectGuardfile, &cp, "inspect", "grep", "-rn", "TODO", "pkg/"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if cp.bin != "grep" {
+		t.Errorf("bin = %q, want grep", cp.bin)
+	}
+	if got := strings.Join(cp.argv, " "); got != "-rn TODO pkg/" {
+		t.Errorf("argv = %q, want -rn TODO pkg/", got)
+	}
+
+	// a second binary in the same wrap is independently reachable
+	if err := runArgv(t, inspectGuardfile, &cp, "inspect", "cat", "go.mod"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if cp.bin != "cat" || strings.Join(cp.argv, " ") != "go.mod" {
+		t.Errorf("invocation = %s %v, want cat go.mod", cp.bin, cp.argv)
+	}
+}
+
+// TestAllowAuditNameNamesTheBinary proves the dotted audit name composes the
+// wrap group with the funnel's binary, so each leaf is distinct in the log.
+func TestAllowAuditNameNamesTheBinary(t *testing.T) {
+	w := &audit.Writer{
+		Path: filepath.Join(t.TempDir(), "audit.jsonl"),
+		Now:  func() time.Time { return time.Date(2026, 6, 24, 0, 0, 0, 0, time.UTC) },
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	gf, err := Parse([]byte(inspectGuardfile))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	var cp capture
+	root := &cli.Command{Name: "ward-kdl"}
+	cfg := Config{Guardfile: gf, Run: cp.run, Wrap: func(s verb.Spec) cli.ActionFunc { return verb.Wrap(s, w) }}
+	if err := Mount(root, cfg); err != nil {
+		t.Fatalf("Mount: %v", err)
+	}
+	if err := root.Run(context.Background(), []string{"ward-kdl", "inspect", "df", "-h"}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	data, _ := os.ReadFile(w.Path)
+	if !strings.Contains(string(data), "ward-kdl.inspect.df") {
+		t.Errorf("audit row missing the per-binary dotted verb name; got:\n%s", string(data))
+	}
+}
+
+// TestAllowWrapGuardAppliesToEveryLeaf proves a wrap-level `deny-when` composes
+// onto all generated funnels: the read-only floor over the whole inspect list.
+func TestAllowWrapGuardAppliesToEveryLeaf(t *testing.T) {
+	const src = `wrap ward-kdl inspect {
+		allow cat grep
+		deny-when any-arg matches "*secret*" "*.key"
+	}`
+	var cp capture
+	// a benign read passes on either binary
+	if err := runArgv(t, src, &cp, "inspect", "cat", "README.md"); err != nil {
+		t.Fatalf("benign cat refused: %v", err)
+	}
+	// the guard refuses a sensitive arg on cat...
+	cp = capture{}
+	if err := runArgv(t, src, &cp, "inspect", "cat", "id_rsa.key"); err == nil {
+		t.Fatal("expected the wrap guard to deny cat id_rsa.key, got nil")
+	}
+	if cp.bin != "" {
+		t.Errorf("denied invocation still executed: %s %v", cp.bin, cp.argv)
+	}
+	// ...and equally on grep, proving it composed onto every leaf
+	if err := runArgv(t, src, &cp, "inspect", "grep", "x", "prod-secrets.txt"); err == nil {
+		t.Fatal("expected the wrap guard to deny grep over a secret path, got nil")
+	}
+}
+
+// TestAllowParseFailsClosed proves the inspect-list validation rules.
+func TestAllowParseFailsClosed(t *testing.T) {
+	cases := []string{
+		`wrap ward-kdl inspect { allow }`,                           // empty list
+		`wrap ward-kdl inspect { allow ls; exec cat }`,              // exclusive with exec
+		`wrap ward-kdl inspect { allow ls; can run status }`,        // exclusive with can run
+		`wrap ward-kdl inspect { allow ls /usr/bin/cat }`,           // path, not a bare name
+		`wrap ward-kdl inspect { allow "rm;dd" }`,                   // shell metacharacter
+		`wrap ward-kdl inspect { allow cat cat }`,                   // duplicate binary
+		`wrap ward-kdl inspect { allow ls { describe "x" } }`,       // block body, not a flat list
+		`wrap ward git { exec git; deny-when any-arg matches "*" }`, // wrap guard without allow
+	}
+	for _, src := range cases {
+		if _, err := Parse([]byte(src)); err == nil {
+			t.Errorf("expected parse failure for %q", src)
+		}
+	}
+}
+
 // envGuardfile injects an opaque host via a provider plus a literal: the
 // OLLAMA_HOST-to-tower shape.
 const envGuardfile = `wrap ward-kdl agents ollama {

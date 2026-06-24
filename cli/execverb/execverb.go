@@ -59,6 +59,9 @@ func Build(cfg Config) (*cli.Command, error) {
 		Name:  gf.Group[len(gf.Group)-1],
 		Usage: fmt.Sprintf("guarded %s verbs (exec dialect)", strings.Join(gf.Group, " ")),
 	}
+	if len(gf.Allow) > 0 {
+		return buildAllow(root, gf, wrap, run, providers)
+	}
 	for _, g := range gf.Grants {
 		if g.Wildcard {
 			if len(gf.Grants) != 1 {
@@ -76,20 +79,60 @@ func Build(cfg Config) (*cli.Command, error) {
 // mountWildcard turns the group itself into one open passthrough leaf; the
 // grant's gates and flag policy still decide whether the call happens.
 func mountWildcard(root *cli.Command, gf *Guardfile, g Grant, wrap func(verb.Spec) cli.ActionFunc, run Runner, providers map[string]valuesource.Provider) (*cli.Command, error) {
+	leaf, err := wildcardLeaf(root.Name, gf, g, wrap, run, providers)
+	if err != nil {
+		return nil, err
+	}
+	root.Usage = leaf.Usage
+	root.SkipFlagParsing = true
+	root.Action = leaf.Action
+	return root, nil
+}
+
+// wildcardLeaf builds one open-passthrough leaf named name for grant g of gf,
+// shared by the group-as-funnel (`can run *`) and inspect-list (`allow`) paths.
+func wildcardLeaf(name string, gf *Guardfile, g Grant, wrap func(verb.Spec) cli.ActionFunc, run Runner, providers map[string]valuesource.Provider) (*cli.Command, error) {
 	gates, err := buildGates(g)
 	if err != nil {
 		return nil, err
 	}
-	root.Usage = leafUsage(gf, g)
-	root.SkipFlagParsing = true
-	root.Action = wrap(verb.Spec{
-		Name: strings.Join(gf.Group, "."),
-		ArgsFunc: func(c *cli.Command) (map[string]string, []string) {
-			return nil, c.Args().Slice()
-		},
-		Action: actionFor(gf, g, gates, run, providers),
-	})
+	return &cli.Command{
+		Name:            name,
+		Usage:           leafUsage(gf, g),
+		SkipFlagParsing: true,
+		Action: wrap(verb.Spec{
+			Name: strings.Join(gf.Group, "."),
+			ArgsFunc: func(c *cli.Command) (map[string]string, []string) {
+				return nil, c.Args().Slice()
+			},
+			Action: actionFor(gf, g, gates, run, providers),
+		}),
+	}, nil
+}
+
+// buildAllow desugars an `allow` list into one open-passthrough leaf per binary,
+// each a wildcard funnel under the wrap group. The inspect-list sugar: docs/execverb.md.
+func buildAllow(root *cli.Command, gf *Guardfile, wrap func(verb.Spec) cli.ActionFunc, run Runner, providers map[string]valuesource.Provider) (*cli.Command, error) {
+	root.Usage = fmt.Sprintf("guarded %s read-only passthroughs (%d binaries)", strings.Join(gf.Group, " "), len(gf.Allow))
+	for _, bin := range gf.Allow {
+		member := allowMember(gf, bin)
+		leaf, err := wildcardLeaf(bin, member, member.Grants[0], wrap, run, providers)
+		if err != nil {
+			return nil, err
+		}
+		root.Commands = append(root.Commands, leaf)
+	}
 	return root, nil
+}
+
+// allowMember synthesizes the per-binary open-passthrough Guardfile for one
+// `allow` entry, carrying the wrap-level guards onto its single wildcard grant.
+func allowMember(gf *Guardfile, bin string) *Guardfile {
+	return &Guardfile{
+		Group:  append(append([]string{}, gf.Group...), bin),
+		Bin:    bin,
+		Grants: []Grant{{Wildcard: true, Whens: append([]WhenClause{}, gf.WrapWhens...)}},
+	}
 }
 
 // Mount builds the guarded group and grafts it onto root, generating the
