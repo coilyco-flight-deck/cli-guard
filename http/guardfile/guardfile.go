@@ -187,6 +187,11 @@ func Parse(src []byte) (*Guardfile, error) {
 		return nil, fmt.Errorf("guardfile: `wrap` needs a command path, e.g. `wrap ward ops forgejo`")
 	}
 	for _, n := range wrap.Children().Nodes {
+		if n.Name() == inheritNode {
+			// inherit is resolved textually by Flatten/ParseFile before this parse;
+			// reaching it here means Parse was handed unflattened source.
+			return nil, fmt.Errorf("guardfile: `inherit` needs file-path resolution; load with guardfile.ParseFile (fail-closed)")
+		}
 		if err := gf.applyNode(n); err != nil {
 			return nil, err
 		}

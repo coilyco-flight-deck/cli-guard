@@ -1638,6 +1638,14 @@ package guardfile // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard
 Package guardfile parses a KDL Guardfile, the human authoring layer (L2) of the
 specverb engine, into a typed model. KDL is parsed, never evaluated.
 
+FUNCTIONS
+
+func Flatten(path string) ([]byte, error)
+    Flatten resolves every `inherit` in the guardfile at path into one
+    self-contained KDL document's bytes (no `inherit` => source verbatim).
+    docs/specverb-inherit.md.
+
+
 TYPES
 
 type Action struct {
@@ -1756,6 +1764,10 @@ type Guardfile struct {
 func Parse(src []byte) (*Guardfile, error)
     Parse turns Guardfile source into a Guardfile. It fails closed: an unknown
     node, a missing required field, or a malformed sentence is an error.
+
+func ParseFile(path string) (*Guardfile, error)
+    ParseFile flattens the guardfile at path (resolving inherit) and parses the
+    merged result into a typed Guardfile.
 
 func (gf *Guardfile) Providers() []string
     Providers returns the distinct provider names every value source in gf

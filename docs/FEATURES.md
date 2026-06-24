@@ -1,10 +1,10 @@
 # cli-guard features
 
-Inventory of what cli-guard does today. See `examples/<feature>/` for each end-to-end.
+Inventory of cli-guard today. See `examples/<feature>/` for each end-to-end.
 
 ## Framework primitives
 
-Packages are grouped by **guarded surface** plus a shared `pkg/` core, depending downward on `pkg/`. See [architecture.md](architecture.md).
+Packages are grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](architecture.md).
 
 ### CLI passthrough surface (`cli/`)
 
@@ -18,7 +18,7 @@ Packages are grouped by **guarded surface** plus a shared `pkg/` core, depending
 - **catalog** - Assert a repo's config YAML carries a `catalog:` block with required keys.
 - **hook** / **hookcfg** - PreToolUse engine; `repocfg.Security` -> `hook.Protected` / `hook.ForbiddenArgv` maps.
 - **shim** - PATH shim per protected binary (UX shadowing, not enforcement). See [deny-by-structure.md](deny-by-structure.md).
-- **doctor** - Verify the deny-by-structure floor (no passwordless sudo, no agent-executable real binary, no cred env).
+- **doctor** - Verify the deny-by-structure floor (no passwordless sudo, no agent-executable binary, no cred env).
 - **sudo** - Policy-free interactive sudo plumbing over any stdin transport.
 - **dispatch** - Fire `claude` against a real open issue; consumer swaps the resolver.
 - **lockdown** / **profiles** / **profile** / **decision** - Permission-file writer, per-host profile registry, evaluator.
@@ -27,7 +27,7 @@ Packages are grouped by **guarded surface** plus a shared `pkg/` core, depending
 ### HTTP request surface (`http/`)
 
 - **egress** - Per-invocation CONNECT proxy with consumer allowlist.
-- **guardfile** / **specverb** / **specgen** / **specdrv** - Spec-driven verbs from a Guardfile; each `can` resolves its op by convention across Swagger 2 / OpenAPI 3; `can`/`never <verb> "*"` is verb-global allow/deny. See [specverb.md](specverb.md), [specverb-wildcard.md](specverb-wildcard.md).
+- **guardfile** / **specverb** / **specgen** / **specdrv** - Spec-driven verbs from a Guardfile; each `can` resolves its op by convention (Swagger 2/OpenAPI 3); `can`/`never <verb> "*"` is verb-global allow/deny, `inherit` layers tiers. See [specverb.md](specverb.md), [specverb-wildcard.md](specverb-wildcard.md), [specverb-inherit.md](specverb-inherit.md).
 - **complex actions** - `wrap`-block `poll`/`call` verbs; `action <verb> <resource>` shadows that leaf. See [specverb-actions.md](specverb-actions.md).
 - **respfmt** - JSON response renderer with JMESPath + five output formats.
 - **ghcache** / **ghidcache** / **ghratelimit** / **stscache** - Forgejo/GitHub response, id, rate-limit, STS caches.
@@ -54,7 +54,7 @@ Packages are grouped by **guarded surface** plus a shared `pkg/` core, depending
 - `.golangci.yaml` mirrors urfave/cli's minimal config.
 - `staticcheck.conf` enables all checks (mirrors urfave/cli).
 - CI runs `go vet`, `go build`, `go test -race`, golangci-lint v2.12.2.
-- Release is automated and Forgejo-canonical, tag-only; consumers (ward, coily) self-bump. See [release-pipeline.md](release-pipeline.md).
+- Release is automated and Forgejo-canonical, tag-only; consumers self-bump. See [release-pipeline.md](release-pipeline.md).
 
 ## See also
 
