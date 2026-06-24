@@ -16,6 +16,7 @@ type Surface struct {
 	ArgvPrefix []string    `json:"argv_prefix,omitempty"` // unoverridable leading argv
 	Env        []string    `json:"env,omitempty"`         // env injections as "NAME = provider address" (source, never the resolved value)
 	Inspect    bool        `json:"inspect,omitempty"`     // the `allow` inspect-list shape: each grant funnels its own binary, no single Bin
+	Guards     []string    `json:"guards,omitempty"`      // wrap-level guards (the passthrough host gate), applied to every leaf
 	Grants     []GrantInfo `json:"grants"`                // every mounted leaf, in mount order
 }
 
@@ -46,6 +47,9 @@ func Describe(gf *Guardfile) *Surface {
 	s := &Surface{Group: gf.Group, Bin: gf.Bin, ArgvPrefix: gf.ArgvPrefix}
 	for _, e := range gf.Env {
 		s.Env = append(s.Env, e.Name+" = "+strings.TrimSpace(e.Provider+" "+e.Address))
+	}
+	for _, wc := range gf.Whens {
+		s.Guards = append(s.Guards, guardSentence(wc))
 	}
 	for _, g := range gf.Grants {
 		s.Grants = append(s.Grants, grantInfo(gf, g))
@@ -92,15 +96,23 @@ func grantInfo(gf *Guardfile, g Grant) GrantInfo {
 	return gi
 }
 
-// guardSentence renders one when/deny-when guard as a readable clause.
+// guardSentence renders one when/deny-when (or never pass/only pass) guard as a
+// readable clause, naming the shell source for an ambient guard.
 func guardSentence(wc WhenClause) string {
 	verb := "requires"
 	if wc.Deny {
 		verb = "denies when"
 	}
-	clause := fmt.Sprintf("%s %s matches %s", verb, wc.Selector, strings.Join(wc.Patterns, " or "))
+	selector := wc.Selector
+	if len(wc.SourceCmd) > 0 {
+		selector = "shell " + strings.Join(wc.SourceCmd, " ")
+	}
+	clause := fmt.Sprintf("%s %s matches %s", verb, selector, strings.Join(wc.Patterns, " or "))
 	if wc.OnlyReads {
 		clause += " (read-only calls only)"
+	}
+	if wc.Describe != "" {
+		clause += " - " + wc.Describe
 	}
 	return clause
 }
@@ -117,6 +129,12 @@ func (s *Surface) Markdown() string {
 	fmt.Fprintf(&b, "Exec-dialect CLI. Every verb runs `%s` with the granted subcommand (or its `argv` override) appended; the binary and its prefix are fixed and the caller can never substitute them.\n", invocation)
 	if len(s.Env) > 0 {
 		fmt.Fprintf(&b, "\nEnv set on the process (resolved at exec time): %s.\n", joinCode(s.Env))
+	}
+	if len(s.Guards) > 0 {
+		b.WriteString("\nWrap-level guards (enforced on every verb, before any exec):\n\n")
+		for _, guard := range s.Guards {
+			fmt.Fprintf(&b, "- %s\n", guard)
+		}
 	}
 
 	prefix := strings.Join(s.Group, " ")
