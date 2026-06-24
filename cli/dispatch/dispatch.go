@@ -498,7 +498,7 @@ func (d *Dispatcher) runHeadless(ctx context.Context, c *cli.Command) error {
 	return d.runDetached(ctx, c, detachedSpec{
 		mode:     "headless",
 		prompt:   seedPrompt,
-		extraEnv: []string{fmt.Sprintf("%s=0", envCascadeDepth)},
+		extraEnv: []string{fmt.Sprintf("%s=0", envCascadeDepth())},
 	})
 }
 

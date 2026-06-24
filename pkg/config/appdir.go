@@ -1,5 +1,5 @@
-// App-dir namespacing. The consumer-supplied directory name (coily ".coily",
-// ward ".ward") roots every per-user path; cli-guard hardcodes no consumer.
+// App-dir namespacing. The consumer-supplied directory name (e.g. ward
+// ".ward") roots every per-user path; cli-guard hardcodes no consumer.
 package config
 
 import (
@@ -29,7 +29,7 @@ var (
 var envSanitizer = regexp.MustCompile(`[^A-Z0-9]+`)
 
 // SetAppDir registers the directory name rooting every per-user path. The
-// consumer calls it once at startup - coily ".coily", ward ".ward".
+// consumer calls it once at startup - e.g. ward ".ward".
 func SetAppDir(name string) {
 	appDirMu.Lock()
 	defer appDirMu.Unlock()
@@ -47,21 +47,27 @@ func AppDir() string {
 	return appDir
 }
 
-// BaseName returns the app dir with leading dots stripped, e.g. ".coily" ->
-// "coily", for the non-hidden cache env var and dispatch queue dir.
+// BaseName returns the app dir with leading dots stripped, e.g. ".ward" ->
+// "ward", for the non-hidden cache env var and dispatch queue dir.
 func BaseName() string {
 	return strings.TrimLeft(AppDir(), ".")
 }
 
-// CacheDirEnv derives the cache-dir override env var from the app dir so no
-// consumer name is baked in: ".coily" -> "COILY_CACHE_DIR".
-func CacheDirEnv() string {
+// EnvName derives a consumer-scoped env var from the app dir base (".ward" +
+// "_CACHE_DIR" -> "WARD_CACHE_DIR"); unset falls back to the "CLI_GUARD" token.
+func EnvName(suffix string) string {
 	base := envSanitizer.ReplaceAllString(strings.ToUpper(BaseName()), "_")
 	base = strings.Trim(base, "_")
 	if base == "" {
 		base = "CLI_GUARD"
 	}
-	return base + "_CACHE_DIR"
+	return base + suffix
+}
+
+// CacheDirEnv derives the cache-dir override env var from the app dir so no
+// consumer name is baked in: ".ward" -> "WARD_CACHE_DIR".
+func CacheDirEnv() string {
+	return EnvName("_CACHE_DIR")
 }
 
 // CacheDir resolves the ttl-cache root: the <BASE>_CACHE_DIR env override,

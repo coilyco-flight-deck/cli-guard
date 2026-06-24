@@ -9,7 +9,7 @@ import (
 )
 
 func TestDetectFrom_EnvOverrideWins(t *testing.T) {
-	t.Setenv(workdir.OverrideEnv, "/forced/path")
+	t.Setenv(workdir.OverrideEnv(), "/forced/path")
 	got := workdir.DetectFrom(t.TempDir())
 	if got.Source != workdir.SourceEnv {
 		t.Errorf("source = %q, want env", got.Source)
@@ -21,7 +21,7 @@ func TestDetectFrom_EnvOverrideWins(t *testing.T) {
 
 func TestDetectFrom_EnvRelativeJoinsCwd(t *testing.T) {
 	cwd := t.TempDir()
-	t.Setenv(workdir.OverrideEnv, "sub")
+	t.Setenv(workdir.OverrideEnv(), "sub")
 	got := workdir.DetectFrom(cwd)
 	want := filepath.Join(cwd, "sub")
 	if got.Path != want {
@@ -30,7 +30,7 @@ func TestDetectFrom_EnvRelativeJoinsCwd(t *testing.T) {
 }
 
 func TestDetectFrom_GitRootDetected(t *testing.T) {
-	t.Setenv(workdir.OverrideEnv, "")
+	t.Setenv(workdir.OverrideEnv(), "")
 	t.Setenv("HOME", t.TempDir()) // dodge coilysiren rule
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
@@ -50,7 +50,7 @@ func TestDetectFrom_GitRootDetected(t *testing.T) {
 }
 
 func TestDetectFrom_GitFileCountsAsWorktree(t *testing.T) {
-	t.Setenv(workdir.OverrideEnv, "")
+	t.Setenv(workdir.OverrideEnv(), "")
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, ".git"), []byte("gitdir: /elsewhere\n"), 0o644); err != nil {
@@ -63,7 +63,7 @@ func TestDetectFrom_GitFileCountsAsWorktree(t *testing.T) {
 }
 
 func TestDetectFrom_CoilysirenParentPicksFirstSegment(t *testing.T) {
-	t.Setenv(workdir.OverrideEnv, "")
+	t.Setenv(workdir.OverrideEnv(), "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	repo := filepath.Join(home, "projects", "coilysiren", "myrepo")
@@ -81,7 +81,7 @@ func TestDetectFrom_CoilysirenParentPicksFirstSegment(t *testing.T) {
 }
 
 func TestDetectFrom_GitBeatsCoilysiren(t *testing.T) {
-	t.Setenv(workdir.OverrideEnv, "")
+	t.Setenv(workdir.OverrideEnv(), "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	repo := filepath.Join(home, "projects", "coilysiren", "myrepo")
@@ -102,7 +102,7 @@ func TestDetectFrom_GitBeatsCoilysiren(t *testing.T) {
 }
 
 func TestDetectFrom_FallsBackToCwd(t *testing.T) {
-	t.Setenv(workdir.OverrideEnv, "")
+	t.Setenv(workdir.OverrideEnv(), "")
 	t.Setenv("HOME", t.TempDir())
 	cwd := t.TempDir()
 	got := workdir.DetectFrom(cwd)
@@ -115,7 +115,7 @@ func TestDetectFrom_FallsBackToCwd(t *testing.T) {
 }
 
 func TestDetectFrom_EmptyCwd(t *testing.T) {
-	t.Setenv(workdir.OverrideEnv, "")
+	t.Setenv(workdir.OverrideEnv(), "")
 	t.Setenv("HOME", t.TempDir())
 	got := workdir.DetectFrom("")
 	if got.Source != workdir.SourceCWD {

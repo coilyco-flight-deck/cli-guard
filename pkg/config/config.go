@@ -12,7 +12,7 @@ import (
 )
 
 // Audit controls where the JSONL audit log lives and how lumberjack
-// rotates it. LogPath defaults to ~/.coily/audit/<slug>.jsonl when left
+// rotates it. LogPath defaults to ~/<app-dir>/audit/<slug>.jsonl when left
 type Audit struct {
 	LogPath    string `yaml:"log_path"`
 	MaxSizeMB  int    `yaml:"max_size_mb"`

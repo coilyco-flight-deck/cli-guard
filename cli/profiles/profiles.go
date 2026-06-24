@@ -75,7 +75,7 @@ var (
 )
 
 // SetRegistryFile registers the basename of the global profile registry file
-// (coily "coily.yaml"); with config.SetAppDir it forms ~/<app-dir>/<file>.
+// (e.g. ward "ward.yaml"); with config.SetAppDir it forms ~/<app-dir>/<file>.
 func SetRegistryFile(name string) {
 	registryFileMu.Lock()
 	defer registryFileMu.Unlock()

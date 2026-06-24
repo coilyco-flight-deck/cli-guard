@@ -1,6 +1,6 @@
 # repocfg example
 
-Loads a per-repo verb allowlist from `.coily/coily.yaml`. Each declared verb is a pre-validated argv slice; runtime cannot turn it into a shell pipeline or add metacharacters.
+Loads a per-repo verb allowlist from `.ward/ward.yaml`. Each declared verb is a pre-validated argv slice; runtime cannot turn it into a shell pipeline or add metacharacters.
 
 ```
 $ cd examples/repocfg

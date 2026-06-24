@@ -11,7 +11,7 @@ import (
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode"
 )
 
-// restrictFixture grants repo get/delete under a `restrict owner matches "coily*"`
+// restrictFixture grants repo get/delete under a `restrict owner matches "example-*"`
 // scope gate, over the shared Swagger 2.0 proving spec.
 func restrictFixture(t *testing.T) (*guardfile.Guardfile, []byte) {
 	t.Helper()
@@ -19,7 +19,7 @@ func restrictFixture(t *testing.T) (*guardfile.Guardfile, []byte) {
 	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
 		spec forgejo.swagger.v1.json
 		auth header-token { header Authorization; prefix "token "; value ssm "/forgejo/api-token" }
-		restrict owner matches "coily*" "coilyco-*"
+		restrict owner matches "example-*" "coilyco-*"
 		can get repo { op "repoGet" }
 		can delete repo { op "repoDelete" }
 	}`))
@@ -82,7 +82,7 @@ func TestRestrictDescribed(t *testing.T) {
 		t.Fatalf("Restrict = %+v", surface.Restrict)
 	}
 	md := surface.Markdown()
-	for _, want := range []string{"Scope restrictions", "`owner` must match", "coily*"} {
+	for _, want := range []string{"Scope restrictions", "`owner` must match", "example-*"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("describe prose missing %q:\n%s", want, md)
 		}

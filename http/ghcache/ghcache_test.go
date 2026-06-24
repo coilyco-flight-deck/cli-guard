@@ -13,10 +13,10 @@ import (
 
 func reset(t *testing.T) {
 	t.Helper()
-	// App dir ".coily" makes the cache-dir override env COILY_CACHE_DIR and
-	// roots the home fallback at ~/.coily/cache.
-	config.SetAppDir(".coily")
-	t.Setenv("COILY_CACHE_DIR", t.TempDir())
+	// App dir ".ward" makes the cache-dir override env WARD_CACHE_DIR and
+	// roots the home fallback at ~/.ward/cache.
+	config.SetAppDir(".ward")
+	t.Setenv("WARD_CACHE_DIR", t.TempDir())
 	t.Setenv("GH_HOST", "")
 	t.Setenv("GH_TOKEN", "")
 	t.Setenv("GITHUB_TOKEN", "")
@@ -394,15 +394,15 @@ func TestGetJSON_BurstCollapsesToOneFetch(t *testing.T) {
 }
 
 func TestGetJSON_HomeFallback(t *testing.T) {
-	config.SetAppDir(".coily")
+	config.SetAppDir(".ward")
 	home := t.TempDir()
-	t.Setenv("COILY_CACHE_DIR", "")
+	t.Setenv("WARD_CACHE_DIR", "")
 	t.Setenv("HOME", home)
 	t.Setenv("GH_TOKEN", "")
 	_, _ = ghcache.GetJSON("/repos/o/r/issues/1", func() ([]byte, error) {
 		return []byte(`{}`), nil
 	})
-	if _, err := os.Stat(filepath.Join(home, ".coily", "cache", "gh-api-cache")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, ".ward", "cache", "gh-api-cache")); err != nil {
 		t.Errorf("home-fallback cache dir not created: %v", err)
 	}
 }

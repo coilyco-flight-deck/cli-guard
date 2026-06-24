@@ -14,11 +14,11 @@ import (
 // identity env vars so subtests do not alias each other through the
 func resetCacheDir(t *testing.T) string {
 	t.Helper()
-	// App dir ".coily" makes the cache-dir override env COILY_CACHE_DIR and
-	// roots the home fallback at ~/.coily/cache.
-	config.SetAppDir(".coily")
+	// App dir ".ward" makes the cache-dir override env WARD_CACHE_DIR and
+	// roots the home fallback at ~/.ward/cache.
+	config.SetAppDir(".ward")
 	dir := t.TempDir()
-	t.Setenv("COILY_CACHE_DIR", dir)
+	t.Setenv("WARD_CACHE_DIR", dir)
 	t.Setenv("GH_HOST", "")
 	t.Setenv("GH_TOKEN", "")
 	t.Setenv("GITHUB_TOKEN", "")
@@ -187,9 +187,9 @@ func TestInvalidate_DropsBothSubdirs(t *testing.T) {
 }
 
 func TestAPIUser_HomeFallback(t *testing.T) {
-	config.SetAppDir(".coily")
+	config.SetAppDir(".ward")
 	home := t.TempDir()
-	t.Setenv("COILY_CACHE_DIR", "")
+	t.Setenv("WARD_CACHE_DIR", "")
 	t.Setenv("HOME", home)
 	t.Setenv("GH_TOKEN", "home-fallback")
 	_ = ghidcache.Invalidate()
@@ -198,7 +198,7 @@ func TestAPIUser_HomeFallback(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("APIUser: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".coily", "cache", "gh-api-user")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, ".ward", "cache", "gh-api-user")); err != nil {
 		t.Fatalf("home-fallback cache dir not created: %v", err)
 	}
 }

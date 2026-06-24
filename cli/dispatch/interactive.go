@@ -26,7 +26,7 @@ const (
 )
 
 // defaultDispatchQueueDir derives /tmp/<base>-dispatch-queue from the
-// consumer's app dir (config.BaseName), e.g. /tmp/coily-dispatch-queue.
+// consumer's app dir (config.BaseName), e.g. /tmp/ward-dispatch-queue.
 func defaultDispatchQueueDir() string {
 	return filepath.Join("/tmp", config.BaseName()+"-dispatch-queue")
 }

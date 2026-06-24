@@ -38,7 +38,6 @@ func TestCacheDirEnv_DerivedFromAppDir(t *testing.T) {
 		appDir string
 		want   string
 	}{
-		{".coily", "COILY_CACHE_DIR"},
 		{".ward", "WARD_CACHE_DIR"},
 		{"", "CLI_GUARD_CACHE_DIR"}, // fallback app dir ".cli-guard"
 		{".my-app", "MY_APP_CACHE_DIR"},
@@ -54,20 +53,20 @@ func TestCacheDirEnv_DerivedFromAppDir(t *testing.T) {
 }
 
 func TestCacheDir_EnvOverride(t *testing.T) {
-	withAppDir(t, ".coily")
+	withAppDir(t, ".ward")
 	override := t.TempDir()
-	t.Setenv("COILY_CACHE_DIR", override)
+	t.Setenv("WARD_CACHE_DIR", override)
 	if got := config.CacheDir(); got != override {
-		t.Errorf("CacheDir() = %q, want the COILY_CACHE_DIR override %q", got, override)
+		t.Errorf("CacheDir() = %q, want the WARD_CACHE_DIR override %q", got, override)
 	}
 }
 
 func TestCacheDir_PerConsumerEnvIsolation(t *testing.T) {
-	// ward's override must not be read through coily's env var, and vice
-	// versa: the env name is derived per app dir.
+	// ward's override must not be read through another consumer's env var,
+	// and vice versa: the env name is derived per app dir.
 	wardDir := t.TempDir()
 	t.Setenv("WARD_CACHE_DIR", wardDir)
-	t.Setenv("COILY_CACHE_DIR", t.TempDir())
+	t.Setenv("KIT_CACHE_DIR", t.TempDir())
 
 	withAppDir(t, ".ward")
 	if got := config.CacheDir(); got != wardDir {
@@ -76,11 +75,11 @@ func TestCacheDir_PerConsumerEnvIsolation(t *testing.T) {
 }
 
 func TestCacheDir_HomeFallback(t *testing.T) {
-	withAppDir(t, ".coily")
-	t.Setenv("COILY_CACHE_DIR", "")
+	withAppDir(t, ".ward")
+	t.Setenv("WARD_CACHE_DIR", "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	want := filepath.Join(home, ".coily", config.CacheSubdir)
+	want := filepath.Join(home, ".ward", config.CacheSubdir)
 	if got := config.CacheDir(); got != want {
 		t.Errorf("CacheDir() = %q, want home fallback %q", got, want)
 	}

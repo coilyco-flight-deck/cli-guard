@@ -16,10 +16,10 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// TestMain pins an app dir so the COILY_CACHE_DIR override the read-cache
+// TestMain pins an app dir so the WARD_CACHE_DIR override the read-cache
 // subtests set is honored by the underlying ghcache.
 func TestMain(m *testing.M) {
-	config.SetAppDir(".coily")
+	config.SetAppDir(".ward")
 	os.Exit(m.Run())
 }
 
@@ -33,7 +33,7 @@ type rcHarness struct {
 
 func newRCHarness(t *testing.T, classifier passthrough.ReadCacheClassifier, payload string, exitNonZero bool) rcHarness {
 	t.Helper()
-	t.Setenv("COILY_CACHE_DIR", t.TempDir())
+	t.Setenv("WARD_CACHE_DIR", t.TempDir())
 	t.Setenv("GH_TOKEN", "")
 	t.Setenv("GITHUB_TOKEN", "")
 
@@ -217,7 +217,7 @@ func TestWithReadCache_MaxAgePositiveCapEvictsOlderEntries(t *testing.T) {
 func TestWithReadCache_NilClassifierBehavesLikeNoOption(t *testing.T) {
 	// Smoke-check that WithReadCache(nil) doesn't crash and behaves
 	// identically to omitting the option.
-	t.Setenv("COILY_CACHE_DIR", t.TempDir())
+	t.Setenv("WARD_CACHE_DIR", t.TempDir())
 	dir := t.TempDir()
 	w := audit.NewWriter(filepath.Join(dir, "audit.jsonl"))
 	if err := w.Preflight(); err != nil {

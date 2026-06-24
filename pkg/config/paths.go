@@ -31,7 +31,7 @@ const SessionProfileFile = "profile"
 // repo (or inside one with no origin remote). All such invocations land in
 const UnrootedAuditName = "_unrooted"
 
-// GlobalDir returns ~/<app-dir> (e.g. ~/.coily), expanded against $HOME.
+// GlobalDir returns ~/<app-dir> (e.g. ~/.ward), expanded against $HOME.
 // Returns an error only if $HOME cannot be resolved.
 func GlobalDir() (string, error) {
 	home, err := os.UserHomeDir()
@@ -60,7 +60,7 @@ func LocalConfigPath() (string, error) {
 	return filepath.Join(cwd, AppDir(), "config.yaml"), nil
 }
 
-// SessionDir returns ~/.coily/audit/sessions/<sessionID>. Caller is
+// SessionDir returns ~/<app-dir>/audit/sessions/<sessionID>. Caller is
 // responsible for MkdirAll. Returns an error if sessionID is empty or
 func SessionDir(sessionID string) (string, error) {
 	if sessionID == "" {
@@ -83,7 +83,7 @@ func SessionProfilePath(sessionID string) (string, error) {
 	return filepath.Join(d, SessionProfileFile), nil
 }
 
-// DefaultAuditPath returns ~/.coily/audit/<slug>.jsonl, where slug is
+// DefaultAuditPath returns ~/<app-dir>/audit/<slug>.jsonl, where slug is
 // derived from the current git repo's origin remote. Falls back to
 func DefaultAuditPath() (string, error) {
 	dir, err := GlobalDir()

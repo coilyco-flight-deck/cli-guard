@@ -14,11 +14,11 @@ import (
 // profile env vars so subtests do not alias each other through the
 func resetCacheDir(t *testing.T) string {
 	t.Helper()
-	// App dir ".coily" makes the cache-dir override env COILY_CACHE_DIR and
-	// roots the home fallback at ~/.coily/cache.
-	config.SetAppDir(".coily")
+	// App dir ".ward" makes the cache-dir override env WARD_CACHE_DIR and
+	// roots the home fallback at ~/.ward/cache.
+	config.SetAppDir(".ward")
 	dir := t.TempDir()
-	t.Setenv("COILY_CACHE_DIR", dir)
+	t.Setenv("WARD_CACHE_DIR", dir)
 	t.Setenv("AWS_PROFILE", "")
 	t.Setenv("AWS_DEFAULT_PROFILE", "")
 	return dir
@@ -148,11 +148,11 @@ func TestCallerIdentity_InvalidateForcesRefetch(t *testing.T) {
 }
 
 // TestCallerIdentity_HomeFallback exercises the $HOME-based default
-// cache dir by unsetting COILY_CACHE_DIR and pointing HOME at a tempdir.
+// cache dir by unsetting WARD_CACHE_DIR and pointing HOME at a tempdir.
 func TestCallerIdentity_HomeFallback(t *testing.T) {
-	config.SetAppDir(".coily")
+	config.SetAppDir(".ward")
 	home := t.TempDir()
-	t.Setenv("COILY_CACHE_DIR", "")
+	t.Setenv("WARD_CACHE_DIR", "")
 	t.Setenv("HOME", home)
 	t.Setenv("AWS_PROFILE", "home-fallback-profile")
 	_ = stscache.Invalidate()
@@ -161,7 +161,7 @@ func TestCallerIdentity_HomeFallback(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CallerIdentity: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".coily", "cache", "aws-sts-identity")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, ".ward", "cache", "aws-sts-identity")); err != nil {
 		t.Fatalf("home-fallback cache dir not created: %v", err)
 	}
 }

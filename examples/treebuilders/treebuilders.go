@@ -426,7 +426,7 @@ func Gittree() *cli.Command {
 		Usage:   "show the clean+synced gate",
 		Version: "v0.0.0",
 		Description: `gittree-demo exercises the clean+synced gate that fronts every
-.coily/coily.yaml repo verb. The gate refuses a repo-verb invocation
+.ward/ward.yaml repo verb. The gate refuses a repo-verb invocation
 whenever the working tree could not be reconstructed from git history
 alone:
 
@@ -567,7 +567,7 @@ wraps any external CLI (aws, gh, kubectl, docker, tailscale, plus
 every package manager) as a single consumer verb with two properties:
 
     1. Audit. Every invocation produces a JSONL row in
-       ~/.coily/audit/*.jsonl with timestamp, full argv, cwd, exit
+       ~/.ward/audit/*.jsonl with timestamp, full argv, cwd, exit
        code. Reconstructable from the row alone.
     2. Argv validation. policy.ValidateArg rejects shell metacharacters
        before execve. Blocks the dumbest injection paths (` + "`passthrough-demo kubectl" + `
@@ -740,7 +740,7 @@ func Repocfg(cfg *repocfg.Config) *cli.Command {
 		Usage:   "show per-repo command allowlist loading",
 		Version: "v0.0.0",
 		Description: `repocfg-demo exercises the per-repo command allowlist. cli-guard
-walks up from cwd looking for a .coily/coily.yaml that declares
+walks up from cwd looking for a .ward/ward.yaml that declares
 named verbs (build, test, lint, deploy, ...). Each verb is a fixed
 argv. Each argv token is policy.ValidateArg'd at load time, so the
 exposed surface at runtime can never be a shell pipeline or contain
@@ -770,7 +770,7 @@ Threat-model corner cases the gate addresses:
 
 Operating model for an agent calling repo verbs:
 
-    - The discovery walk stops at the first .coily/coily.yaml. If a
+    - The discovery walk stops at the first .ward/ward.yaml. If a
       sub-repo wants different verbs, the file in the sub-repo
       shadows the parent's.
     - There is no merge / override semantics. The closest yaml
@@ -780,8 +780,8 @@ Operating model for an agent calling repo verbs:
 		Commands: []*cli.Command{
 			{
 				Name:  "list",
-				Usage: "print the verbs declared in coily.yaml",
-				Description: `Prints every verb declared in the discovered coily.yaml as
+				Usage: "print the verbs declared in ward.yaml",
+				Description: `Prints every verb declared in the discovered ward.yaml as
 "<name>: <argv-joined-by-space>". Read-only; does not execute any
 verb.
 
@@ -793,10 +793,10 @@ Examples:
     # build: go build ./...
     # greet: echo hello world
 
-    # no coily.yaml found anywhere in the cwd ancestry
+    # no ward.yaml found anywhere in the cwd ancestry
     cd /tmp
     repocfg-demo list
-    # error: no .coily/coily.yaml found in cwd ancestry
+    # error: no .ward/ward.yaml found in cwd ancestry
     # exit: 1
 
 Use ` + "`list`" + ` to inventory the verb surface before calling ` + "`run`" + `. An
@@ -817,7 +817,7 @@ different spelling.`,
 				Name:      "run",
 				Usage:     "execute a declared verb by name",
 				ArgsUsage: "<verb>",
-				Description: `Executes one verb by name from the discovered coily.yaml. The
+				Description: `Executes one verb by name from the discovered ward.yaml. The
 verb's argv was policy.ValidateArg'd at load time, so the tokens
 themselves cannot contain shell metacharacters. The wrapped exec is
 non-shell (` + "exec.Command, not /bin/sh -c)" + `, so the argv tokens are
@@ -843,9 +843,9 @@ Examples:
 What ` + "`run`" + ` does NOT do:
 
     - It does not parse the wrapped tool's flag syntax. The argv is
-      taken from coily.yaml as-is.
+      taken from ward.yaml as-is.
     - It does not let you mutate the verb at the call site. To
-      change what ` + "`go build ./...`" + ` does, edit coily.yaml and commit.
+      change what ` + "`go build ./...`" + ` does, edit ward.yaml and commit.
       That diff is the audit trail.
     - It does not bypass policy validation. The yaml-loaded argv
       was already validated; any user-appended extras pass through

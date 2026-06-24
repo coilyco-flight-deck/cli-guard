@@ -6,10 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/config"
 )
 
-// OverrideEnv names the env var that forces Detect's answer.
-const OverrideEnv = "COILY_PRIMARY_DIR"
+// OverrideEnv names the app-dir-derived env var that forces Detect's answer
+// (e.g. ".ward" -> "WARD_PRIMARY_DIR").
+func OverrideEnv() string { return config.EnvName("_PRIMARY_DIR") }
 
 // Source labels which signal produced the result. Callers that need to
 // gate behavior on confidence should branch on this.
@@ -17,7 +20,7 @@ type Source string
 
 // Signal labels for Result.Source, in detection-precedence order.
 const (
-	// SourceEnv means $COILY_PRIMARY_DIR forced the answer.
+	// SourceEnv means the app-dir-derived $<APP>_PRIMARY_DIR forced the answer.
 	SourceEnv Source = "env"
 	// SourceGit means the nearest ancestor with a .git entry won.
 	SourceGit Source = "git"
@@ -46,7 +49,7 @@ func Detect() Result {
 // DetectFrom is Detect parameterized on cwd, for tests and callers that
 // already have a working directory in hand.
 func DetectFrom(cwd string) Result {
-	if v := strings.TrimSpace(os.Getenv(OverrideEnv)); v != "" {
+	if v := strings.TrimSpace(os.Getenv(OverrideEnv())); v != "" {
 		return Result{Path: absUnder(cwd, v), Source: SourceEnv}
 	}
 	if root := findGitRoot(cwd); root != "" {

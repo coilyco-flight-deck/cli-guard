@@ -25,7 +25,7 @@ func Lint(yamlPath, makefilePath string) ([]Problem, error)
 package awsgate // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/awsgate"
 
 Package awsgate denies read-only aws invocations touching sensitive resources,
-pre-send. Extracted from coily's read gate; see docs/execverb.md.
+pre-send. Extracted from the original read gate; see docs/execverb.md.
 
 VARIABLES
 
@@ -531,7 +531,7 @@ type WhenClause struct {
 package gittree // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/gittree"
 
 Package gittree inspects a repo's working tree for the clean+synced state that
-gates `.coily/coily.yaml` repo verbs. The gate refuses repo-verb
+gates a repo's allowlist verbs. The gate refuses repo-verb
 
 CONSTANTS
 
@@ -1000,7 +1000,7 @@ func RegistryFile() string
 
 func SetRegistryFile(name string)
     SetRegistryFile registers the basename of the global profile registry file
-    (coily "coily.yaml"); with config.SetAppDir it forms ~/<app-dir>/<file>.
+    (e.g. ward "ward.yaml"); with config.SetAppDir it forms ~/<app-dir>/<file>.
 
 
 TYPES
@@ -1049,7 +1049,7 @@ const (
 
 package repocfg // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/repocfg"
 
-Package repocfg loads a per-repo command allowlist from a coily.yaml file
+Package repocfg loads a per-repo command allowlist from an app-dir overlay file
 discovered by walking up from the current working directory. Each command
 
 CONSTANTS
@@ -1058,21 +1058,6 @@ const DefaultChildDepth = 2
     DefaultChildDepth is how many directory levels below a parent
     DiscoverChildren descends; 2 covers the grouping-dir/repo layout.
 
-const EnvOverride = "COILY_REPO_CONFIG"
-    EnvOverride, when set, is treated as the absolute path to the repo config
-    and skips directory walking. Primarily for tests and advanced users.
-
-const Filename = "coily.yaml"
-    Filename is the name repocfg looks for during discovery.
-
-const LegacyFilename = "coily.yaml"
-    LegacyFilename is the pre-overlay name (./coily.yaml) that we reject with a
-    pointer at the new location. Kept around so the error message can be
-
-const LocalDirName = ".coily"
-    LocalDirName is the per-repo overlay directory the loader prefers. The
-    canonical home for the repo allowlist is ./.coily/coily.yaml.
-
 const ModeDenyDirect = "deny-direct"
     ModeDenyDirect is the only protected-binary mode supported in v1: the binary
     may not be invoked directly by an agent, only through an allowed wrapper.
@@ -1080,12 +1065,12 @@ const ModeDenyDirect = "deny-direct"
 
 VARIABLES
 
-var ErrLegacyLocation = errors.New("repocfg: coily.yaml at repo root is no longer supported, move it to .coily/coily.yaml")
-    ErrLegacyLocation is wrapped by Discover when a coily.yaml is found at the
-    repo root rather than under ./.coily/. The new convention is to put it
+var ErrLegacyLocation = errors.New("repocfg: a config at the repo root is no longer supported, move it under the app-dir overlay (e.g. .ward/ward.yaml)")
+    ErrLegacyLocation is wrapped by Discover when an overlay file sits at the
+    repo root instead of under ./<app-dir>/ (e.g. .ward/ward.yaml).
 
-var ErrNoConfig = errors.New("repocfg: no coily.yaml found")
-    ErrNoConfig is returned by LoadDefault when no coily.yaml is found in the
+var ErrNoConfig = errors.New("repocfg: no repo config found")
+    ErrNoConfig is returned by LoadDefault when no overlay file is found in the
     cwd ancestry. Callers treat this as "no repo commands to register."
 
 
@@ -1093,7 +1078,23 @@ FUNCTIONS
 
 func Discover(start string) (string, error)
     Discover walks up from start looking for the repo config. Prefers
-    ./.coily/coily.yaml at each level. If no overlay file is found but a
+    ./<app-dir>/<base>.yaml at each level. If no overlay file is found but a
+
+func EnvOverride() string
+    EnvOverride names the path-override env var, derived from the app dir
+    (".ward" -> "WARD_REPO_CONFIG"). Primarily for tests and advanced users.
+
+func Filename() string
+    Filename is the discovery name, derived from the app dir so no consumer is
+    baked in: ".ward" -> "ward.yaml", unset -> "cli-guard.yaml".
+
+func LegacyFilename() string
+    LegacyFilename is the pre-overlay name (./<base>.yaml at the repo root) that
+    Discover rejects with a pointer at the new location.
+
+func LocalDirName() string
+    LocalDirName is the preferred per-repo overlay dir - the consumer's app dir
+    (e.g. ".ward"), so the allowlist lives at ./<app-dir>/<base>.yaml.
 
 
 TYPES
@@ -1116,7 +1117,7 @@ type Command struct {
     Command is one parsed and validated entry from the commands: map.
 
 type Config struct {
-	// Path is the absolute path to the coily.yaml that produced this Config.
+	// Path is the absolute path to the overlay file that produced this Config.
 	Path string
 	// Commands are sorted by Name. Safe to iterate directly for help output.
 	Commands []Command
@@ -1127,24 +1128,25 @@ type Config struct {
     Config is the result of a successful Load.
 
 func DiscoverAll(start string) ([]*Config, error)
-    DiscoverAll returns every coily.yaml reachable from start in a single
+    DiscoverAll returns every overlay file reachable from start in a single
     deterministic pool: every level of the ancestor walk from start up to
 
 func DiscoverChildren(parentDir string) ([]*Config, error)
-    DiscoverChildren scans descendants of parentDir for a ./.coily/coily.yaml
-    overlay to DefaultChildDepth levels, loaded into a path-sorted pool.
+    DiscoverChildren scans descendants of parentDir for a
+    ./<app-dir>/<base>.yaml overlay to DefaultChildDepth levels, loaded into a
+    path-sorted pool.
 
 func DiscoverChildrenDepth(parentDir string, depth int) ([]*Config, error)
     DiscoverChildrenDepth scans descendants of parentDir up to depth levels deep
-    for ./.coily/coily.yaml overlays (depth=1 is direct children only).
+    for ./<app-dir>/<base>.yaml overlays (depth=1 is direct children only).
 
 func Load(path string) (*Config, error)
     Load parses the yaml at path. Every command is validated against
     policy.ValidateArg. A single bad token fails the whole load.
 
 func LoadDefault() (*Config, error)
-    LoadDefault resolves the config path from $COILY_REPO_CONFIG or by walking
-    up from the current working directory, then parses it. Returns nil,
+    LoadDefault resolves the config path from the app-dir override env (e.g.
+    $WARD_REPO_CONFIG) or by walking up from cwd, then parses it. Returns nil,
 
 type ForbiddenArgv struct {
 	// Description is the required human label, surfaced in the deny hint.
@@ -1339,7 +1341,7 @@ func (r *Runner) Exec(ctx context.Context, bin string, argv ...string) error
 
 func (r *Runner) ExecIn(ctx context.Context, dir, bin string, argv ...string) error
     ExecIn is like Exec but runs the child with cmd.Dir set to dir. Used by the
-    consumer's exec verb when the matched coily.yaml lives in a direct child of
+    consumer's exec verb when the matched repo config lives in a direct child of
     cwd:
 
 
@@ -2506,8 +2508,8 @@ func (w *Writer) WrapHook(ctx context.Context, base Record, fn func() error, onC
 
 package config // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/config"
 
-App-dir namespacing. The consumer-supplied directory name (coily ".coily",
-ward ".ward") roots every per-user path; cli-guard hardcodes no consumer.
+App-dir namespacing. The consumer-supplied directory name (e.g. ward ".ward")
+roots every per-user path; cli-guard hardcodes no consumer.
 
 Package config carries the layered-config primitives shared across cli-guard
 consumers: path helpers, repo-slug derivation, the Audit
@@ -2548,8 +2550,8 @@ func AppDir() string
     Always begins with a dot so it lands hidden under $HOME and the repo root.
 
 func BaseName() string
-    BaseName returns the app dir with leading dots stripped, e.g. ".coily" ->
-    "coily", for the non-hidden cache env var and dispatch queue dir.
+    BaseName returns the app dir with leading dots stripped, e.g. ".ward" ->
+    "ward", for the non-hidden cache env var and dispatch queue dir.
 
 func CacheDir() string
     CacheDir resolves the ttl-cache root: the <BASE>_CACHE_DIR env override,
@@ -2557,11 +2559,16 @@ func CacheDir() string
 
 func CacheDirEnv() string
     CacheDirEnv derives the cache-dir override env var from the app dir so no
-    consumer name is baked in: ".coily" -> "COILY_CACHE_DIR".
+    consumer name is baked in: ".ward" -> "WARD_CACHE_DIR".
 
 func DefaultAuditPath() (string, error)
-    DefaultAuditPath returns ~/.coily/audit/<slug>.jsonl, where slug is derived
-    from the current git repo's origin remote. Falls back to
+    DefaultAuditPath returns ~/<app-dir>/audit/<slug>.jsonl, where slug is
+    derived from the current git repo's origin remote. Falls back to
+
+func EnvName(suffix string) string
+    EnvName derives a consumer-scoped env var from the app dir base (".ward"
+    + "_CACHE_DIR" -> "WARD_CACHE_DIR"); unset falls back to the "CLI_GUARD"
+    token.
 
 func ExpandHome(p string) string
     ExpandHome turns a leading "~/" or "~" into the user's home directory.
@@ -2571,7 +2578,7 @@ func GlobalConfigPath() (string, error)
     GlobalConfigPath returns ~/<app-dir>/config.yaml.
 
 func GlobalDir() (string, error)
-    GlobalDir returns ~/<app-dir> (e.g. ~/.coily), expanded against $HOME.
+    GlobalDir returns ~/<app-dir> (e.g. ~/.ward), expanded against $HOME.
     Returns an error only if $HOME cannot be resolved.
 
 func LocalConfigPath() (string, error)
@@ -2594,7 +2601,7 @@ func SanitizeSlug(s string) string
     with a single dash, and trims leading and trailing dashes. Exported
 
 func SessionDir(sessionID string) (string, error)
-    SessionDir returns ~/.coily/audit/sessions/<sessionID>. Caller is
+    SessionDir returns ~/<app-dir>/audit/sessions/<sessionID>. Caller is
     responsible for MkdirAll. Returns an error if sessionID is empty or
 
 func SessionProfilePath(sessionID string) (string, error)
@@ -2603,7 +2610,7 @@ func SessionProfilePath(sessionID string) (string, error)
 
 func SetAppDir(name string)
     SetAppDir registers the directory name rooting every per-user path.
-    The consumer calls it once at startup - coily ".coily", ward ".ward".
+    The consumer calls it once at startup - e.g. ward ".ward".
 
 
 TYPES
@@ -2616,7 +2623,7 @@ type Audit struct {
 	Compress   bool   `yaml:"compress"`
 }
     Audit controls where the JSONL audit log lives and how lumberjack rotates
-    it. LogPath defaults to ~/.coily/audit/<slug>.jsonl when left
+    it. LogPath defaults to ~/<app-dir>/audit/<slug>.jsonl when left
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode
@@ -2871,10 +2878,11 @@ package workdir // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/p
 Package workdir does best-effort detection of the "primary working directory"
 that a consumer invocation is operating against. Subcommands
 
-CONSTANTS
+FUNCTIONS
 
-const OverrideEnv = "COILY_PRIMARY_DIR"
-    OverrideEnv names the env var that forces Detect's answer.
+func OverrideEnv() string
+    OverrideEnv names the app-dir-derived env var that forces Detect's answer
+    (e.g. ".ward" -> "WARD_PRIMARY_DIR").
 
 
 TYPES
@@ -2897,7 +2905,7 @@ type Source string
     behavior on confidence should branch on this.
 
 const (
-	// SourceEnv means $COILY_PRIMARY_DIR forced the answer.
+	// SourceEnv means the app-dir-derived $<APP>_PRIMARY_DIR forced the answer.
 	SourceEnv Source = "env"
 	// SourceGit means the nearest ancestor with a .git entry won.
 	SourceGit Source = "git"

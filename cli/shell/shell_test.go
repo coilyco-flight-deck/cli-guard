@@ -75,10 +75,10 @@ func TestExec_ResolverErrorPropagates(t *testing.T) {
 }
 
 func TestExec_EnvNilLeavesParentEnvironment(t *testing.T) {
-	t.Setenv("COILY_TEST_VAR", "from-parent")
+	t.Setenv("WARD_TEST_VAR", "from-parent")
 	var out bytes.Buffer
 	r := &shell.Runner{Stdout: &out}
-	if err := r.Exec(context.Background(), "sh", "-c", "echo $COILY_TEST_VAR"); err != nil {
+	if err := r.Exec(context.Background(), "sh", "-c", "echo $WARD_TEST_VAR"); err != nil {
 		t.Fatalf("Exec: %v", err)
 	}
 	if got := strings.TrimSpace(out.String()); got != "from-parent" {
@@ -87,13 +87,13 @@ func TestExec_EnvNilLeavesParentEnvironment(t *testing.T) {
 }
 
 func TestExec_EnvAppendsToParent(t *testing.T) {
-	t.Setenv("COILY_TEST_PARENT", "parent-value")
+	t.Setenv("WARD_TEST_PARENT", "parent-value")
 	var out bytes.Buffer
 	r := &shell.Runner{
 		Stdout: &out,
-		Env:    []string{"COILY_TEST_INJECTED=injected-value"},
+		Env:    []string{"WARD_TEST_INJECTED=injected-value"},
 	}
-	if err := r.Exec(context.Background(), "sh", "-c", "echo $COILY_TEST_PARENT/$COILY_TEST_INJECTED"); err != nil {
+	if err := r.Exec(context.Background(), "sh", "-c", "echo $WARD_TEST_PARENT/$WARD_TEST_INJECTED"); err != nil {
 		t.Fatalf("Exec: %v", err)
 	}
 	if got := strings.TrimSpace(out.String()); got != "parent-value/injected-value" {

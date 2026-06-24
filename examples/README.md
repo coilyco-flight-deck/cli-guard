@@ -8,7 +8,7 @@ Each subdirectory is a self-contained urfave/cli app that exercises one feature 
 | [`passthrough/`](passthrough/main.go) | Wrap an existing binary (`echo`) as an audited urfave subcommand via `passthrough.Command`. |
 | [`policy/`](policy/main.go) | `policy.ValidateArgSlice` rejecting argv with shell metacharacters. |
 | [`gittree/`](gittree/main.go) | `gittree.CheckClean` refusing a verb on a dirty tree. |
-| [`repocfg/`](repocfg/main.go) | Per-repo verb allowlist loaded from `.coily/coily.yaml`. |
+| [`repocfg/`](repocfg/main.go) | Per-repo verb allowlist loaded from `.ward/ward.yaml`. |
 | [`exitcode/`](exitcode/main.go) | The public exit-code taxonomy for orchestrators. |
 | [`egress/`](egress/main.go) | Per-invocation CONNECT proxy with an allowlist (used by `passthrough.WithEgress`). |
 | [`dispatch/`](dispatch/main.go) | Wire the cli-guard dispatch subsystem into a host CLI (fires `claude` at a real open issue). |

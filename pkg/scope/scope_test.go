@@ -10,10 +10,10 @@ import (
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/scope"
 )
 
-// TestMain pins an app dir so the COILY_CACHE_DIR override the subtests set
+// TestMain pins an app dir so the WARD_CACHE_DIR override the subtests set
 // is honored and the toplevel cache lands in the tempdir, not real $HOME.
 func TestMain(m *testing.M) {
-	config.SetAppDir(".coily")
+	config.SetAppDir(".ward")
 	os.Exit(m.Run())
 }
 
@@ -44,7 +44,7 @@ func initRepo(t *testing.T) string {
 }
 
 func TestRepoRoot_InsideRepoReturnsToplevel(t *testing.T) {
-	t.Setenv("COILY_CACHE_DIR", t.TempDir())
+	t.Setenv("WARD_CACHE_DIR", t.TempDir())
 	dir := initRepo(t)
 	if got := scope.RepoRoot(dir); got != dir {
 		t.Errorf("got %q, want %q", got, dir)
@@ -52,7 +52,7 @@ func TestRepoRoot_InsideRepoReturnsToplevel(t *testing.T) {
 }
 
 func TestRepoRoot_InsideSubdirReturnsToplevel(t *testing.T) {
-	t.Setenv("COILY_CACHE_DIR", t.TempDir())
+	t.Setenv("WARD_CACHE_DIR", t.TempDir())
 	dir := initRepo(t)
 	sub := filepath.Join(dir, "a", "b")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
@@ -64,7 +64,7 @@ func TestRepoRoot_InsideSubdirReturnsToplevel(t *testing.T) {
 }
 
 func TestRepoRoot_OutsideRepoReturnsEmpty(t *testing.T) {
-	t.Setenv("COILY_CACHE_DIR", t.TempDir())
+	t.Setenv("WARD_CACHE_DIR", t.TempDir())
 	// t.TempDir() is not a git repo. RepoRoot is best-effort: empty, no error.
 	if got := scope.RepoRoot(t.TempDir()); got != "" {
 		t.Errorf("got %q, want empty for a non-repo cwd", got)

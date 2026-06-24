@@ -164,11 +164,11 @@ func TestWriteDispatchQueueEntry_UniqueFilenames(t *testing.T) {
 // TestDispatchInteractiveDefaults pins the seam strings between dispatch
 // and the agentic-os shim. Changing either side without the other breaks
 func TestDispatchInteractiveDefaults(t *testing.T) {
-	// With app dir ".coily" the queue dir derives the long-standing
-	// coily seam path the agentic-os shim reads.
-	config.SetAppDir(".coily")
-	if got := defaultDispatchQueueDir(); got != "/tmp/coily-dispatch-queue" {
-		t.Errorf("defaultDispatchQueueDir() = %q, want /tmp/coily-dispatch-queue", got)
+	// With app dir ".ward" the queue dir derives the seam path the
+	// agentic-os shim reads: /tmp/<base>-dispatch-queue.
+	config.SetAppDir(".ward")
+	if got := defaultDispatchQueueDir(); got != "/tmp/ward-dispatch-queue" {
+		t.Errorf("defaultDispatchQueueDir() = %q, want /tmp/ward-dispatch-queue", got)
 	}
 	if defaultDispatchLaunchName != "claude-dispatch-interactive" {
 		t.Errorf("defaultDispatchLaunchName = %q, want claude-dispatch-interactive", defaultDispatchLaunchName)

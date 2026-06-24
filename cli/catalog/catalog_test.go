@@ -10,7 +10,7 @@ import (
 func writeConfig(t *testing.T, body string) string {
 	t.Helper()
 	dir := t.TempDir()
-	p := filepath.Join(dir, "coily.yaml")
+	p := filepath.Join(dir, "ward.yaml")
 	if err := os.WriteFile(p, []byte(body), 0o644); err != nil { //nolint:gosec
 		t.Fatal(err)
 	}
@@ -139,6 +139,8 @@ func TestCheck_DependsOnNotList(t *testing.T) {
 func TestCheck_FirstExistingWins(t *testing.T) {
 	dir := t.TempDir()
 	primary := filepath.Join(dir, "ward.yaml")
+	// coily.yaml is the retained legacy fallback candidate: a consumer that
+	// honored coily's filename before adopting ward keeps working.
 	fallback := filepath.Join(dir, "coily.yaml")
 	// Only the fallback exists; Check should probe past the missing primary.
 	if err := os.WriteFile(fallback, []byte(cleanCatalog), 0o644); err != nil { //nolint:gosec

@@ -11,7 +11,7 @@ import (
 
 func writeConfig(t *testing.T, dir, body string) string {
 	t.Helper()
-	path := filepath.Join(dir, repocfg.Filename)
+	path := filepath.Join(dir, repocfg.Filename())
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -192,10 +192,10 @@ commands:
 }
 
 func TestDiscover_FindsInParentOverlay(t *testing.T) {
-	// Discover prefers ./.coily/coily.yaml. Place the file under the overlay
+	// Discover prefers ./<app-dir>/<base>.yaml. Place the file under the overlay
 	// directory at root and walk from a deep child.
 	root := t.TempDir()
-	overlay := filepath.Join(root, repocfg.LocalDirName)
+	overlay := filepath.Join(root, repocfg.LocalDirName())
 	if err := os.MkdirAll(overlay, 0o700); err != nil {
 		t.Fatalf("mkdir overlay: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestDiscover_FindsInParentOverlay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
-	want := filepath.Join(overlay, repocfg.Filename)
+	want := filepath.Join(overlay, repocfg.Filename())
 	// Compare against evaluated symlinks because macOS TempDir returns /var,
 	// which resolves to /private/var.
 	gotR, _ := filepath.EvalSymlinks(path)
@@ -219,7 +219,7 @@ func TestDiscover_FindsInParentOverlay(t *testing.T) {
 }
 
 func TestDiscover_RejectsLegacyRootLocation(t *testing.T) {
-	// A coily.yaml at the repo root (no .coily/ overlay) used to be the
+	// An overlay file at the repo root (no app-dir overlay) used to be the
 	// canonical location. Now it's an error pointing at the new home.
 	root := t.TempDir()
 	writeConfig(t, root, "commands: {test: go test ./...}\n")
@@ -233,7 +233,7 @@ func TestDiscover_OverlayWinsOverLegacy(t *testing.T) {
 	// If both exist (during a partial migration), the overlay takes
 	// precedence and the legacy file is ignored.
 	root := t.TempDir()
-	overlay := filepath.Join(root, repocfg.LocalDirName)
+	overlay := filepath.Join(root, repocfg.LocalDirName())
 	if err := os.MkdirAll(overlay, 0o700); err != nil {
 		t.Fatalf("mkdir overlay: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestDiscover_OverlayWinsOverLegacy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
-	want := filepath.Join(overlay, repocfg.Filename)
+	want := filepath.Join(overlay, repocfg.Filename())
 	gotR, _ := filepath.EvalSymlinks(path)
 	wantR, _ := filepath.EvalSymlinks(want)
 	if gotR != wantR {
@@ -260,9 +260,9 @@ func TestDiscover_ReturnsErrNoConfig(t *testing.T) {
 }
 
 func TestDiscoverChildren_FindsOverlayInChild(t *testing.T) {
-	// Layout: /parent/child/.coily/coily.yaml. Discovery from parent finds it.
+	// Layout: /parent/child/<app-dir>/<base>.yaml. Discovery from parent finds it.
 	parent := t.TempDir()
-	childOverlay := filepath.Join(parent, "child", repocfg.LocalDirName)
+	childOverlay := filepath.Join(parent, "child", repocfg.LocalDirName())
 	if err := os.MkdirAll(childOverlay, 0o700); err != nil {
 		t.Fatalf("mkdir child overlay: %v", err)
 	}
@@ -280,10 +280,10 @@ func TestDiscoverChildren_FindsOverlayInChild(t *testing.T) {
 }
 
 func TestDiscoverChildren_FindsGrandchildOverlay(t *testing.T) {
-	// Layout: /parent/group/repo/.coily/coily.yaml. The grouping dir has no
+	// Layout: /parent/group/repo/<app-dir>/<base>.yaml. The grouping dir has no
 	// config of its own; discovery from parent must still reach the repo.
 	parent := t.TempDir()
-	grandchildOverlay := filepath.Join(parent, "group", "repo", repocfg.LocalDirName)
+	grandchildOverlay := filepath.Join(parent, "group", "repo", repocfg.LocalDirName())
 	if err := os.MkdirAll(grandchildOverlay, 0o700); err != nil {
 		t.Fatalf("mkdir grandchild overlay: %v", err)
 	}
@@ -304,8 +304,8 @@ func TestDiscoverChildren_FindsChildAndGrandchildTogether(t *testing.T) {
 	// A direct-child repo and a grandchild repo under a grouping directory are
 	// both returned in one deterministic, path-sorted pool.
 	parent := t.TempDir()
-	child := filepath.Join(parent, "child", repocfg.LocalDirName)
-	grandchild := filepath.Join(parent, "group", "repo", repocfg.LocalDirName)
+	child := filepath.Join(parent, "child", repocfg.LocalDirName())
+	grandchild := filepath.Join(parent, "group", "repo", repocfg.LocalDirName())
 	for _, dir := range []string{child, grandchild} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
@@ -325,7 +325,7 @@ func TestDiscoverChildren_RejectsDepth3(t *testing.T) {
 	// A config three levels below the parent is past the default depth-2 reach
 	// and must not be discovered, keeping recursion bounded.
 	parent := t.TempDir()
-	tooDeep := filepath.Join(parent, "a", "b", "c", repocfg.LocalDirName)
+	tooDeep := filepath.Join(parent, "a", "b", "c", repocfg.LocalDirName())
 	if err := os.MkdirAll(tooDeep, 0o700); err != nil {
 		t.Fatalf("mkdir too-deep overlay: %v", err)
 	}
@@ -344,9 +344,9 @@ func TestDiscoverChildrenDepth_HonorsExplicitDepth(t *testing.T) {
 	// depth-3 reaches all three.
 	parent := t.TempDir()
 	for _, dir := range []string{
-		filepath.Join(parent, "lvl1", repocfg.LocalDirName),
-		filepath.Join(parent, "lvl1", "lvl2", repocfg.LocalDirName),
-		filepath.Join(parent, "lvl1", "lvl2", "lvl3", repocfg.LocalDirName),
+		filepath.Join(parent, "lvl1", repocfg.LocalDirName()),
+		filepath.Join(parent, "lvl1", "lvl2", repocfg.LocalDirName()),
+		filepath.Join(parent, "lvl1", "lvl2", "lvl3", repocfg.LocalDirName()),
 	} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
@@ -373,8 +373,8 @@ func TestDiscoverChildrenDepth_HonorsExplicitDepth(t *testing.T) {
 }
 
 func TestDiscoverChildren_SkipsLegacyRootForm(t *testing.T) {
-	// A legacy /parent/child/coily.yaml (no .coily/ overlay) is intentionally
-	// ignored. Child discovery is opt-in via the .coily/ overlay so unrelated
+	// A legacy /parent/child/<base>.yaml (no app-dir overlay) is intentionally
+	// ignored. Child discovery is opt-in via the app-dir overlay so unrelated
 	parent := t.TempDir()
 	childRoot := filepath.Join(parent, "legacy-child")
 	if err := os.MkdirAll(childRoot, 0o700); err != nil {
@@ -392,7 +392,7 @@ func TestDiscoverChildren_SkipsLegacyRootForm(t *testing.T) {
 
 func TestDiscoverChildren_SkipsHiddenAndUnconfiguredChildren(t *testing.T) {
 	// Hidden entries (.git, .vscode) are skipped. Children without a
-	// .coily/coily.yaml are skipped. Files at parent level are skipped.
+	// <app-dir>/<base>.yaml are skipped. Files at parent level are skipped.
 	parent := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(parent, ".git"), 0o700); err != nil {
 		t.Fatalf("mkdir .git: %v", err)
@@ -413,11 +413,11 @@ func TestDiscoverChildren_SkipsHiddenAndUnconfiguredChildren(t *testing.T) {
 }
 
 func TestDiscoverChildren_SkipsMalformedChild(t *testing.T) {
-	// A child whose coily.yaml fails to parse must not abort the whole scan.
+	// A child whose overlay file fails to parse must not abort the whole scan.
 	// The good child is still returned.
 	parent := t.TempDir()
-	bad := filepath.Join(parent, "bad", repocfg.LocalDirName)
-	good := filepath.Join(parent, "good", repocfg.LocalDirName)
+	bad := filepath.Join(parent, "bad", repocfg.LocalDirName())
+	good := filepath.Join(parent, "good", repocfg.LocalDirName())
 	if err := os.MkdirAll(bad, 0o700); err != nil {
 		t.Fatalf("mkdir bad: %v", err)
 	}
@@ -441,7 +441,7 @@ func TestDiscoverChildren_SkipsMalformedChild(t *testing.T) {
 func TestDiscoverChildren_SortedByPath(t *testing.T) {
 	parent := t.TempDir()
 	for _, name := range []string{"zebra", "apple", "mango"} {
-		dir := filepath.Join(parent, name, repocfg.LocalDirName)
+		dir := filepath.Join(parent, name, repocfg.LocalDirName())
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatalf("mkdir %s: %v", name, err)
 		}
@@ -464,7 +464,7 @@ func TestDiscoverChildren_SortedByPath(t *testing.T) {
 func TestLoadDefault_UsesEnvOverride(t *testing.T) {
 	dir := t.TempDir()
 	path := writeConfig(t, dir, "commands: {test: go test}\n")
-	t.Setenv(repocfg.EnvOverride, path)
+	t.Setenv(repocfg.EnvOverride(), path)
 	cfg, err := repocfg.LoadDefault()
 	if err != nil {
 		t.Fatalf("LoadDefault: %v", err)

@@ -70,7 +70,7 @@ func (r *Runner) Exec(ctx context.Context, bin string, argv ...string) error {
 }
 
 // ExecIn is like Exec but runs the child with cmd.Dir set to dir. Used by
-// the consumer's exec verb when the matched coily.yaml lives in a direct child of cwd:
+// the consumer's exec verb when the matched repo config lives in a direct child of cwd:
 func (r *Runner) ExecIn(ctx context.Context, dir, bin string, argv ...string) error {
 	return r.execIn(ctx, dir, bin, argv...)
 }

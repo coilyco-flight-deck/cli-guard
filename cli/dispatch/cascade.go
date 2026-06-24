@@ -8,15 +8,16 @@ import (
 	"strings"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/config"
 	"github.com/urfave/cli/v3"
 )
 
 // cascade.go is the recursive fan-out surface: a detached worker allowed
 // to dispatch its own sub-workers, bounded by a hard depth budget.
 
-// envCascadeDepth carries the cascade depth budget into a spawned child's
-// environment. Nested cascades decrement it; headless children inherit "0".
-const envCascadeDepth = "COILY_DISPATCH_CASCADE_DEPTH"
+// envCascadeDepth names the app-dir-derived env var carrying the cascade depth
+// budget into a child (e.g. ".ward" -> "WARD_DISPATCH_CASCADE_DEPTH").
+func envCascadeDepth() string { return config.EnvName("_DISPATCH_CASCADE_DEPTH") }
 
 // defaultCascadeDepth is the budget a top-level cascade starts with when
 // --depth is unset: the three-level tree (orchestrator -> repo -> leaf).
@@ -38,13 +39,13 @@ func resolveCascadeBudget(flagDepth int, inheritedRaw string) (int, error) {
 	}
 	inherited, err := strconv.Atoi(inheritedRaw)
 	if err != nil {
-		return 0, fmt.Errorf("invalid %s=%q in environment: %w", envCascadeDepth, inheritedRaw, err)
+		return 0, fmt.Errorf("invalid %s=%q in environment: %w", envCascadeDepth(), inheritedRaw, err)
 	}
 	child := inherited - 1
 	if child < 1 {
 		return 0, fmt.Errorf(
 			"dispatch cascade: depth budget exhausted (inherited %s=%d). Spawn `dispatch headless` leaves or do the work directly",
-			envCascadeDepth, inherited)
+			envCascadeDepth(), inherited)
 	}
 	if child > flagDepth {
 		child = flagDepth
@@ -130,7 +131,7 @@ checkout is missing.`, defaultCascadeDepth, maxCascadeDepth),
 }
 
 func (d *Dispatcher) runCascade(ctx context.Context, c *cli.Command) error {
-	budget, err := resolveCascadeBudget(c.Int("depth"), os.Getenv(envCascadeDepth))
+	budget, err := resolveCascadeBudget(c.Int("depth"), os.Getenv(envCascadeDepth()))
 	if err != nil {
 		return err
 	}
@@ -139,7 +140,7 @@ func (d *Dispatcher) runCascade(ctx context.Context, c *cli.Command) error {
 		prompt: func(ref *issueRef, issue *ghIssue, repoPath string) string {
 			return cascadeSeedPrompt(ref, issue, repoPath, budget)
 		},
-		extraEnv: []string{fmt.Sprintf("%s=%d", envCascadeDepth, budget)},
+		extraEnv: []string{fmt.Sprintf("%s=%d", envCascadeDepth(), budget)},
 	})
 }
 

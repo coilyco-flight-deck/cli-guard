@@ -30,7 +30,7 @@ const lockdownAxisReason = "a lockdown profile is the boundary that stops an age
 	"verb's profile in its declaring config, never by the caller bypassing the gate"
 
 // evaluatorFailedHint names the config role, not any consumer's filename, so
-// a non-coily consumer never sees a foreign path in its denial output.
+// no consumer ever sees a foreign path in its denial output.
 const evaluatorFailedHint = "profile evaluator returned an internal error; " +
 	"check the lockdown profile config is well-formed"
 

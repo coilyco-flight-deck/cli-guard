@@ -1,5 +1,5 @@
 // Package awsgate denies read-only aws invocations touching sensitive
-// resources, pre-send. Extracted from coily's read gate; see docs/execverb.md.
+// resources, pre-send. Extracted from the original read gate; see docs/execverb.md.
 package awsgate
 
 import (

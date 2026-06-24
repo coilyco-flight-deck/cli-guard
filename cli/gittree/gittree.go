@@ -1,5 +1,5 @@
 // Package gittree inspects a repo's working tree for the clean+synced state
-// that gates `.coily/coily.yaml` repo verbs. The gate refuses repo-verb
+// that gates a repo's allowlist verbs. The gate refuses repo-verb
 package gittree
 
 import (

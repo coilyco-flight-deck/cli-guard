@@ -1,5 +1,5 @@
-// Package repocfg loads a per-repo command allowlist from a coily.yaml file
-// discovered by walking up from the current working directory. Each command
+// Package repocfg loads a per-repo command allowlist from an app-dir overlay
+// file discovered by walking up from the current working directory. Each command
 package repocfg
 
 import (
@@ -11,28 +11,30 @@ import (
 	"sort"
 	"strings"
 
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/config"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/policy"
 	"gopkg.in/yaml.v3"
 )
 
-// Filename is the name repocfg looks for during discovery.
-const Filename = "coily.yaml"
+// Filename is the discovery name, derived from the app dir so no consumer is
+// baked in: ".ward" -> "ward.yaml", unset -> "cli-guard.yaml".
+func Filename() string { return config.BaseName() + ".yaml" }
 
-// LocalDirName is the per-repo overlay directory the loader prefers. The
-// canonical home for the repo allowlist is ./.coily/coily.yaml.
-const LocalDirName = ".coily"
+// LocalDirName is the preferred per-repo overlay dir - the consumer's app dir
+// (e.g. ".ward"), so the allowlist lives at ./<app-dir>/<base>.yaml.
+func LocalDirName() string { return config.AppDir() }
 
-// LegacyFilename is the pre-overlay name (./coily.yaml) that we reject with
-// a pointer at the new location. Kept around so the error message can be
-const LegacyFilename = "coily.yaml"
+// LegacyFilename is the pre-overlay name (./<base>.yaml at the repo root) that
+// Discover rejects with a pointer at the new location.
+func LegacyFilename() string { return Filename() }
 
-// EnvOverride, when set, is treated as the absolute path to the repo config
-// and skips directory walking. Primarily for tests and advanced users.
-const EnvOverride = "COILY_REPO_CONFIG"
+// EnvOverride names the path-override env var, derived from the app dir
+// (".ward" -> "WARD_REPO_CONFIG"). Primarily for tests and advanced users.
+func EnvOverride() string { return config.EnvName("_REPO_CONFIG") }
 
-// ErrLegacyLocation is wrapped by Discover when a coily.yaml is found at the
-// repo root rather than under ./.coily/. The new convention is to put it
-var ErrLegacyLocation = errors.New("repocfg: coily.yaml at repo root is no longer supported, move it to .coily/coily.yaml")
+// ErrLegacyLocation is wrapped by Discover when an overlay file sits at the
+// repo root instead of under ./<app-dir>/ (e.g. .ward/ward.yaml).
+var ErrLegacyLocation = errors.New("repocfg: a config at the repo root is no longer supported, move it under the app-dir overlay (e.g. .ward/ward.yaml)")
 
 // Command is one parsed and validated entry from the commands: map.
 type Command struct {
@@ -53,7 +55,7 @@ type Command struct {
 
 // Config is the result of a successful Load.
 type Config struct {
-	// Path is the absolute path to the coily.yaml that produced this Config.
+	// Path is the absolute path to the overlay file that produced this Config.
 	Path string
 	// Commands are sorted by Name. Safe to iterate directly for help output.
 	Commands []Command
@@ -62,12 +64,12 @@ type Config struct {
 	Security Security
 }
 
-// ErrNoConfig is returned by LoadDefault when no coily.yaml is found in the
+// ErrNoConfig is returned by LoadDefault when no overlay file is found in the
 // cwd ancestry. Callers treat this as "no repo commands to register."
-var ErrNoConfig = errors.New("repocfg: no coily.yaml found")
+var ErrNoConfig = errors.New("repocfg: no repo config found")
 
 // Discover walks up from start looking for the repo config. Prefers
-// ./.coily/coily.yaml at each level. If no overlay file is found but a
+// ./<app-dir>/<base>.yaml at each level. If no overlay file is found but a
 func Discover(start string) (string, error) {
 	dir, err := filepath.Abs(start)
 	if err != nil {
@@ -92,13 +94,13 @@ func Discover(start string) (string, error) {
 // discoverAtLevel checks one directory for a repo config. Returns the path if
 // the preferred overlay exists, an ErrLegacyLocation-wrapped error if only
 func discoverAtLevel(dir string) (string, error) {
-	preferred := filepath.Join(dir, LocalDirName, Filename)
+	preferred := filepath.Join(dir, LocalDirName(), Filename())
 	if ok, err := isFile(preferred); err != nil {
 		return "", err
 	} else if ok {
 		return preferred, nil
 	}
-	legacy := filepath.Join(dir, LegacyFilename)
+	legacy := filepath.Join(dir, LegacyFilename())
 	if ok, err := isFile(legacy); err != nil {
 		return "", err
 	} else if ok {
@@ -124,14 +126,14 @@ func isFile(path string) (bool, error) {
 // DiscoverChildren descends; 2 covers the grouping-dir/repo layout.
 const DefaultChildDepth = 2
 
-// DiscoverChildren scans descendants of parentDir for a ./.coily/coily.yaml
+// DiscoverChildren scans descendants of parentDir for a ./<app-dir>/<base>.yaml
 // overlay to DefaultChildDepth levels, loaded into a path-sorted pool.
 func DiscoverChildren(parentDir string) ([]*Config, error) {
 	return DiscoverChildrenDepth(parentDir, DefaultChildDepth)
 }
 
 // DiscoverChildrenDepth scans descendants of parentDir up to depth levels deep
-// for ./.coily/coily.yaml overlays (depth=1 is direct children only).
+// for ./<app-dir>/<base>.yaml overlays (depth=1 is direct children only).
 func DiscoverChildrenDepth(parentDir string, depth int) ([]*Config, error) {
 	abs, err := filepath.Abs(parentDir)
 	if err != nil {
@@ -163,7 +165,7 @@ func scanChildLevel(dir string, entries []os.DirEntry, remaining int, out *[]*Co
 			continue
 		}
 		childDir := filepath.Join(dir, e.Name())
-		candidate := filepath.Join(childDir, LocalDirName, Filename)
+		candidate := filepath.Join(childDir, LocalDirName(), Filename())
 		if ok, statErr := isFile(candidate); statErr == nil && ok {
 			if cfg, loadErr := Load(candidate); loadErr == nil {
 				*out = append(*out, cfg)
@@ -179,7 +181,7 @@ func scanChildLevel(dir string, entries []os.DirEntry, remaining int, out *[]*Co
 	}
 }
 
-// DiscoverAll returns every coily.yaml reachable from start in a single
+// DiscoverAll returns every overlay file reachable from start in a single
 // deterministic pool: every level of the ancestor walk from start up to
 func DiscoverAll(start string) ([]*Config, error) {
 	abs, err := filepath.Abs(start)
@@ -215,10 +217,10 @@ func DiscoverAll(start string) ([]*Config, error) {
 	return configs, nil
 }
 
-// LoadDefault resolves the config path from $COILY_REPO_CONFIG or by walking
-// up from the current working directory, then parses it. Returns nil,
+// LoadDefault resolves the config path from the app-dir override env (e.g.
+// $WARD_REPO_CONFIG) or by walking up from cwd, then parses it. Returns nil,
 func LoadDefault() (*Config, error) {
-	if override := os.Getenv(EnvOverride); override != "" {
+	if override := os.Getenv(EnvOverride()); override != "" {
 		return Load(override)
 	}
 	cwd, err := os.Getwd()

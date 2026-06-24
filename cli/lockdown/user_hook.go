@@ -8,15 +8,12 @@ import (
 	"path/filepath"
 )
 
-// hookMarker is the settings.json key tagging a PreToolUse hook entry as
-// cli-guard's own, so re-runs reconcile the existing entry in place rather
-// than appending a duplicate. Named for the framework, not any consumer.
+// hookMarker tags a PreToolUse hook entry as cli-guard's own so re-runs
+// reconcile the existing entry in place instead of appending a duplicate.
 const hookMarker = "_cli-guard"
 
-// legacyHookMarker is the pre-retirement key cli-guard wrote under the coily
-// consumer. Still recognized on read so a settings.json carrying the old key
-// is reconciled in place (and rewritten with hookMarker) instead of
-// double-hooked. Kept for back-compat with already-written settings.
+// legacyHookMarker is the pre-retirement key written under the coily consumer,
+// still recognized on read so old settings.json reconcile in place.
 const legacyHookMarker = "_coily"
 
 // markerOf returns the cli-guard hook marker on entry, preferring the current
