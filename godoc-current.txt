@@ -1730,6 +1730,10 @@ type Grant struct {
 	// Describe is the optional grant-body `describe "..."` note that enriches
 	// the thin upstream spec; it flows into help and the describe verb.
 	Describe string
+
+	// Wildcard is set when the resource was authored as the `"*"` sentinel: the
+	// engine expands it to one concrete grant per spec resource exposing the verb.
+	Wildcard bool
 }
     Grant is one policy sentence: modal verb resource [qualifiers...]
     [key=value...]. Resource is the CLI group, Verb the leaf, Op the

@@ -16,6 +16,8 @@ A grant's verb+resource resolve to a spec operation by generic convention, so th
 
 A resource may be a `parent-child` compound: `issue-label` targets the `labels` sub-collection nested under an `issue`. Each ancestor must appear, in order, as a static segment before the leaf's resource segment.
 
+A resource may also be the wildcard sentinel `"*"`: `can <verb> "*"` / `never <verb> "*"` applies the verb across every resource the spec exposes for it, expanded into a concrete per-resource grant before resolution. See [specverb-wildcard.md](specverb-wildcard.md).
+
 ## Path matching and disambiguation
 
 For the lowered (method, shape, leaf, ancestors), the resource segment is the static segment naming the collection - the trailing static segment (collection) or the last static segment before the trailing `{param}` run (item). Among matches, the winner is chosen by: prefer a true **plural collection** segment over a singular singleton, then the **least-nested** path (the canonical resource lives at the shallowest depth; deeper paths are nested views).

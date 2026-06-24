@@ -146,6 +146,10 @@ func Describe(cfg Config) (*Surface, error) {
 	if err != nil {
 		return nil, err
 	}
+	gf, err = expandWildcards(spec, gf)
+	if err != nil {
+		return nil, err
+	}
 	descs, err := resolveDescriptors(spec, gf)
 	if err != nil {
 		return nil, err

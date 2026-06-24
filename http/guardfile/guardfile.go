@@ -65,6 +65,10 @@ type Grant struct {
 	// Describe is the optional grant-body `describe "..."` note that enriches
 	// the thin upstream spec; it flows into help and the describe verb.
 	Describe string
+
+	// Wildcard is set when the resource was authored as the `"*"` sentinel: the
+	// engine expands it to one concrete grant per spec resource exposing the verb.
+	Wildcard bool
 }
 
 // Restriction is a wrap-level `restrict <param> matches "<glob>"...` allowlist:
@@ -432,6 +436,9 @@ func parseGrant(n *kdl.Node) (Grant, error) {
 		return Grant{}, fmt.Errorf("guardfile: %q needs a verb and a resource, e.g. `%s create repos`", n.Name(), n.Name())
 	}
 	g := Grant{Modal: n.Name(), Verb: args[0].String(), Resource: args[1].String()}
+	if g.Resource == "*" {
+		g.Wildcard = true // verb-global: expanded per resource by the engine
+	}
 	for _, q := range args[2:] {
 		g.Qualifiers = append(g.Qualifiers, q.String())
 	}

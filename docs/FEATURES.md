@@ -1,10 +1,10 @@
 # cli-guard features
 
-Inventory of what cli-guard does today. See `examples/<feature>/` for each primitive end-to-end.
+Inventory of what cli-guard does today. See `examples/<feature>/` for each end-to-end.
 
 ## Framework primitives
 
-Packages are grouped by **guarded surface** plus a shared `pkg/` core; `cli/`, `http/`, `mcp/` depend downward on `pkg/`. See [architecture.md](architecture.md).
+Packages are grouped by **guarded surface** plus a shared `pkg/` core, depending downward on `pkg/`. See [architecture.md](architecture.md).
 
 ### CLI passthrough surface (`cli/`)
 
@@ -27,7 +27,7 @@ Packages are grouped by **guarded surface** plus a shared `pkg/` core; `cli/`, `
 ### HTTP request surface (`http/`)
 
 - **egress** - Per-invocation CONNECT proxy with consumer allowlist.
-- **guardfile** / **specverb** / **specgen** / **specdrv** - Spec-driven verbs from a Guardfile; each `can` resolves its op by convention across Swagger 2 / OpenAPI 3; pluggable `value <provider>` sources. See [specverb.md](specverb.md).
+- **guardfile** / **specverb** / **specgen** / **specdrv** - Spec-driven verbs from a Guardfile; each `can` resolves its op by convention across Swagger 2 / OpenAPI 3; `can`/`never <verb> "*"` is verb-global allow/deny. See [specverb.md](specverb.md), [specverb-wildcard.md](specverb-wildcard.md).
 - **complex actions** - `wrap`-block `poll`/`call` verbs; `action <verb> <resource>` shadows that leaf. See [specverb-actions.md](specverb-actions.md).
 - **respfmt** - JSON response renderer with JMESPath + five output formats.
 - **ghcache** / **ghidcache** / **ghratelimit** / **stscache** - Forgejo/GitHub response, id, rate-limit, STS caches.
@@ -50,7 +50,7 @@ Packages are grouped by **guarded surface** plus a shared `pkg/` core; `cli/`, `
 
 ## Repo development
 
-- `Makefile` is the source of truth for dev verbs (cli-guard is unguarded - no `.ward`/`.coily` config, dev verbs run straight through `make`).
+- `Makefile` is the source of truth for dev verbs (cli-guard is unguarded; dev verbs run straight through `make`).
 - `.golangci.yaml` mirrors urfave/cli's minimal config.
 - `staticcheck.conf` enables all checks (mirrors urfave/cli).
 - CI runs `go vet`, `go build`, `go test -race`, golangci-lint v2.12.2.
