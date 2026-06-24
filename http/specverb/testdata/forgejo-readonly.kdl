@@ -1,0 +1,20 @@
+// Wildcard proving-slice Guardfile: a readonly forgejo build. `can get "*"` +
+// `can list "*"` mount every read leaf the spec exposes and nothing else (default
+// deny keeps writes unmounted); `never delete "*"` future-proofs the build so any
+// delete the spec grows is auto-denied with a teaching message. See
+// docs/specverb-wildcard.md.
+wrap ward ops forgejo {
+    spec forgejo.swagger.v1.json
+    base-url "https://forgejo.coilysiren.me/api/v1"
+    auth header-token {
+        header Authorization
+        prefix "token "
+        value ssm "/forgejo/api-token"
+    }
+
+    can get "*"
+    can list "*"
+    never delete "*" {
+        message "this build is read-only; deletes are denied fleet-wide"
+    }
+}

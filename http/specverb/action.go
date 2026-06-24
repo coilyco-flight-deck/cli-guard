@@ -46,6 +46,10 @@ type actionDescriptor struct {
 	// mutually exclusive with the poll fields above.
 	Calls []callStep
 
+	// Collect is the resolved auto-pagination step; non-nil marks a collect
+	// action, mutually exclusive with poll/call.
+	Collect *collectStep
+
 	// MountVerb/MountResource: the mount form shadows that leaf path instead of
 	// mounting under the `action` noun. Empty for a named action.
 	MountVerb     string
@@ -67,6 +71,20 @@ type callStep struct {
 // isCall reports whether ad is a multi-call action (vs a poll).
 func (ad actionDescriptor) isCall() bool { return len(ad.Calls) > 0 }
 
+// collectStep is one resolved auto-pagination action over a granted list leaf.
+type collectStep struct {
+	Leaf         opDescriptor
+	Args         []guardfile.ArgBind
+	PageParam    string
+	LimitParam   string
+	Limit        string
+	DefaultLimit int
+	As           string
+}
+
+// isCollect reports whether ad is an auto-pagination action.
+func (ad actionDescriptor) isCollect() bool { return ad.Collect != nil }
+
 // resolveActions resolves every Guardfile action into a descriptor, failing
 // closed at each gate; granted is the (verb, resource) set the Guardfile grants.
 func resolveActions(spec *spec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant) ([]actionDescriptor, error) {
@@ -82,9 +100,12 @@ func resolveActions(spec *spec, gf *guardfile.Guardfile, granted map[grantKey]gu
 }
 
 func resolveAction(spec *spec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant, a guardfile.Action) (actionDescriptor, error) {
-	// Parser guarantees exactly one of Poll/Calls is set.
+	// Parser guarantees exactly one of Poll/Calls/Collect is set.
 	if len(a.Calls) > 0 {
 		return resolveCallAction(spec, gf, granted, a)
+	}
+	if a.Collect != nil {
+		return resolveCollectAction(spec, gf, granted, a)
 	}
 	p := a.Poll
 	// Granted-only: an action may only poll an op the same Guardfile grants.
@@ -312,6 +333,13 @@ func urlBoundInputs(ad actionDescriptor) map[string]bool {
 		}
 		return bound
 	}
+	if ad.isCollect() {
+		mark(ad.Collect.Leaf, ad.Collect.Args)
+		if strings.HasPrefix(ad.Collect.Limit, "$") {
+			bound[strings.TrimPrefix(ad.Collect.Limit, "$")] = true
+		}
+		return bound
+	}
 	mark(ad.Leaf, ad.Args)
 	return bound
 }
@@ -326,6 +354,9 @@ func (rt *runtime) runAction(ad actionDescriptor) cli.ActionFunc {
 		}
 		if ad.isCall() {
 			return rt.runCallAction(ctx, c, ad, strVars)
+		}
+		if ad.isCollect() {
+			return rt.runCollectAction(ctx, c, ad, strVars, jmesVars)
 		}
 		dry := c.Bool(flagDryRun)
 		method, url, body, contentType, err := rt.buildLeafRequest(ctx, dry, ad, strVars)
@@ -732,6 +763,9 @@ func actionUsage(ad actionDescriptor) string {
 	if ad.isCall() {
 		return fmt.Sprintf("complex action: a %d-call sequence", len(ad.Calls))
 	}
+	if ad.isCollect() {
+		return fmt.Sprintf("complex action collecting pages from %s %s", ad.Collect.Leaf.Method, ad.Collect.Leaf.Path)
+	}
 	return fmt.Sprintf("complex action polling %s %s", ad.Leaf.Method, ad.Leaf.Path)
 }
 
@@ -750,6 +784,9 @@ func actionDescription(ad actionDescriptor) string {
 			}
 			b.WriteString("\n")
 		}
+	} else if ad.isCollect() {
+		fmt.Fprintf(&b, "Collects every page from %s %s, incrementing %q and appending array responses until a page returns fewer than %d item(s).\n", ad.Collect.Leaf.Method, ad.Collect.Leaf.Path, ad.Collect.PageParam, ad.Collect.DefaultLimit)
+		fmt.Fprintf(&b, "\nAuthorized by grant: %s.\n", ad.Collect.Leaf.Grant)
 	} else {
 		fmt.Fprintf(&b, "Polls %s %s every %s, up to %s, until:\n  %s\n", ad.Leaf.Method, ad.Leaf.Path, ad.Every, ad.Timeout, ad.Until)
 		fmt.Fprintf(&b, "\nAuthorized by grant: %s.\n", ad.Leaf.Grant)

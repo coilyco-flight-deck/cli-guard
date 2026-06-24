@@ -210,6 +210,14 @@ type Config struct {
 	WorktreeReapable func(ctx context.Context, runner *shell.Runner, repoPath, branch string) bool
 	WorktreeRemove   func(ctx context.Context, runner *shell.Runner, repoPath, worktreePath, branch string) error
 
+	// SpawnForeground runs claude -p in the foreground, blocking until the
+	// child exits, returning its exit code. Defaults to spawnForegroundClaude.
+	SpawnForeground func(ctx context.Context, repoPath, bin string, argv, env []string) (int, error)
+
+	// Getwd resolves the in-place checkout the CI surface runs against - the
+	// runner workspace clone. Defaults to os.Getwd.
+	Getwd func() (string, error)
+
 	// SpawnHealthWindow bounds the immediate-crash watch. Zero
 	// applies defaultSpawnHealthWindow; negative disables the check.
 	SpawnHealthWindow time.Duration
@@ -444,6 +452,7 @@ func (g Grant) ExecArgv() []string
 type GrantInfo struct {
 	Name       string   `json:"name"`                  // dotted audit name, e.g. ward.ops.aws.s3.ls
 	Subcommand []string `json:"subcommand,omitempty"`  // e.g. ["s3","ls"]; empty for the wildcard
+	Bin        string   `json:"bin,omitempty"`         // the funnel's own binary, set only for an inspect-list (`allow`) leaf
 	Exec       []string `json:"exec,omitempty"`        // tokens appended after the binary: the argv override when set, else the subcommand
 	Wildcard   bool     `json:"wildcard"`              // `can run *`: the whole binary passes through
 	Describe   string   `json:"describe,omitempty"`    // Guardfile describe note
@@ -462,6 +471,14 @@ type Guardfile struct {
 	Env        []EnvVar     // environment vars set on the wrapped process
 	Grants     []Grant      // mounted leaves
 	Whens      []WhenClause // wrap-level guards, enforced on every leaf (the passthrough host gate)
+
+	// Allow lists bare binaries that each mount as an independent open-passthrough
+	// funnel: inspect-list sugar, mutually exclusive with exec/can run (docs/execverb.md).
+	Allow []string
+
+	// WrapWhens are wrap-level when/deny-when guards applied to every `allow`
+	// funnel - the read-only floor over the whole inspect list (allow only).
+	WrapWhens []WhenClause
 
 	// Has unexported fields.
 }
@@ -487,10 +504,11 @@ type Runner func(ctx context.Context, bin string, argv, env []string) error
 
 type Surface struct {
 	Group      []string    `json:"group"`                 // command path, e.g. ["ward","ops","aws"]
-	Bin        string      `json:"bin"`                   // the wrapped binary, fixed at parse
+	Bin        string      `json:"bin"`                   // the wrapped binary, fixed at parse; empty for an inspect list
 	ArgvPrefix []string    `json:"argv_prefix,omitempty"` // unoverridable leading argv
 	Env        []string    `json:"env,omitempty"`         // env injections as "NAME = provider address" (source, never the resolved value)
 	Guards     []string    `json:"guards,omitempty"`      // wrap-level guards (the passthrough host gate), applied to every leaf
+	Inspect    bool        `json:"inspect,omitempty"`     // the `allow` inspect-list shape: each grant funnels its own binary, no single Bin
 	Grants     []GrantInfo `json:"grants"`                // every mounted leaf, in mount order
 }
     Surface is the in-engine model of a mounted exec surface: the wrapped
@@ -1244,8 +1262,9 @@ const (
 
 FUNCTIONS
 
-func IsJailInvocation(_ []string) bool
-    IsJailInvocation is always false off Linux.
+func IsJailInvocation(argv []string) bool
+    IsJailInvocation reports whether argv is the internal jail-helper re-exec;
+    the consumer's main calls RunJail when true.
 
 func Jailed() bool
     Jailed reports whether the current process is already running inside a jail.
@@ -1262,16 +1281,19 @@ func RealBinEnv(tool string) string
     RealBinEnv returns the env-var name carrying tool's stashed real path,
     upper-casing the name and mapping non-alphanumerics to '_'.
 
-func RunJail(_ []string) error
-    RunJail is unsupported off Linux.
+func RunJail(args []string) error
+    RunJail is the in-namespace helper: it shims the wrapped tools, installs the
+    seccomp denylist, and execs the real tool (args is os.Args[2:]).
 
-func SetupDenied(_ *exec.Cmd, _ error) bool
-    SetupDenied is always false off Linux: nothing was jailed, so there is no
-    namespace-denial to degrade from.
+func SetupDenied(cmd *exec.Cmd, err error) bool
+    SetupDenied reports whether a jailed cmd failed to *start* on a clone
+    denial (EPERM/EACCES, child never ran), so the caller may retry it.
+    See docs/sandbox.md.
 
-func Wrap(_ *exec.Cmd, _ string, _ []string, _ *Spec)
-    Wrap is a no-op off Linux: OS-level jailing is unsupported, so the caller
-    execs the real binary directly (pre-sandbox behavior).
+func Wrap(cmd *exec.Cmd, realPath string, argv []string, spec *Spec)
+    Wrap rewrites cmd to re-exec the consumer binary as the jail helper in a
+    fresh user+mount namespace. No-op when jailed, opted out (EnvNoSandbox),
+    or spec nil.
 
 
 TYPES
@@ -1638,6 +1660,14 @@ package guardfile // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard
 Package guardfile parses a KDL Guardfile, the human authoring layer (L2) of the
 specverb engine, into a typed model. KDL is parsed, never evaluated.
 
+FUNCTIONS
+
+func Flatten(path string) ([]byte, error)
+    Flatten resolves every `inherit` in the guardfile at path into one
+    self-contained KDL document's bytes (no `inherit` => source verbatim).
+    docs/specverb-inherit.md.
+
+
 TYPES
 
 type Action struct {
@@ -1646,6 +1676,7 @@ type Action struct {
 	Inputs   []Input
 	Poll     *Poll
 	Calls    []Call // ordered multi-call sequence; mutually exclusive with Poll
+	Collect  *Collect
 	FailWhen string // JMESPath over the bindings; truthy => non-zero exit
 
 	// MountVerb/MountResource: the two-arg `action <verb> <resource>` mount form
@@ -1653,9 +1684,8 @@ type Action struct {
 	MountVerb     string
 	MountResource string
 }
-    Action is a named composite verb: EITHER a Poll (watch one leaf) or an
-    ordered Calls sequence (chain leaves), plus an optional FailWhen exit.
-    See specverb-actions.md.
+    Action is a named composite verb: exactly one of Poll, Calls, or Collect,
+    plus an optional FailWhen exit. See specverb-actions.md.
 
 func (a Action) IsMount() bool
     IsMount reports whether the action shadows a leaf path (two-arg form).
@@ -1691,6 +1721,20 @@ type Call struct {
     Call is one step of a multi-call action: fires a granted leaf with Args,
     binds the response to As for `$As.field` data-flow. See specverb-actions.md.
 
+type Collect struct {
+	Verb         string
+	Resource     string
+	Args         []ArgBind
+	PageParam    string
+	LimitParam   string
+	Limit        string
+	DefaultLimit string
+	As           string
+}
+    Collect walks a paginated granted leaf, incrementing PageParam and
+    appending each array response until the page returns fewer than Limit
+    (specverb-actions.md).
+
 type Grant struct {
 	Modal      string
 	Verb       string
@@ -1716,6 +1760,10 @@ type Grant struct {
 	// Describe is the optional grant-body `describe "..."` note that enriches
 	// the thin upstream spec; it flows into help and the describe verb.
 	Describe string
+
+	// Wildcard is set when the resource was authored as the `"*"` sentinel: the
+	// engine expands it to one concrete grant per spec resource exposing the verb.
+	Wildcard bool
 }
     Grant is one policy sentence: modal verb resource [qualifiers...]
     [key=value...]. Resource is the CLI group, Verb the leaf, Op the
@@ -1738,6 +1786,10 @@ type Guardfile struct {
 func Parse(src []byte) (*Guardfile, error)
     Parse turns Guardfile source into a Guardfile. It fails closed: an unknown
     node, a missing required field, or a malformed sentence is an error.
+
+func ParseFile(path string) (*Guardfile, error)
+    ParseFile flattens the guardfile at path (resolving inherit) and parses the
+    merged result into a typed Guardfile.
 
 func (gf *Guardfile) Providers() []string
     Providers returns the distinct provider names every value source in gf
@@ -2034,6 +2086,18 @@ type ActionCallInfo struct {
 }
     ActionCallInfo is one step of a multi-call action for the describe surface.
 
+type ActionCollectInfo struct {
+	Method       string `json:"method"`
+	Path         string `json:"path"`
+	Grant        string `json:"grant"`
+	PageParam    string `json:"page_param"`
+	LimitParam   string `json:"limit_param"`
+	DefaultLimit int    `json:"default_limit"`
+	As           string `json:"as"`
+}
+    ActionCollectInfo is the resolved auto-pagination leaf for the describe
+    surface.
+
 type ActionDefaultInfo struct {
 	Input    string `json:"input"`
 	JMESPath string `json:"jmespath"`
@@ -2065,6 +2129,9 @@ type ActionInfo struct {
 
 	// Calls is the resolved step sequence for a multi-call action; empty for a poll.
 	Calls []ActionCallInfo `json:"calls,omitempty"`
+
+	// Collect describes an auto-pagination action; nil for poll/call actions.
+	Collect *ActionCollectInfo `json:"collect,omitempty"`
 }
     ActionInfo is one mounted complex action for the describe surface:
     its envelope name, the polled leaf, the bounds, and the conditions.

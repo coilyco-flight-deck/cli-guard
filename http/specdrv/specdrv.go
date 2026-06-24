@@ -100,7 +100,13 @@ func readMember(path string) (member, error) {
 		}
 		return member{Path: path, ExecGF: egf, Params: p, Bytes: b}, nil
 	}
-	gf, err := guardfile.Parse(b)
+	// Resolve `inherit` into one self-contained document before the typed parse,
+	// so every downstream stage sees the merged grant set (docs/specverb-inherit.md).
+	flat, err := guardfile.Flatten(path)
+	if err != nil {
+		return member{}, fmt.Errorf("specdrv: resolve guardfile %s: %w", path, err)
+	}
+	gf, err := guardfile.Parse(flat)
 	if err != nil {
 		return member{}, fmt.Errorf("specdrv: parse guardfile %s: %w", path, err)
 	}
@@ -108,7 +114,7 @@ func readMember(path string) (member, error) {
 	if err != nil {
 		return member{}, err
 	}
-	return member{Path: path, GF: gf, Params: p, Bytes: b}, nil
+	return member{Path: path, GF: gf, Params: p, Bytes: flat}, nil
 }
 
 // loadGroup discovers the guardfiles that make up one merged binary, the common

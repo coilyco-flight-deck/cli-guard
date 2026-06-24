@@ -91,6 +91,10 @@ func Build(cfg Config) (*cli.Command, error) {
 	if err != nil {
 		return nil, err
 	}
+	gf, err = expandWildcards(spec, gf)
+	if err != nil {
+		return nil, err
+	}
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		baseURL = gf.BaseURL
@@ -416,7 +420,11 @@ func checkFlagCollisions(desc opDescriptor) error {
 // formatGrant renders the authorizing grant sentence for help and describe,
 // e.g. {can, delete, repos, [created-by-me]} -> "can delete repos created-by-me".
 func formatGrant(g guardfile.Grant) string {
-	parts := append([]string{g.Modal, g.Verb, g.Resource}, g.Qualifiers...)
+	resource := g.Resource
+	if g.Wildcard {
+		resource = `"*"` // a wildcard-expanded grant reads as the verb-global rule that authorized it
+	}
+	parts := append([]string{g.Modal, g.Verb, resource}, g.Qualifiers...)
 	return strings.Join(parts, " ")
 }
 

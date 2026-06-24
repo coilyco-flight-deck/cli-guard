@@ -68,6 +68,9 @@ type ActionInfo struct {
 
 	// Calls is the resolved step sequence for a multi-call action; empty for a poll.
 	Calls []ActionCallInfo `json:"calls,omitempty"`
+
+	// Collect describes an auto-pagination action; nil for poll/call actions.
+	Collect *ActionCollectInfo `json:"collect,omitempty"`
 }
 
 // ActionDefaultInfo is one input `default` pre-flight binding for the describe
@@ -83,6 +86,17 @@ type ActionCallInfo struct {
 	Path   string `json:"path"`
 	Grant  string `json:"grant"`
 	As     string `json:"as,omitempty"`
+}
+
+// ActionCollectInfo is the resolved auto-pagination leaf for the describe surface.
+type ActionCollectInfo struct {
+	Method       string `json:"method"`
+	Path         string `json:"path"`
+	Grant        string `json:"grant"`
+	PageParam    string `json:"page_param"`
+	LimitParam   string `json:"limit_param"`
+	DefaultLimit int    `json:"default_limit"`
+	As           string `json:"as"`
 }
 
 // AuthInfo is the auth scope a describe consumer sees: scheme, header, and the
@@ -129,6 +143,10 @@ func Describe(cfg Config) (*Surface, error) {
 		return nil, fmt.Errorf("specverb: Guardfile has no command group")
 	}
 	spec, err := parseSwagger(cfg.Spec)
+	if err != nil {
+		return nil, err
+	}
+	gf, err = expandWildcards(spec, gf)
 	if err != nil {
 		return nil, err
 	}
@@ -179,6 +197,16 @@ func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor,
 		if a.isCall() {
 			for _, step := range a.Calls {
 				info.Calls = append(info.Calls, ActionCallInfo{Method: step.Leaf.Method, Path: step.Leaf.Path, Grant: step.Leaf.Grant, As: step.As})
+			}
+		} else if a.isCollect() {
+			info.Collect = &ActionCollectInfo{
+				Method:       a.Collect.Leaf.Method,
+				Path:         a.Collect.Leaf.Path,
+				Grant:        a.Collect.Leaf.Grant,
+				PageParam:    a.Collect.PageParam,
+				LimitParam:   a.Collect.LimitParam,
+				DefaultLimit: a.Collect.DefaultLimit,
+				As:           a.Collect.As,
 			}
 		} else {
 			info.Method, info.Path, info.Grant = a.Leaf.Method, a.Leaf.Path, a.Leaf.Grant
@@ -315,6 +343,8 @@ func writeActions(b *strings.Builder, prefix string, actions []ActionInfo) {
 		}
 		if len(a.Calls) > 0 {
 			writeCallAction(b, a)
+		} else if a.Collect != nil {
+			writeCollectAction(b, a)
 		} else {
 			fmt.Fprintf(b, "Complex action. Polls `%s %s` every %s, up to %s, until:\n\n", a.Method, a.Path, a.Every, a.Timeout)
 			fmt.Fprintf(b, "    %s\n\n", a.Until)
@@ -353,6 +383,13 @@ func writeCallAction(b *strings.Builder, a ActionInfo) {
 		}
 		fmt.Fprintf(b, "%s\n", line)
 	}
+}
+
+// writeCollectAction renders an auto-pagination action stanza.
+func writeCollectAction(b *strings.Builder, a ActionInfo) {
+	c := a.Collect
+	fmt.Fprintf(b, "Complex action. Collects every page from `%s %s`, incrementing `%s` and appending array responses until a page returns fewer than `%d` item(s).\n\n", c.Method, c.Path, c.PageParam, c.DefaultLimit)
+	fmt.Fprintf(b, "Authorized by grant: %s.\n", c.Grant)
 }
 
 // conditionLanguageNote names the until/fail-when dialect: JMESPath Community

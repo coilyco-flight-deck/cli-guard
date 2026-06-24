@@ -124,6 +124,28 @@ func TestParseGrantWithoutOp(t *testing.T) {
 	}
 }
 
+// TestParseWildcardResource asserts the `"*"` resource sentinel parses with the
+// Wildcard flag set, on both an allow and a deny modal, carrying its block fields.
+func TestParseWildcardResource(t *testing.T) {
+	src := []byte(`wrap ward ops forgejo {
+	    spec s
+	    auth header-token { header H; value ssm S }
+	    can get "*"
+	    never delete "*" { message "deletes are frozen" }
+	}`)
+	gf, err := Parse(src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := []Grant{
+		{Modal: "can", Verb: "get", Resource: "*", Wildcard: true},
+		{Modal: "never", Verb: "delete", Resource: "*", Wildcard: true, Message: "deletes are frozen"},
+	}
+	if !reflect.DeepEqual(gf.Grants, want) {
+		t.Errorf("wildcard grants = %+v, want %+v", gf.Grants, want)
+	}
+}
+
 // TestParseAction asserts the complex-action grammar round-trips: inputs, the
 // poll primitive with its bounds, the multiline `until`, and `fail-when`.
 func TestParseAction(t *testing.T) {
