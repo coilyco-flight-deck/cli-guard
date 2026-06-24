@@ -37,11 +37,11 @@ func TestProtectedFor_DenyBareSuppliesHintOnlyEntries(t *testing.T) {
 	sec := repocfg.Security{
 		Hooks: repocfg.HookPolicy{
 			DenyBareBinaries: []string{"terraform"},
-			RouteHints:       map[string]string{"terraform": "use `coily tf ...`."},
+			RouteHints:       map[string]string{"terraform": "use `ward exec tf ...`."},
 		},
 	}
 	got := ProtectedFor(sec)
-	if len(got) != 1 || got[0].Name != "terraform" || got[0].Hint != "use `coily tf ...`." {
+	if len(got) != 1 || got[0].Name != "terraform" || got[0].Hint != "use `ward exec tf ...`." {
 		t.Fatalf("want one hint-only terraform entry, got %+v", got)
 	}
 	if len(got[0].Wrappers) != 0 {

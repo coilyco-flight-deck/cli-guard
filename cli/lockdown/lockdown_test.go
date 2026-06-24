@@ -27,8 +27,8 @@ func TestLoadDefaults_ReturnsNonEmpty(t *testing.T) {
 
 func TestLoadDefaults_AllowsConsumerBash(t *testing.T) {
 	d, _ := lockdown.LoadDefaults()
-	if !contains(d.Allow, "Bash(coily:*)") {
-		t.Errorf("allow list missing Bash(coily:*). Got: %v", d.Allow)
+	if !contains(d.Allow, "Bash(ward:*)") {
+		t.Errorf("allow list missing Bash(ward:*). Got: %v", d.Allow)
 	}
 }
 
@@ -107,8 +107,8 @@ func TestBuildPlan_NewFileGetsFullDefaults(t *testing.T) {
 	}
 	perms := after["permissions"].(map[string]any)
 	allow := toStringSlice(perms["allow"])
-	if !contains(allow, "Bash(coily:*)") {
-		t.Errorf("allow missing Bash(coily:*)")
+	if !contains(allow, "Bash(ward:*)") {
+		t.Errorf("allow missing Bash(ward:*)")
 	}
 }
 
@@ -151,7 +151,7 @@ func TestBuildPlan_ExistingFilePreservesNonManagedTopLevelKeys(t *testing.T) {
 	if contains(allow, "Bash(custom-tool:*)") {
 		t.Error("custom allow entry leaked into After (permissions should be canonical-replaced)")
 	}
-	if !contains(allow, "Bash(coily:*)") {
+	if !contains(allow, "Bash(ward:*)") {
 		t.Error("default allow entry is missing")
 	}
 

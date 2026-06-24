@@ -1,6 +1,6 @@
 # golangci-lint config notes
 
-Rationale for the non-obvious choices in `.golangci.yaml` (config adopted from coilysiren/coily for the cli-* family; run with `coily exec lint`). It leans on cyclomatic-complexity checks because these packages are security boundaries or wire-protocol layers, where tangled branchy code is where the bugs live.
+Rationale for the non-obvious choices in `.golangci.yaml` (config adopted from the cli-* family golangci config; run with `make lint`). It leans on cyclomatic-complexity checks because these packages are security boundaries or wire-protocol layers, where tangled branchy code is where the bugs live.
 
 ## gosec exclusions
 

@@ -1,7 +1,7 @@
-# Permission rules coily lockdown writes. Rationale: docs/lockdown-defaults.md.
+# Permission rules the lockdown writer emits. Rationale: docs/lockdown-defaults.md.
 
 allow:
-  - Bash(coily:*)
+  - Bash(ward:*)
 
   - Bash(ls:*)
   - Bash(cat:*)

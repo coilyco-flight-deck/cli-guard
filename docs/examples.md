@@ -22,7 +22,7 @@ go run ./examples/audit hello world
 go run ./examples/passthrough -- echo hello
 go run ./examples/policy unsafe 'foo; rm -rf /'
 go run ./examples/exitcode policy ; echo "exit: $?"
-go run ./examples/dispatch dispatch headless --dry-run coilysiren/coily#1
+go run ./examples/dispatch dispatch headless --dry-run coilyco-flight-deck/cli-guard#1
 ```
 
 ## Reading order

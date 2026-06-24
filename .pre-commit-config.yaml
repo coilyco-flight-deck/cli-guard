@@ -1,5 +1,5 @@
-# pre-commit hooks for the cli-* family. Mirror of coily's setup with the
-# coily-internal-only hooks (skill regen, trailer, install) removed.
+# pre-commit hooks for the cli-* family. Mirrors the shared cli-* setup with
+# the consumer-internal-only hooks (skill regen, trailer, install) removed.
 #
 # Install: pip install pre-commit && pre-commit install
 # Run on all files: pre-commit run --all-files

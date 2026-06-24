@@ -8,6 +8,27 @@ import (
 	"path/filepath"
 )
 
+// hookMarker is the settings.json key tagging a PreToolUse hook entry as
+// cli-guard's own, so re-runs reconcile the existing entry in place rather
+// than appending a duplicate. Named for the framework, not any consumer.
+const hookMarker = "_cli-guard"
+
+// legacyHookMarker is the pre-retirement key cli-guard wrote under the coily
+// consumer. Still recognized on read so a settings.json carrying the old key
+// is reconciled in place (and rewritten with hookMarker) instead of
+// double-hooked. Kept for back-compat with already-written settings.
+const legacyHookMarker = "_coily"
+
+// markerOf returns the cli-guard hook marker on entry, preferring the current
+// key and falling back to the legacy one.
+func markerOf(entry map[string]any) string {
+	if m, ok := entry[hookMarker].(string); ok {
+		return m
+	}
+	m, _ := entry[legacyHookMarker].(string)
+	return m
+}
+
 // EnsureUserHook writes the user-level PreToolUse Bash hook script
 // under homeDir/<SettingsRelPath>/<driver.UserHookFilename> and
 func EnsureUserHook(homeDir string, drv *Driver) (hookPath string, settingsChanged bool, err error) {
@@ -74,9 +95,9 @@ func patchUserSettings(settingsPath, hookPath, markerKey string) (bool, error) {
 // inner hooks slice contains a {type: "command", command: hookPath,
 func ensureHookEntry(preToolUse []any, hookPath, markerKey string) []any {
 	wantHook := map[string]any{
-		"type":    "command",
-		"command": hookPath,
-		"_coily":  markerKey,
+		"type":     "command",
+		"command":  hookPath,
+		hookMarker: markerKey,
 	}
 	for _, entry := range preToolUse {
 		m, ok := entry.(map[string]any)
@@ -93,7 +114,7 @@ func ensureHookEntry(preToolUse []any, hookPath, markerKey string) []any {
 			if !ok {
 				continue
 			}
-			if marker, _ := hm["_coily"].(string); marker == markerKey {
+			if markerOf(hm) == markerKey {
 				inner[i] = wantHook
 				updated = true
 				break

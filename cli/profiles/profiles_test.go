@@ -99,7 +99,7 @@ func withHome(t *testing.T) string {
 }
 
 // TestOverridePath_RoutesThroughAppDir confirms the registry path tracks the
-// consumer's app-dir and filename, not the old hardcoded ~/.coily/coily.yaml.
+// consumer's app-dir and filename, not a hardcoded consumer path.
 func TestOverridePath_RoutesThroughAppDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
