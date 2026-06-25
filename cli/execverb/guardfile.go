@@ -12,7 +12,7 @@ import (
 
 // Guardfile is the parsed form of one exec-dialect wrap block.
 type Guardfile struct {
-	Group      []string     // command path, e.g. ["ward", "git"]
+	Group      []string     // command path, e.g. ["<cli>", "git"]
 	Bin        string       // the real binary, fixed at parse
 	ArgvPrefix []string     // unoverridable leading argv (remote-exec transport)
 	Env        []EnvVar     // environment vars set on the wrapped process
@@ -127,7 +127,7 @@ func Parse(src []byte) (*Guardfile, error) {
 		gf.Group = append(gf.Group, a.String())
 	}
 	if len(gf.Group) == 0 {
-		return nil, fmt.Errorf("execverb: `wrap` needs a command path, e.g. `wrap ward git`")
+		return nil, fmt.Errorf("execverb: `wrap` needs a command path, e.g. `wrap <cli> git`")
 	}
 	for _, n := range wrap.Children().Nodes {
 		if err := gf.applyNode(n); err != nil {
@@ -141,8 +141,7 @@ func Parse(src []byte) (*Guardfile, error) {
 }
 
 // validate enforces the cross-node invariants after every wrap child is applied:
-// the `allow` inspect list and the exec/passthrough funnel are mutually exclusive
-// shapes, and each needs its own minimum. All checks fail closed.
+// `allow` inspect lists and exec/passthrough funnels are exclusive, fail-closed shapes.
 func (gf *Guardfile) validate() error {
 	if len(gf.Allow) > 0 {
 		if gf.Bin != "" {
