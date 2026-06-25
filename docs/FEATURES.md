@@ -14,20 +14,20 @@ Packages are grouped by **guarded surface** over a shared `pkg/`. See [architect
 - **verb** - Middleware around every `*cli.Command.Action`.
 - **shell** / **sandbox** - Subprocess exec + seccomp/namespace jail (Linux). See [sandbox](sandbox.md).
 - **gittree** - Clean+synced gate for repo-shaped verbs.
-- **repocfg** / **allowlist** - Per-repo command allowlist from a YAML, validated vs the Makefile.
+- **repocfg** / **allowlist** - Per-repo command allowlist YAML, validated vs the Makefile.
 - **catalog** - Assert a repo's config YAML carries a `catalog:` block with required keys.
 - **hook** / **hookcfg** - PreToolUse engine; `repocfg.Security` -> `hook.Protected` / `hook.ForbiddenArgv` maps.
 - **shim** - PATH shim per protected binary (UX shadowing, not enforcement). See [deny-by-structure.md](deny-by-structure.md).
-- **doctor** - Verify the deny-by-structure floor (no passwordless sudo, no agent-executable binary, no cred env).
+- **doctor** - Verify the deny-by-structure floor (no passwordless sudo, exec, or cred env).
 - **sudo** - Policy-free interactive sudo plumbing over any stdin transport.
 - **dispatch** - Fire `claude` at an open issue; swap resolver, backend, verdict.
-- **lockdown** / **profiles** / **profile** / **decision** - Permission-file writer, per-host profile registry, evaluator.
+- **lockdown** / **profiles** / **profile** / **decision** - Permission-file writer, profile registry, evaluator.
 - **cmd/cli-guard-hook** - PreToolUse binary for shell-only consumers.
 
 ### HTTP request surface (`http/`)
 
 - **egress** - Per-invocation CONNECT proxy with consumer allowlist.
-- **guardfile** / **specverb** / **specgen** / **codegen** - Spec-driven verbs from a Guardfile; each `can` resolves its op by convention (Swagger 2/OpenAPI 3); `can`/`never <verb> "*"` is verb-global allow/deny, `inherit` layers tiers. See [specverb.md](specverb.md), [specverb-wildcard.md](specverb-wildcard.md), [specverb-inherit.md](specverb-inherit.md).
+- **guardfile** / **specverb** / **specgen** / **codegen** - Spec-driven verbs from a Guardfile; each `can` resolves its op by convention (Swagger 2/OpenAPI 3); `inherit` layers tiers. See [specverb.md](specverb.md).
 - **complex actions** - `wrap`-block `poll`/`call` verbs; `action <verb> <resource>` shadows that leaf. See [specverb-actions.md](specverb-actions.md).
 - **respfmt** - JSON response renderer with JMESPath + five output formats.
 - **ghcache** / **ghidcache** / **ghratelimit** / **stscache** - Forgejo/GitHub response, id, rate-limit, STS caches.
@@ -47,6 +47,7 @@ Packages are grouped by **guarded surface** over a shared `pkg/`. See [architect
 - **ttlcache** - Generic TTL-keyed cache machinery (backs the surface caches).
 - **workdir** - Working-directory resolution helper.
 - **skillgen** - Render an urfave/cli command tree into markdown or yaml.
+- **broker** / **credseed** - Root credential-broker policy core (unix-socket protocol, write-tier authz, injected executor) + creds env-file seeder. See [broker.md](broker.md).
 
 ## Repo development
 

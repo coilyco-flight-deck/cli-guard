@@ -2626,6 +2626,192 @@ func (w *Writer) WrapHook(ctx context.Context, base Record, fn func() error, onC
     fn returns and before the record is appended; it gets a pointer
 
 
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/broker
+
+package broker // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/broker"
+
+Package broker is the policy core for a root credential broker: a small
+request/response protocol over a unix socket through which an unprivileged
+client (e.g. an explore agent) asks a privileged Server to file, edit, and
+comment on issues, and to dispatch work - without ever holding the credential
+itself.
+
+The package is deliberately self-contained. It carries no git, docker,
+or ward-kdl knowledge: the privileged side is injected as an Executor, and the
+write-tier policy as an Authorizer. That keeps broker importable by a consumer
+(ward) without a dependency cycle, and keeps this high-risk live-dispatch path's
+surface minimal and auditable.
+
+The wire format is newline-delimited JSON: exactly one Request in, exactly one
+Response out, then the connection closes. Every Request carries ProtocolVersion;
+the Server rejects a mismatch rather than guessing. See docs/broker.md.
+
+CONSTANTS
+
+const ProtocolVersion = 1
+    ProtocolVersion is the broker wire-protocol version, bumped on any breaking
+    change to Request/Response. The Server refuses an unrecognized Version.
+
+
+VARIABLES
+
+var WriteOps = map[Op]bool{
+	OpFileIssue:    true,
+	OpEditIssue:    true,
+	OpCommentIssue: true,
+	OpDispatch:     true,
+}
+    WriteOps is the fixed set of write-tier operations the broker serves:
+    the default Authorizer allowlist. Callers read it but must not mutate it.
+
+
+TYPES
+
+type Authorizer interface {
+	Authorize(ctx context.Context, req Request) error
+}
+    Authorizer vets each Request before execution - the write-tier check. It
+    returns nil to permit and a non-nil error to refuse (folded into Response).
+
+type AuthorizerFunc func(ctx context.Context, req Request) error
+    AuthorizerFunc adapts a plain function to the Authorizer interface.
+
+func (f AuthorizerFunc) Authorize(ctx context.Context, req Request) error
+    Authorize calls f.
+
+type Client struct {
+	// SocketPath is the unix socket the Server listens on.
+	SocketPath string
+}
+    Client is the unprivileged side of the broker: it dials the Server's unix
+    socket, sends one Request, and returns the Response. It holds no token.
+
+func NewClient(path string) *Client
+    NewClient builds a Client for the socket at path.
+
+func (c *Client) CommentIssue(ctx context.Context, target Target, body string) (Response, error)
+    CommentIssue is a convenience wrapper for an OpCommentIssue request.
+
+func (c *Client) Dispatch(ctx context.Context, target Target) (Response, error)
+    Dispatch is a convenience wrapper for an OpDispatch request.
+
+func (c *Client) Do(ctx context.Context, req Request) (Response, error)
+    Do sends req over a fresh connection (stamping ProtocolVersion) and returns
+    the Response. A transport failure is the error; a refusal is Response.Error.
+
+func (c *Client) EditIssue(ctx context.Context, target Target, title, body, state string) (Response, error)
+    EditIssue is a convenience wrapper for an OpEditIssue request.
+
+func (c *Client) FileIssue(ctx context.Context, target Target, title, body string) (Response, error)
+    FileIssue is a convenience wrapper for an OpFileIssue request.
+
+type Executor interface {
+	// FileIssue files a new issue under target with title+body, returning its
+	// created number and URL.
+	FileIssue(ctx context.Context, target Target, title, body string) (Result, error)
+	// EditIssue edits target's issue; empty title/body/state leave that field
+	// unchanged.
+	EditIssue(ctx context.Context, target Target, title, body, state string) (Result, error)
+	// CommentIssue posts body as a comment on target's issue.
+	CommentIssue(ctx context.Context, target Target, body string) (Result, error)
+	// Dispatch dispatches work for target's issue.
+	Dispatch(ctx context.Context, target Target) (Result, error)
+}
+    Executor is the injected privileged side: it holds the credential and talks
+    to the forge/dispatch backend. Lives in the consumer; see docs/broker.md.
+
+type Op string
+    Op names a broker operation. The four below are the complete write-tier
+    surface; the Server authorizes and executes each and rejects any other.
+
+const (
+	// OpFileIssue files a new issue. Target carries Owner+Repo; the forge
+	// assigns the number, returned in the [Result].
+	OpFileIssue Op = "file_issue"
+	// OpEditIssue edits an existing issue's title, body, and/or state.
+	OpEditIssue Op = "edit_issue"
+	// OpCommentIssue posts a comment on an existing issue.
+	OpCommentIssue Op = "comment_issue"
+	// OpDispatch dispatches work for an existing issue.
+	OpDispatch Op = "dispatch"
+)
+type Policy struct {
+	// Owners is the allowlist of issue owners. Empty means any owner.
+	Owners []string
+	// Ops is the allowlist of permitted operations. Nil means [WriteOps].
+	Ops map[Op]bool
+}
+    Policy is the default Authorizer: owner allowlist x op allowlist,
+    plus the structural invariants every op needs. Zero value permits any
+    owner+[WriteOps].
+
+func (p Policy) Authorize(_ context.Context, req Request) error
+    Authorize enforces the policy. ctx is accepted for interface conformance;
+    the built-in checks are synchronous.
+
+type Request struct {
+	// Version must equal [ProtocolVersion]; the Server rejects a mismatch.
+	Version int `json:"version"`
+	// Op is the operation to authorize and execute.
+	Op Op `json:"op"`
+	// Target is the issue the operation acts on.
+	Target Target `json:"target"`
+	// Title is the issue title (required for file, optional for edit).
+	Title string `json:"title,omitempty"`
+	// Body is the issue body or comment text.
+	Body string `json:"body,omitempty"`
+	// State is the desired issue state for edit; empty leaves it unchanged.
+	State string `json:"state,omitempty"`
+}
+    Request is one broker call: Op selects the operation, Target names the
+    issue, and Title/Body/State carry the op-specific payload.
+
+type Response struct {
+	OK     bool   `json:"ok"`
+	Error  string `json:"error,omitempty"`
+	Result Result `json:"result,omitempty"`
+}
+    Response is the broker's single reply: OK reports success; on failure Error
+    carries the reason and Result is zero.
+
+type Result struct {
+	// Number is the affected issue's number.
+	Number int `json:"number,omitempty"`
+	// URL is a link to the affected issue or comment.
+	URL string `json:"url,omitempty"`
+	// Detail is a human-readable note (e.g. a dispatch handle).
+	Detail string `json:"detail,omitempty"`
+}
+    Result is the success payload of a Response; which fields are populated
+    depends on the Op (file/edit/comment set Number+URL, dispatch sets Detail).
+
+type Server struct {
+	// Has unexported fields.
+}
+    Server serves one Request per connection on an already-permissioned unix
+    socket: authorize, delegate to Executor, reply. See docs/broker.md.
+
+func NewServer(ln net.Listener, exec Executor, auth Authorizer) (*Server, error)
+    NewServer builds a Server over ln. All three deps are required; NewServer
+    errors rather than constructing a Server that would fail open.
+
+func (s *Server) Serve(ctx context.Context) error
+    Serve accepts connections until ctx is cancelled or the listener closes,
+    handling each in a goroutine. Clean shutdown returns ctx.Err().
+
+func (s *Server) SetLogf(logf func(format string, args ...any))
+    SetLogf installs a best-effort audit logger called once per served request;
+    pass nil to disable. Not safe to call concurrently with Serve.
+
+type Target struct {
+	Owner  string `json:"owner"`
+	Repo   string `json:"repo"`
+	Number int    `json:"number,omitempty"`
+}
+    Target identifies the issue an operation acts on. OpFileIssue uses only
+    Owner+Repo; the other ops require a positive Number.
+
+
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/config
 
 package config // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/config"
@@ -2746,6 +2932,72 @@ type Audit struct {
 }
     Audit controls where the JSONL audit log lives and how lumberjack rotates
     it. LogPath defaults to ~/<app-dir>/audit/<slug>.jsonl when left
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/credseed
+
+package credseed // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/credseed"
+
+Package credseed is the typed surface for seeding a child container's
+credentials through a private env-file: the forgejo push/dispatch token plus
+optional base64'd agent credential blobs, one line each.
+
+It extracts the token-seed shaping a credential broker needs - rendering and
+writing the env-file, and the env-var names both writer and reader share -
+without any docker, git, or container-lifecycle knowledge. The broker (or ward)
+writes the file with Creds.WriteEnvFile and hands the path to the container
+runtime as an --env-file; the in-container bootstrap reads the same env-var
+names back. Centralizing the names here keeps the two from drifting.
+
+The agent credential blobs ride base64-encoded so multi-line secrets (OAuth
+JSON, an auth.json) survive a flat KEY=VALUE env-file intact.
+
+CONSTANTS
+
+const (
+	// EnvForgejoToken carries the forgejo push/dispatch token, plain.
+	EnvForgejoToken = "FORGEJO_TOKEN" //nolint:gosec // env-var name, not a credential value
+	// EnvClaudeCredsB64 carries the base64'd Claude OAuth credential blob.
+	EnvClaudeCredsB64 = "WARD_CLAUDE_CREDS_B64"
+	// EnvCodexAuthB64 carries the base64'd Codex auth.json blob.
+	EnvCodexAuthB64 = "WARD_CODEX_AUTH_B64"
+	// EnvGooseOllamaHostB64 carries the base64'd goose ollama host.
+	EnvGooseOllamaHostB64 = "WARD_GOOSE_OLLAMA_HOST_B64"
+)
+    Env-var names spanning the seed (writer) and bootstrap (reader) sides.
+    The token is plain; the agent blobs are base64'd, marked by the B64 suffix.
+
+
+FUNCTIONS
+
+func DecodeBlob(b64Value string) (string, error)
+    DecodeBlob reverses the base64 shaping Creds.EnvLines applies, for a reader
+    decoding a *_B64 value back. Empty input decodes to "" with no error.
+
+
+TYPES
+
+type Creds struct {
+	// ForgejoToken is the forgejo push/dispatch token. Required.
+	ForgejoToken string
+	// Claude is the raw Claude OAuth credential blob, if seeding Claude.
+	Claude string
+	// Codex is the raw Codex auth.json blob, if seeding Codex.
+	Codex string
+	// GooseOllamaHost is the goose ollama host, if seeding goose.
+	GooseOllamaHost string
+}
+    Creds is the secrets seeded into a child container; hold raw values here as
+    Creds.EnvLines does the base64 shaping. Only ForgejoToken is required.
+
+func (c Creds) EnvLines() []string
+    EnvLines renders the env-file lines, stable order: plain token first,
+    then a base64'd line per present agent blob. Pure - testable without disk.
+
+func (c Creds) WriteEnvFile() (path string, cleanup func(), err error)
+    WriteEnvFile writes the creds to a new private (0600) temp env-file,
+    returning its path and a cleanup func (always safe to call). See
+    docs/broker.md.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode
