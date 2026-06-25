@@ -33,7 +33,7 @@ Pre-commit runs the Go checks (vet, golangci-lint, go-mod-tidy, godoc-current) p
 
 ## Safety
 
-The Claude Code lockdown writer is the security boundary for consumers; defaults live in `cli/lockdown/defaults.yaml`. The deny list maps to the consumer's wrapped binaries (e.g. `pkg / ops / docker / tailscale`) plus bare-denied binaries with no wrapper (`ssh`); bypass-prevention shapes fall back to auto-mode classifiers. See [#13, #14](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard).
+cli-guard ships no embedded denylist - it is a policy-free engine. A consumer declares its protected tools in a small `repocfg.Security` literal that the deny-by-structure engine expands into a basename-aware hook deny (`cli/hook`), a PATH shim per binary (`cli/shim`), and a doctor floor (`cli/doctor`) checking the sudo and binary invariants. See [deny-by-structure.md](docs/deny-by-structure.md).
 
 ## Cross-repo contracts
 

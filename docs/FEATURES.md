@@ -21,7 +21,7 @@ Packages are grouped by **guarded surface** over a shared `pkg/`. See [architect
 - **doctor** - Verify the deny-by-structure floor.
 - **sudo** - Policy-free interactive sudo plumbing over any stdin transport.
 - **dispatch** - Fire `claude` at an open issue; swap resolver, backend, verdict.
-- **lockdown** / **profiles** / **profile** / **decision** - Permission-file writer, profile registry, evaluator.
+- **profiles** / **profile** / **decision** - Profile registry, coordinate axes, per-call evaluator.
 - **cmd/cli-guard-hook** - PreToolUse binary for shell-only consumers.
 
 ### HTTP request surface (`http/`)

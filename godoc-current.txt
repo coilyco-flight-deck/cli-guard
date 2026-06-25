@@ -130,7 +130,7 @@ FUNCTIONS
 
 func CoordinatePtr(profileName string) (*profile.Coordinate, error)
     CoordinatePtr returns a non-nil *profile.Coordinate from the resolver
-    result, suitable for lockdown.Driver.Coordinate. Callers
+    result, suitable for a consumer's per-session lockdown coordinate. Callers
 
 func Evaluate(profileName string) (*audit.ProfileDecision, error)
     Evaluate resolves the named session profile via the profiles package and
@@ -888,110 +888,6 @@ func ForbiddenFor(sec repocfg.Security) []hook.ForbiddenArgv
 func ProtectedFor(sec repocfg.Security) []hook.Protected
     ProtectedFor maps a repocfg.Security block into the hook engine's Protected
     list, merging protected_binaries with uncovered hooks.deny_bare_binaries.
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/lockdown
-
-package lockdown // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/lockdown"
-
-Package lockdown writes a per-repo Claude Code settings file that enforces an
-allowlist-inversion for the wrapper binary supplied by a
-
-FUNCTIONS
-
-func EnsureUserHook(homeDir string, drv *Driver) (hookPath string, settingsChanged bool, err error)
-    EnsureUserHook writes the user-level PreToolUse Bash hook script under
-    homeDir/<SettingsRelPath>/<driver.UserHookFilename> and
-
-func HookPath(settingsPath string, drv *Driver) string
-    HookPath returns the absolute path of the generated PreToolUse hook script.
-    It sits next to settings.json under the driver's settings
-
-func MergeDenyInto(targetPath string, d *Defaults) (bool, error)
-    MergeDenyInto reasserts canonical denies + prunes shadowed allows.
-    cli-guard#26.
-
-func TargetPath(dir string, local bool) string
-    TargetPath returns the settings file path under dir. If local is true,
-    uses settings.local.json. Otherwise settings.json.
-
-func Write(plan *Plan) error
-    Write applies the plan to disk. Caller should have shown the plan first and
-    confirmed.
-
-func WriteHook(settingsPath string, d *Defaults, drv *Driver) (string, bool, error)
-    WriteHook renders and writes the PreToolUse hook script with 0755 perms.
-    Validates the generated script with `sh -n` before writing -
-
-
-TYPES
-
-type Defaults struct {
-	Allow []string `yaml:"allow" json:"-"`
-	Deny  []string `yaml:"deny" json:"-"`
-}
-    Defaults is the parsed allow / deny list pair that BuildPlan writes into the
-    target settings file. Loaded from defaults.yaml via
-
-func LoadDefaults() (*Defaults, error)
-    LoadDefaults parses the embedded canonical allow/deny lists.
-
-type Driver struct {
-	BinaryName         string
-	BinaryAllowedPaths []string
-	WrapperRecovery    map[string]string
-	HookFilename       string
-	UserHookFilename   string
-	UserHookMarkerKey  string
-	SettingsRelPath    string
-
-	BuildSettings        func(existing []byte, d *Defaults, drv *Driver) ([]byte, error)
-	RenderHookScript     func(d *Defaults, drv *Driver) (string, error)
-	RenderUserHookScript func(drv *Driver) string
-
-	// Coordinate is the resolved per-session lockdown coordinate, when a
-	// consumer is profile-aware. Optional: BuildSettings consumers may
-	Coordinate *profile.Coordinate
-}
-    Driver describes the binary and runtime that lockdown should write
-    settings/hooks for. Callers either construct a Driver directly or use
-
-func ClaudeCode(binary string, allowedPaths []string, recovery map[string]string) *Driver
-    ClaudeCode returns a Driver pre-wired for Claude Code's settings.json shape
-    and PreToolUse Bash hook contract. Callers supply the binary
-
-func (d *Driver) HookSettingsPath() string
-    HookSettingsPath is the relative path baked into settings.json's hook entry.
-    The host CLI resolves it relative to the project root.
-
-func (d *Driver) Validate() error
-    Validate returns an error if the driver is missing fields the lockdown
-    package needs to operate. Callers should run this before
-
-type Permissions struct {
-	Allow []string `json:"allow,omitempty"`
-	Deny  []string `json:"deny,omitempty"`
-}
-    Permissions is the on-disk shape of the Claude Code settings permissions
-    block (allow / deny rule strings).
-
-type Plan struct {
-	TargetPath string          // the .claude/settings*.json path
-	Existed    bool            // did TargetPath exist before?
-	Before     json.RawMessage // original file contents, if any
-	After      json.RawMessage // file contents that would be (or were) written
-}
-    Plan describes what lockdown would (or did) write. Rendered as JSON for the
-    caller to display or persist.
-
-func BuildPlan(targetPath string, d *Defaults, drv *Driver) (*Plan, error)
-    BuildPlan computes what the target settings file should look like after
-    applying the defaults. Does not touch disk. Routes through the
-
-type Settings struct {
-	Permissions Permissions `json:"permissions"`
-}
-    Settings is the subset of Claude Code settings we manipulate directly.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/passthrough
