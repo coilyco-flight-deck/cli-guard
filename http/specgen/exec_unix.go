@@ -1,7 +1,7 @@
 //go:build !windows
 
 // Process replacement (syscall.Exec) and cache locking (flock) on Unix.
-package specdrv
+package specgen
 
 import (
 	"os"

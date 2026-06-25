@@ -1,6 +1,6 @@
 // Cache layout and staleness for the out-of-band materialized consumer binary,
 // keyed by the Guardfile's location. See docs/specverb.md.
-package specdrv
+package specgen
 
 import (
 	"crypto/sha256"
@@ -34,7 +34,7 @@ func cacheRoot() string {
 func cacheKey(guardfilePath string) (string, error) {
 	abs, err := filepath.Abs(guardfilePath)
 	if err != nil {
-		return "", fmt.Errorf("specdrv: resolve guardfile path: %w", err)
+		return "", fmt.Errorf("specgen: resolve guardfile path: %w", err)
 	}
 	sum := sha256.Sum256([]byte(abs))
 	return hex.EncodeToString(sum[:])[:16], nil
@@ -47,7 +47,7 @@ func cacheKeyForGroup(g *group) (string, error) {
 	for i, m := range g.Members {
 		a, err := filepath.Abs(m.Path)
 		if err != nil {
-			return "", fmt.Errorf("specdrv: resolve guardfile path: %w", err)
+			return "", fmt.Errorf("specgen: resolve guardfile path: %w", err)
 		}
 		abs[i] = a
 	}
@@ -110,10 +110,10 @@ func readStamp(dir string) (*stamp, bool) {
 func writeStamp(dir string, s stamp) error {
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
-		return fmt.Errorf("specdrv: marshal stamp: %w", err)
+		return fmt.Errorf("specgen: marshal stamp: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, stampName), append(b, '\n'), 0o600); err != nil {
-		return fmt.Errorf("specdrv: write stamp: %w", err)
+		return fmt.Errorf("specgen: write stamp: %w", err)
 	}
 	return nil
 }

@@ -1,4 +1,4 @@
-package specdrv
+package specgen
 
 import (
 	"os"
