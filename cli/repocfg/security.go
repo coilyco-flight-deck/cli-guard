@@ -49,7 +49,7 @@ type ProtectedBinary struct {
 	// only deny-direct is accepted in v1.
 	Mode string
 	// AllowedWrappers names the wrapper commands a human routes through
-	// instead (e.g. "kap", "ward"). Surfaced in remediation text.
+	// instead (e.g. "<cli>", "<cli>-ops"). Surfaced in remediation text.
 	AllowedWrappers []string
 	// ExpectedRealPaths are the canonical install locations of the real
 	// binary, used by doctor to reason about PATH-shim posture.

@@ -10,7 +10,7 @@ import (
 func writeConfig(t *testing.T, body string) string {
 	t.Helper()
 	dir := t.TempDir()
-	p := filepath.Join(dir, "ward.yaml")
+	p := filepath.Join(dir, "myapp.yaml")
 	if err := os.WriteFile(p, []byte(body), 0o644); err != nil { //nolint:gosec
 		t.Fatal(err)
 	}
@@ -138,10 +138,10 @@ func TestCheck_DependsOnNotList(t *testing.T) {
 
 func TestCheck_FirstExistingWins(t *testing.T) {
 	dir := t.TempDir()
-	primary := filepath.Join(dir, "ward.yaml")
-	// coily.yaml is the retained legacy fallback candidate: a consumer that
-	// honored coily's filename before adopting ward keeps working.
-	fallback := filepath.Join(dir, "coily.yaml")
+	primary := filepath.Join(dir, "myapp.yaml")
+	// legacy.yaml is the retained fallback candidate: a consumer that honored
+	// an older filename before adopting its current one keeps working.
+	fallback := filepath.Join(dir, "legacy.yaml")
 	// Only the fallback exists; Check should probe past the missing primary.
 	if err := os.WriteFile(fallback, []byte(cleanCatalog), 0o644); err != nil { //nolint:gosec
 		t.Fatal(err)
@@ -157,8 +157,8 @@ func TestCheck_FirstExistingWins(t *testing.T) {
 
 func TestCheck_PrimaryPreferredOverFallback(t *testing.T) {
 	dir := t.TempDir()
-	primary := filepath.Join(dir, "ward.yaml")
-	fallback := filepath.Join(dir, "coily.yaml")
+	primary := filepath.Join(dir, "myapp.yaml")
+	fallback := filepath.Join(dir, "legacy.yaml")
 	// Primary is broken, fallback is clean. Primary exists, so it wins and
 	// its problem surfaces - the fallback is never consulted.
 	if err := os.WriteFile(primary, []byte("commands: {}\n"), 0o644); err != nil { //nolint:gosec
@@ -178,7 +178,7 @@ func TestCheck_PrimaryPreferredOverFallback(t *testing.T) {
 
 func TestCheck_NoConfigFound(t *testing.T) {
 	dir := t.TempDir()
-	_, err := Check(filepath.Join(dir, "ward.yaml"), filepath.Join(dir, "coily.yaml"))
+	_, err := Check(filepath.Join(dir, "myapp.yaml"), filepath.Join(dir, "legacy.yaml"))
 	if err == nil || !strings.Contains(err.Error(), "no config found") {
 		t.Fatalf("want no-config error, got %v", err)
 	}

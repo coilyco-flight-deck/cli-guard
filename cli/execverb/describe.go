@@ -11,7 +11,7 @@ import (
 // Surface is the in-engine model of a mounted exec surface: the wrapped binary,
 // the fixed argv prefix, and every granted subcommand leaf.
 type Surface struct {
-	Group      []string    `json:"group"`                 // command path, e.g. ["ward","ops","aws"]
+	Group      []string    `json:"group"`                 // command path, e.g. ["<cli>","ops","aws"]
 	Bin        string      `json:"bin"`                   // the wrapped binary, fixed at parse; empty for an inspect list
 	ArgvPrefix []string    `json:"argv_prefix,omitempty"` // unoverridable leading argv
 	Env        []string    `json:"env,omitempty"`         // env injections as "NAME = provider address" (source, never the resolved value)
@@ -23,7 +23,7 @@ type Surface struct {
 // GrantInfo is one mounted grant: its CLI placement, the real invocation it
 // authorizes, its flag policy, and any gates/guards that can still refuse it.
 type GrantInfo struct {
-	Name       string   `json:"name"`                  // dotted audit name, e.g. ward.ops.aws.s3.ls
+	Name       string   `json:"name"`                  // dotted audit name, e.g. <cli>.ops.aws.s3.ls
 	Subcommand []string `json:"subcommand,omitempty"`  // e.g. ["s3","ls"]; empty for the wildcard
 	Bin        string   `json:"bin,omitempty"`         // the funnel's own binary, set only for an inspect-list (`allow`) leaf
 	Exec       []string `json:"exec,omitempty"`        // tokens appended after the binary: the argv override when set, else the subcommand
