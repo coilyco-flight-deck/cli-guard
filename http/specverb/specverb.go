@@ -290,6 +290,18 @@ type grantKey struct {
 // API-specific: `delete` is destructive whatever the resource.
 var destructiveVerbs = map[string]bool{"delete": true}
 
+// overriddenKeys maps each (verb, resource) an `override can` re-grants, so a deny
+// it lifts mounts no teaching leaf and the override's allow leaf stands instead.
+func overriddenKeys(gf *guardfile.Guardfile) map[grantKey]bool {
+	keys := map[grantKey]bool{}
+	for _, g := range gf.Grants {
+		if g.Override {
+			keys[grantKey{Verb: g.Verb, Resource: g.Resource}] = true
+		}
+	}
+	return keys
+}
+
 // grantedGrants maps each `can` grant by its (verb, resource) placement, so an
 // action can recover the grant - and its op - for a leaf it polls or calls.
 func grantedGrants(gf *guardfile.Guardfile) map[grantKey]guardfile.Grant {
@@ -300,16 +312,16 @@ func grantedGrants(gf *guardfile.Guardfile) map[grantKey]guardfile.Grant {
 			continue
 		}
 		k := grantKey{Verb: g.Verb, Resource: g.Resource}
-		if _, blocked := denied[k]; blocked {
-			continue // a denied leaf is not pollable by an action
+		if _, blocked := denied[k]; blocked && !g.Override {
+			continue // a denied leaf is not pollable - unless an override crosses the deny
 		}
 		keys[k] = g
 	}
 	return keys
 }
 
-// resolveDescriptors resolves every `can` grant into a concrete descriptor, in
-// first-seen order, dropping any `can` a deny also names (deny beats allow).
+// resolveDescriptors resolves every `can` grant into a concrete descriptor; a deny
+// drops a matching plain `can` but an `override` crosses it. See specverb-override.md.
 func resolveDescriptors(spec *spec, gf *guardfile.Guardfile) ([]opDescriptor, error) {
 	denied := deniedKeys(gf)
 	var descs []opDescriptor
@@ -317,8 +329,8 @@ func resolveDescriptors(spec *spec, gf *guardfile.Guardfile) ([]opDescriptor, er
 		if g.Modal != "can" {
 			continue
 		}
-		if _, blocked := denied[grantKey{Verb: g.Verb, Resource: g.Resource}]; blocked {
-			continue // a cannot/never for this class beats the allow
+		if _, blocked := denied[grantKey{Verb: g.Verb, Resource: g.Resource}]; blocked && !g.Override {
+			continue // a cannot/never beats a plain allow; only an override survives it
 		}
 		desc, err := resolveDescriptor(spec, gf.Group, g)
 		if err != nil {
@@ -424,7 +436,12 @@ func formatGrant(g guardfile.Grant) string {
 	if g.Wildcard {
 		resource = `"*"` // a wildcard-expanded grant reads as the verb-global rule that authorized it
 	}
-	parts := append([]string{g.Modal, g.Verb, resource}, g.Qualifiers...)
+	var parts []string
+	if g.Override {
+		parts = append(parts, "override") // an escalation reads as `override can <verb> <resource>`
+	}
+	parts = append(parts, g.Modal, g.Verb, resource)
+	parts = append(parts, g.Qualifiers...)
 	return strings.Join(parts, " ")
 }
 

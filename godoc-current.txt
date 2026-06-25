@@ -1827,6 +1827,10 @@ type Grant struct {
 	// Wildcard is set when the resource was authored as the `"*"` sentinel: the
 	// engine expands it to one concrete grant per spec resource exposing the verb.
 	Wildcard bool
+
+	// Override is set for an `override can <verb> <resource>` grant: the sole
+	// construct that crosses an inherited `never`. It carries Modal "can".
+	Override bool
 }
     Grant is one policy sentence: modal verb resource [qualifiers...]
     [key=value...]. Resource is the CLI group, Verb the leaf, Op the

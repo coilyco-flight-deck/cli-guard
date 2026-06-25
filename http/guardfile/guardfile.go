@@ -69,6 +69,10 @@ type Grant struct {
 	// Wildcard is set when the resource was authored as the `"*"` sentinel: the
 	// engine expands it to one concrete grant per spec resource exposing the verb.
 	Wildcard bool
+
+	// Override is set for an `override can <verb> <resource>` grant: the sole
+	// construct that crosses an inherited `never`. It carries Modal "can".
+	Override bool
 }
 
 // Restriction is a wrap-level `restrict <param> matches "<glob>"...` allowlist:
@@ -168,6 +172,13 @@ type Guardfile struct {
 // modals is the closed set of grant verbs; anything else fails closed.
 var modals = map[string]bool{"can": true, "cannot": true, "never": true}
 
+// overrideNode is the escalation directive's node name: `override can <verb>
+// <resource>` re-grants a single denied class by name. See specverb-inherit.md.
+const overrideNode = "override"
+
+// isDenyModal reports whether a modal denies (cannot/never) rather than grants.
+func isDenyModal(modal string) bool { return modal == "cannot" || modal == "never" }
+
 // Parse turns Guardfile source into a Guardfile. It fails closed: an unknown
 // node, a missing required field, or a malformed sentence is an error.
 func Parse(src []byte) (*Guardfile, error) {
@@ -202,8 +213,8 @@ func Parse(src []byte) (*Guardfile, error) {
 // applyNode dispatches one child of the wrap block onto gf.
 func (gf *Guardfile) applyNode(n *kdl.Node) error {
 	name := n.Name()
-	if modals[name] {
-		g, err := parseGrant(n)
+	if isGrantNode(name) {
+		g, err := parseGrantOrOverride(n)
 		if err != nil {
 			return err
 		}
@@ -325,8 +336,37 @@ func (gf *Guardfile) validate() error {
 	if gf.BaseURL != "" && !gf.BaseURLValue.IsZero() {
 		return fmt.Errorf("guardfile: base-url set both as a string and a `{ value }` block; pick one")
 	}
+	return gf.validateOverrides()
+}
+
+// validateOverrides fails closed on a no-op `override` (one crossing no deny):
+// silently it is a plain `can`. See docs/specverb-override.md.
+func (gf *Guardfile) validateOverrides() error {
+	for _, g := range gf.Grants {
+		if !g.Override {
+			continue
+		}
+		if !gf.denyCovers(g.Verb, g.Resource) {
+			return fmt.Errorf("guardfile: `override can %s %s` lifts no `never`/`cannot` (it would be a silent no-op `can`); deny the class first or drop the override",
+				g.Verb, g.Resource)
+		}
+	}
 	return nil
 }
+
+// denyCovers reports whether some deny grant blocks (verb, resource): a matching
+// `never`/`cannot` for the exact resource or for the verb-global `"*"`.
+func (gf *Guardfile) denyCovers(verb, resource string) bool {
+	for _, d := range gf.Grants {
+		if isDenyModal(d.Modal) && d.Verb == verb && (d.Resource == resource || d.Resource == wildcardSentinel) {
+			return true
+		}
+	}
+	return false
+}
+
+// wildcardSentinel is the verb-global resource sentinel a `*` grant carries.
+const wildcardSentinel = "*"
 
 // parseAuth reads the auth block, dispatching on the named scheme. Three are
 // supported: header-token, bearer, query-param. See docs/specverb.md.
@@ -445,6 +485,43 @@ func parseGrant(n *kdl.Node) (Grant, error) {
 		g.Wildcard = true // verb-global: expanded per resource by the engine
 	}
 	for _, q := range args[2:] {
+		g.Qualifiers = append(g.Qualifiers, q.String())
+	}
+	for k, v := range n.Properties() {
+		if g.Props == nil {
+			g.Props = map[string]string{}
+		}
+		g.Props[k] = v.String()
+	}
+	for _, c := range n.Children().Nodes {
+		if err := applyGrantChild(&g, n.Name(), c); err != nil {
+			return Grant{}, err
+		}
+	}
+	return g, nil
+}
+
+// parseGrantOrOverride lowers a grant sentence: a modal `can`/`cannot`/`never`,
+// or the `override can …` escalation form.
+func parseGrantOrOverride(n *kdl.Node) (Grant, error) {
+	if n.Name() == overrideNode {
+		return parseOverride(n)
+	}
+	return parseGrant(n)
+}
+
+// parseOverride reads `override can <verb> <resource>`: only the `can` form is
+// valid and the resource must be named (`*` rejected). See specverb-override.md.
+func parseOverride(n *kdl.Node) (Grant, error) {
+	args := n.Arguments()
+	if len(args) < 3 || args[0].String() != "can" {
+		return Grant{}, fmt.Errorf("guardfile: `override` must read `override can <verb> <resource>` (the only escalation form)")
+	}
+	g := Grant{Modal: "can", Override: true, Verb: args[1].String(), Resource: args[2].String()}
+	if g.Resource == "*" {
+		return Grant{}, fmt.Errorf("guardfile: `override can %s \"*\"` is not allowed: an override names one resource so every escalation is reviewable by name", g.Verb)
+	}
+	for _, q := range args[3:] {
 		g.Qualifiers = append(g.Qualifiers, q.String())
 	}
 	for k, v := range n.Properties() {
