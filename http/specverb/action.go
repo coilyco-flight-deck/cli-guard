@@ -107,6 +107,12 @@ func resolveAction(spec *spec, gf *guardfile.Guardfile, granted map[grantKey]gua
 	if a.Collect != nil {
 		return resolveCollectAction(spec, gf, granted, a)
 	}
+	return resolvePollAction(spec, gf, granted, a)
+}
+
+// resolvePollAction resolves a poll action: it binds the granted leaf, parses the
+// loop bounds, and validates the until/fail-when/arg/default gates, all fail-closed.
+func resolvePollAction(spec *spec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant, a guardfile.Action) (actionDescriptor, error) {
 	p := a.Poll
 	// Granted-only: an action may only poll an op the same Guardfile grants.
 	g, ok := granted[grantKey{Verb: p.Verb, Resource: p.Resource}]
@@ -775,7 +781,8 @@ func actionDescription(ad actionDescriptor) string {
 	if ad.Describe != "" {
 		fmt.Fprintf(&b, "%s\n\n", ad.Describe)
 	}
-	if ad.isCall() {
+	switch {
+	case ad.isCall():
 		b.WriteString("Runs this sequence of granted calls, threading $step.field data between them:\n")
 		for i, s := range ad.Calls {
 			fmt.Fprintf(&b, "  %d. %s %s", i+1, s.Leaf.Method, s.Leaf.Path)
@@ -784,10 +791,10 @@ func actionDescription(ad actionDescriptor) string {
 			}
 			b.WriteString("\n")
 		}
-	} else if ad.isCollect() {
+	case ad.isCollect():
 		fmt.Fprintf(&b, "Collects every page from %s %s, incrementing %q and appending array responses until a page returns fewer than %d item(s).\n", ad.Collect.Leaf.Method, ad.Collect.Leaf.Path, ad.Collect.PageParam, ad.Collect.DefaultLimit)
 		fmt.Fprintf(&b, "\nAuthorized by grant: %s.\n", ad.Collect.Leaf.Grant)
-	} else {
+	default:
 		fmt.Fprintf(&b, "Polls %s %s every %s, up to %s, until:\n  %s\n", ad.Leaf.Method, ad.Leaf.Path, ad.Every, ad.Timeout, ad.Until)
 		fmt.Fprintf(&b, "\nAuthorized by grant: %s.\n", ad.Leaf.Grant)
 		if defaults := defaultedInputs(ad); len(defaults) > 0 {

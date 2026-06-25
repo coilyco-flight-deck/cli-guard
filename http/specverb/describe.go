@@ -194,11 +194,12 @@ func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor,
 	}
 	for _, a := range actions {
 		info := ActionInfo{Name: a.VerbName, Leaf: a.Name, Describe: a.Describe, FailWhen: a.FailWhen, MountVerb: a.MountVerb, MountResource: a.MountResource}
-		if a.isCall() {
+		switch {
+		case a.isCall():
 			for _, step := range a.Calls {
 				info.Calls = append(info.Calls, ActionCallInfo{Method: step.Leaf.Method, Path: step.Leaf.Path, Grant: step.Leaf.Grant, As: step.As})
 			}
-		} else if a.isCollect() {
+		case a.isCollect():
 			info.Collect = &ActionCollectInfo{
 				Method:       a.Collect.Leaf.Method,
 				Path:         a.Collect.Leaf.Path,
@@ -208,7 +209,7 @@ func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor,
 				DefaultLimit: a.Collect.DefaultLimit,
 				As:           a.Collect.As,
 			}
-		} else {
+		default:
 			info.Method, info.Path, info.Grant = a.Leaf.Method, a.Leaf.Path, a.Leaf.Grant
 			info.Every, info.Timeout, info.Until = a.Every.String(), a.Timeout.String(), a.Until
 			for _, in := range defaultedInputs(a) {
@@ -341,11 +342,12 @@ func writeActions(b *strings.Builder, prefix string, actions []ActionInfo) {
 		if a.MountResource != "" {
 			fmt.Fprintf(b, "Shadows the generated `%s %s` leaf: invoking it runs this composite in the leaf's place.\n\n", a.MountResource, a.MountVerb)
 		}
-		if len(a.Calls) > 0 {
+		switch {
+		case len(a.Calls) > 0:
 			writeCallAction(b, a)
-		} else if a.Collect != nil {
+		case a.Collect != nil:
 			writeCollectAction(b, a)
-		} else {
+		default:
 			fmt.Fprintf(b, "Complex action. Polls `%s %s` every %s, up to %s, until:\n\n", a.Method, a.Path, a.Every, a.Timeout)
 			fmt.Fprintf(b, "    %s\n\n", a.Until)
 			fmt.Fprintf(b, "Authorized by grant: %s.\n", a.Grant)

@@ -95,20 +95,20 @@ func (rt *runtime) runCollectAction(ctx context.Context, c *cli.Command, ad acti
 		return err
 	}
 	if dry {
-		method, url, body, contentType, berr := rt.buildCollectRequest(ctx, dry, ad.Collect, strVars, 1, limit)
+		method, url, contentType, berr := rt.buildCollectRequest(ctx, dry, ad.Collect, strVars, 1, limit)
 		if berr != nil {
 			return berr
 		}
-		return rt.renderCollectPlan(ad, method, url, body, contentType, limit, c.String(flagOutput))
+		return rt.renderCollectPlan(ad, method, url, nil, contentType, limit, c.String(flagOutput))
 	}
 
 	var all []any
 	for page := 1; ; page++ {
-		method, url, body, contentType, berr := rt.buildCollectRequest(ctx, dry, ad.Collect, strVars, page, limit)
+		method, url, contentType, berr := rt.buildCollectRequest(ctx, dry, ad.Collect, strVars, page, limit)
 		if berr != nil {
 			return berr
 		}
-		decoded, _, ferr := rt.fireCallAudited(ctx, ad.Collect.Leaf, method, url, body, contentType, c)
+		decoded, _, ferr := rt.fireCallAudited(ctx, ad.Collect.Leaf, method, url, nil, contentType, c)
 		if ferr != nil {
 			return exitcode.New(exitcode.UpstreamFailed, "action_failed", fmt.Errorf("collect page %d (%s): %w", page, ad.Collect.Leaf.Leaf, ferr), "a page in the collection failed; the accumulated result was not emitted")
 		}
@@ -135,10 +135,7 @@ func (rt *runtime) runCollectAction(ctx context.Context, c *cli.Command, ad acti
 func collectLimit(ad actionDescriptor, strVars map[string]string) (int, error) {
 	limit := ad.Collect.DefaultLimit
 	if ad.Collect.Limit != "" {
-		v, ok, err := resolveCollectArgValue(ad.Collect.Limit, strVars)
-		if err != nil {
-			return 0, err
-		}
+		v, ok := resolveCollectArgValue(ad.Collect.Limit, strVars)
 		if !ok {
 			return limit, nil
 		}
@@ -151,31 +148,28 @@ func collectLimit(ad actionDescriptor, strVars map[string]string) (int, error) {
 	return limit, nil
 }
 
-func (rt *runtime) buildCollectRequest(ctx context.Context, dry bool, col *collectStep, strVars map[string]string, page, limit int) (method, url string, body []byte, contentType string, err error) {
+func (rt *runtime) buildCollectRequest(ctx context.Context, dry bool, col *collectStep, strVars map[string]string, page, limit int) (method, url, contentType string, err error) {
 	b := newArgBinder(col.Leaf)
 	for _, arg := range col.Args {
-		val, ok, rerr := resolveCollectArgValue(arg.Value, strVars)
-		if rerr != nil {
-			return "", "", nil, "", exitcode.New(exitcode.UserError, "user_error", fmt.Errorf("action arg %q: %w", arg.Name, rerr), "supply the input this arg references")
-		}
+		val, ok := resolveCollectArgValue(arg.Value, strVars)
 		if !ok {
 			continue
 		}
 		if berr := b.bind(arg.Name, val); berr != nil {
-			return "", "", nil, "", berr
+			return "", "", "", berr
 		}
 	}
 	if berr := b.bind(col.PageParam, strconv.Itoa(page)); berr != nil {
-		return "", "", nil, "", berr
+		return "", "", "", berr
 	}
 	if berr := b.bind(col.LimitParam, strconv.Itoa(limit)); berr != nil {
-		return "", "", nil, "", berr
+		return "", "", "", berr
 	}
 	if berr := b.requireAllPaths(); berr != nil {
-		return "", "", nil, "", berr
+		return "", "", "", berr
 	}
 	if rerr := rt.checkRestrictions(col.Leaf.PathParams, b.pathVals); rerr != nil {
-		return "", "", nil, "", rerr
+		return "", "", "", rerr
 	}
 	qs := ""
 	if len(b.query) > 0 {
@@ -183,22 +177,22 @@ func (rt *runtime) buildCollectRequest(ctx context.Context, dry bool, col *colle
 	}
 	base, berr := rt.baseForRequest(ctx, dry)
 	if berr != nil {
-		return "", "", nil, "", berr
+		return "", "", "", berr
 	}
 	url = base + fillPath(col.Leaf.Path, b.pathVals) + qs
-	return col.Leaf.Method, url, nil, contentTypeJSON, nil
+	return col.Leaf.Method, url, contentTypeJSON, nil
 }
 
-func resolveCollectArgValue(value string, strVars map[string]string) (string, bool, error) {
+func resolveCollectArgValue(value string, strVars map[string]string) (resolved string, ok bool) {
 	if !strings.HasPrefix(value, "$") {
-		return value, true, nil
+		return value, true
 	}
 	ref := strings.TrimPrefix(value, "$")
 	v, ok := strVars[ref]
 	if !ok {
-		return "", false, nil
+		return "", false
 	}
-	return v, true, nil
+	return v, true
 }
 
 func (rt *runtime) renderCollectPlan(ad actionDescriptor, method, url string, body []byte, contentType string, limit int, output string) error {

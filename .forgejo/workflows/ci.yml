@@ -1,0 +1,89 @@
+# Forgejo-canonical CI gate. Mirrors the pre-commit suite (vet, build, test,
+# golangci-lint, godoc-current, go mod tidy, secret scan) so the gate is enforced
+# on the canonical remote even when a contributor's container lacks golangci-lint
+# or trufflehog on PATH. The GitHub mirror's .github/workflows/ci.yml stays the
+# PR-gated twin. See #165.
+#
+# GO_VERSION is pinned to the toolchain the module builds with (go.mod go 1.25.5).
+# The docker runner ships no Go, golangci-lint, or trufflehog, so every job
+# installs its own tooling from the upstream tarball/installer.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.26.4"
+
+jobs:
+  test:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Install Go
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz
+          tar -xzf /tmp/go.tar.gz -C /usr/local
+          echo "/usr/local/go/bin" >> "$GITHUB_PATH"
+      - name: go vet
+        run: go vet ./...
+      - name: go build
+        run: go build ./...
+      - name: go test
+        run: go test -race -count=1 ./...
+      - name: godoc-current.txt up to date
+        run: ./scripts/check-godoc-current.sh
+      - name: go.mod tidy
+        run: |
+          set -euo pipefail
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+  lint:
+    runs-on: docker
+    env:
+      GOLANGCI_LINT_VERSION: v2.12.2
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Go
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz
+          tar -xzf /tmp/go.tar.gz -C /usr/local
+          echo "/usr/local/go/bin" >> "$GITHUB_PATH"
+      - name: Install golangci-lint
+        run: |
+          set -euo pipefail
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
+            | sh -s -- -b /usr/local/bin "${GOLANGCI_LINT_VERSION}"
+      - name: golangci-lint
+        run: golangci-lint run --timeout=5m ./...
+
+  secrets:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install TruffleHog
+        run: |
+          set -euo pipefail
+          curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh \
+            | sh -s -- -b /usr/local/bin
+      - name: Scan filesystem for secrets
+        run: |
+          set -euo pipefail
+          printf '(^|/)\\.git/\n' > /tmp/trufflehog-exclude
+          trufflehog filesystem . \
+            --no-verification --no-update --fail \
+            --exclude-paths=/tmp/trufflehog-exclude
