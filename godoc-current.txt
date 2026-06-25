@@ -720,6 +720,17 @@ func LeadingToken(seg string) string
     LeadingToken returns the first whitespace-delimited token of seg. "gh issue
     view" -> "gh", "" -> "".
 
+func LoadSettings(path string) (map[string]any, error)
+    LoadSettings reads a settings.json. A missing or empty file returns an empty
+    map; malformed JSON is an error (never silently overwritten).
+
+func MarshalSettings(m map[string]any) ([]byte, error)
+    MarshalSettings emits two-space-indented JSON with a trailing newline.
+
+func ResolveSettingsPath(explicit string) (string, error)
+    ResolveSettingsPath returns the absolute settings.json path: explicit made
+    absolute, else auto-detected as <git-toplevel-of-cwd>/.claude/settings.json.
+
 func SplitSegments(cmd string) []string
     SplitSegments breaks a bash command into the leading-token segments the
     engine classifies. Splits on $( ) || && | ; & boundaries.
@@ -727,6 +738,10 @@ func SplitSegments(cmd string) []string
 func StripEnvPrefix(seg string) string
     StripEnvPrefix peels leading `env VAR=val ...` and `sudo` tokens so `env
     FOO=bar gh issue view` classifies the same as bare
+
+func WriteSettings(path string, data []byte) error
+    WriteSettings writes data to path atomically (tempfile + rename), creating
+    the parent directory if missing.
 
 
 TYPES
@@ -755,6 +770,36 @@ type ForbiddenArgv struct {
     ForbiddenArgv denies a whole command segment by glob, distinguishing
     read from write verbs where the basename-only Protected cannot. See
     docs/FEATURES.md.
+
+type Guard struct {
+	// Name is the guard's binary name, e.g. "ward". Detect returns it and
+	// PreToolUse stamps it as the deny-message source label.
+	Name string
+	// Marker is the repo-root-relative config file marking a governed tree,
+	// e.g. ".ward/ward.yaml". Detect walks up from a directory looking for it.
+	Marker string
+	// Routes is the bare-token recovery table for this guard.
+	Routes []Route
+	// Integrity is the guard-binary path allow-list for this guard.
+	Integrity []IntegrityRule
+}
+    Guard describes one detectable guard: its binary Name, the config Marker
+    that identifies a governed tree, and the Route / IntegrityRule tables.
+
+type Installer struct {
+	// Matcher is the PreToolUse matcher the hook registers under, e.g. "Bash".
+	Matcher string
+	// Command is the hook command line to run.
+	Command string
+	// Type is the hook entry type; defaults to "command" when empty.
+	Type string
+}
+    Installer idempotently registers a PreToolUse hook command in a Claude Code
+    settings.json. See docs/ward-helpers.md for the additive-merge rules.
+
+func (in Installer) Ensure(settings map[string]any) (bool, map[string]any)
+    Ensure returns (present, merged): whether settings already register this
+    Matcher+Command, and a deep copy with the entry added if it was missing.
 
 type IntegrityRule struct {
 	Binary       string
@@ -790,6 +835,25 @@ type Protected struct {
 }
     Protected names a host binary whose direct invocation by an agent is denied.
     Matches by basename, closing the absolute-path bypass a token deny leaves.
+
+type Registry struct {
+	// Default is the guard name Detect returns when no marker is found, and
+	// the fallback Guard lookup uses for an unknown name.
+	Default string
+	// Guards is the registered guard set, checked in order.
+	Guards []Guard
+}
+    Registry holds the guards a hook can detect plus a Default name for when no
+    marker is found. Guards are checked in registration order (first wins).
+
+func (r Registry) Detect(start string) string
+    Detect walks up from start and returns the name of the first guard whose
+    marker is found. An empty start, an unresolvable path, or no marker:
+    Default.
+
+func (r Registry) Guard(name string) (Guard, bool)
+    Guard returns the registered guard for name, falling back to Default;
+    ok is false only when neither name nor Default resolves.
 
 type Route struct {
 	// Token is the bare leading-token to match, e.g. "gh", "brew".
@@ -2409,6 +2473,48 @@ func WithTTLCache(inner SecretResolver, ttl time.Duration, persistPath string) S
     JSON file at persistPath. Cache shape:
 
 
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/attribution
+
+package attribution // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/attribution"
+
+Package attribution renders the identity a driving agent signs its work with:
+a one-line label ("Claude (she/her)"), an idempotent markdown footer appended to
+bodies an agent posts, and a git Co-Authored-By trailer. It is consumer-agnostic
+- the caller supplies the identity and the tool-specific text, so any harness
+can sign with its own agents rather than a baked-in roster.
+
+TYPES
+
+type Identity struct {
+	// Name is the agent's display name, e.g. "Claude" or "Goose".
+	Name string
+	// Pronouns is optional; when set it renders parenthesised after the name.
+	Pronouns string
+}
+    Identity is who an agent signs as: a display name and optional pronouns.
+
+func (i Identity) Label() string
+    Label renders the one-line identity: "Claude (she/her)" when pronouns are
+    known, otherwise just "Goose".
+
+type Signer struct {
+	Identity Identity
+	Marker   string
+	Via      string
+	Email    string
+}
+    Signer signs bodies and commits with an Identity, using consumer-supplied
+    text: an idempotency Marker, a footer tail Via, and a commit-trailer Email.
+
+func (s Signer) CommitTrailer() string
+    CommitTrailer renders the git Co-Authored-By trailer tagging a commit with
+    the signing agent.
+
+func (s Signer) SignBody(body string) string
+    SignBody idempotently appends the attribution footer to a body. A body
+    already carrying Marker (or a Signer with no Marker) is returned unchanged.
+
+
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/audit
 
 package audit // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/audit"
@@ -3091,6 +3197,106 @@ type Reasoner interface {
     a why-line: a one-sentence statement of the threat or
 
 
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/flock
+
+package flock // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/flock"
+
+Package flock wraps the BSD advisory whole-file lock (flock(2)) so a consumer
+can serialise mutually-exclusive work across processes that share a lock file -
+e.g. one warm-cache writer at a time. The lock is advisory: it only constrains
+cooperating processes that also call here.
+
+Exclusive blocks until it holds the lock; Unlock releases it. Both take the
+*os.File the caller opened on the shared lock path and keep open for the lock's
+lifetime. On non-unix builds both degrade to a no-op, since the advisory flock
+syscall is unix-only.
+
+FUNCTIONS
+
+func Exclusive(f *os.File) error
+    Exclusive takes a blocking exclusive (LOCK_EX) advisory lock on f, held
+    until Unlock or f is closed.
+
+func Unlock(f *os.File) error
+    Unlock releases the advisory lock held on f (LOCK_UN). Releasing a file that
+    holds no lock is harmless.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/issueref
+
+package issueref // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/issueref"
+
+Package issueref parses an issue reference into its owner / repo / number parts.
+It is the standalone, dependency-free form of the parse a dispatcher does
+(cli/dispatch keeps a Dispatcher-bound variant for its own flow); any consumer
+that just needs to turn a ref string into parts can call Parse without wiring a
+whole dispatcher.
+
+Three forms parse:
+
+    owner/repo#N                              short form
+    #N  or  N                                 bare form (owner/repo empty)
+    <baseURL>/owner/repo/issues/N             Forgejo-style issue URL
+
+A trailing slash and any appended ?query / #fragment are tolerated, so a
+browser-copied URL parses unedited. The number must be a positive integer.
+The bare form carries only the number, leaving owner and repo empty for the
+caller to fill from context (e.g. the cwd's git origin).
+
+TYPES
+
+type Ref struct {
+	Owner  string
+	Repo   string
+	Number int
+}
+    Ref is a parsed issue reference. Owner and Repo are empty for a bare ref.
+
+func Parse(s, baseURL string) (Ref, error)
+    Parse resolves owner/repo#N, a bare #N / N, or a Forgejo issue URL under
+    baseURL (empty disables URL parsing). The number must be positive.
+
+func (r Ref) RepoSlug() string
+    RepoSlug renders the owner/repo pair without the issue number.
+
+func (r Ref) String() string
+    String renders the canonical owner/repo#N short form.
+
+func (r Ref) URL(baseURL string) string
+    URL renders the canonical Forgejo issue URL under baseURL.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/ownertrust
+
+package ownertrust // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/ownertrust"
+
+Package ownertrust is the allow-list gate for which repository owners a
+dispatcher will act on. An agent that runs with elevated permissions (bypassing
+the usual approval prompts) must refuse to fan out into an untrusted owner's
+repos, so this is the single yes/no check plus the human-readable label naming
+the accepted set for a refusal message.
+
+TYPES
+
+type List struct {
+	// Primary is the main owner the gate accepts. Required for a meaningful
+	// allow-list; an empty Primary accepts nothing (unless Extra is set).
+	Primary string
+	// Extra holds additional accepted owners. Empty means Primary-only.
+	Extra []string
+}
+    List is the accepted-owner set: a required Primary owner plus any number of
+    Extra owners accepted alongside it.
+
+func (l List) Allowed(owner string) bool
+    Allowed reports whether owner is the Primary or a member of Extra. An empty
+    owner is never allowed.
+
+func (l List) Label() string
+    Label renders the accepted-owner set for a refusal message: "<owner>/*" for
+    one owner, or "{primary, a, b}/*" (Primary-first, de-duplicated).
+
+
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/policy
 
 package policy // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/policy"
@@ -3125,6 +3331,59 @@ func ValidateArgSlice(namePrefix string, values []string) error
 func ValidateArgs(args map[string]string) error
     ValidateArgs runs ValidateArg over a map, returning the first violation.
     Convenience for Action funcs that have already gathered flag values.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/scan
+
+package scan // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/scan"
+
+Package scan is the junk-scan: it flags paths in a diff that should not
+silently land on a branch - vendored/generated trees, credential-shaped files,
+and oversized or large-binary blobs. It is pure policy over a caller-supplied
+list of diff entries, with no git or filesystem access, so a reaper, a pre-merge
+gate, or a CI step can all share one ruleset.
+
+Each Entry the caller passes is checked in declaration order; the first matching
+rule per path produces one Finding. An empty result means the diff is clean by
+these rules.
+
+CONSTANTS
+
+const (
+	// OversizedBlobBytes flags any file this large or larger - almost always
+	// a build artifact or a vendored binary rather than authored source.
+	OversizedBlobBytes int64 = 5 << 20 // 5 MiB
+	// BinaryBlobBytes flags binaries at a lower bar than text, since a large
+	// committed binary is rarely intended.
+	BinaryBlobBytes int64 = 1 << 20 // 1 MiB
+)
+
+FUNCTIONS
+
+func HumanBytes(n int64) string
+    HumanBytes renders a size as a compact MiB/KiB/B string for report text.
+
+
+TYPES
+
+type Entry struct {
+	Path   string
+	Bytes  int64
+	Binary bool
+}
+    Entry is one path in a diff, with the metadata the scan needs: its size in
+    bytes and whether the differ treated it as binary.
+
+type Finding struct {
+	Path   string
+	Reason string
+}
+    Finding is one reason a path should not auto-land. Reason is a short
+    human-readable clause naming the rule that matched.
+
+func Diff(entries []Entry) []Finding
+    Diff flags entries that should not silently land: vendored trees,
+    credential-shaped files, oversized/large-binary blobs (first match wins).
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/scope
@@ -3243,6 +3502,32 @@ type Provider func(ctx context.Context, address string) (string, error)
     Provider resolves the value at address for one named value source.
     A consumer registers store-backed resolvers; the same func type drives both
     engines.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/version
+
+package version // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/version"
+
+Package version compares release tags the way a self-update reminder needs:
+parse a vX.Y.Z tag into numeric parts, and decide whether a running build is
+behind the latest release. It is deliberately lenient about tag shape (a missing
+v, a short tag, a -pre/+build suffix) and conservative about its verdict:
+Behind only fires when both tags parse and the comparison is unambiguous,
+so a self-update nag never cries wolf on an unparseable or dev build.
+
+FUNCTIONS
+
+func Behind(current, latest string) bool
+    Behind reports whether current is an older release than latest. A dev,
+    unparseable, or already-current build returns false (fires only if behind).
+
+func LooksReleased(v string) bool
+    LooksReleased reports whether v is a real release tag worth comparing
+    against latest - not the "dev" default and not a blank/source build.
+
+func Parse(tag string) (parts [3]int, ok bool)
+    Parse splits a vX.Y.Z tag into 3 numeric parts, tolerating a missing v,
+    a short tag, and a -pre/+build suffix. ok is false on a bad or empty tag.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/workdir
