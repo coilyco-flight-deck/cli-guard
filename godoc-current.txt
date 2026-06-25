@@ -450,7 +450,7 @@ func (g Grant) ExecArgv() []string
     subcommand.
 
 type GrantInfo struct {
-	Name       string   `json:"name"`                  // dotted audit name, e.g. ward.ops.aws.s3.ls
+	Name       string   `json:"name"`                  // dotted audit name, e.g. <cli>.ops.aws.s3.ls
 	Subcommand []string `json:"subcommand,omitempty"`  // e.g. ["s3","ls"]; empty for the wildcard
 	Bin        string   `json:"bin,omitempty"`         // the funnel's own binary, set only for an inspect-list (`allow`) leaf
 	Exec       []string `json:"exec,omitempty"`        // tokens appended after the binary: the argv override when set, else the subcommand
@@ -465,7 +465,7 @@ type GrantInfo struct {
     authorizes, its flag policy, and any gates/guards that can still refuse it.
 
 type Guardfile struct {
-	Group      []string     // command path, e.g. ["ward", "git"]
+	Group      []string     // command path, e.g. ["<cli>", "git"]
 	Bin        string       // the real binary, fixed at parse
 	ArgvPrefix []string     // unoverridable leading argv (remote-exec transport)
 	Env        []EnvVar     // environment vars set on the wrapped process
@@ -503,7 +503,7 @@ type Runner func(ctx context.Context, bin string, argv, env []string) error
     real.
 
 type Surface struct {
-	Group      []string    `json:"group"`                 // command path, e.g. ["ward","ops","aws"]
+	Group      []string    `json:"group"`                 // command path, e.g. ["<cli>","ops","aws"]
 	Bin        string      `json:"bin"`                   // the wrapped binary, fixed at parse; empty for an inspect list
 	ArgvPrefix []string    `json:"argv_prefix,omitempty"` // unoverridable leading argv
 	Env        []string    `json:"env,omitempty"`         // env injections as "NAME = provider address" (source, never the resolved value)
@@ -1200,7 +1200,7 @@ type ProtectedBinary struct {
 	// only deny-direct is accepted in v1.
 	Mode string
 	// AllowedWrappers names the wrapper commands a human routes through
-	// instead (e.g. "kap", "ward"). Surfaced in remediation text.
+	// instead (e.g. "<cli>", "<cli>-ops"). Surfaced in remediation text.
 	AllowedWrappers []string
 	// ExpectedRealPaths are the canonical install locations of the real
 	// binary, used by doctor to reason about PATH-shim posture.

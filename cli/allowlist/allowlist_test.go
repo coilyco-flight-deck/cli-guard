@@ -10,7 +10,7 @@ import (
 func writeFiles(t *testing.T, yaml, mk string) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
-	yp := filepath.Join(dir, "ward.yaml")
+	yp := filepath.Join(dir, "myapp.yaml")
 	mp := filepath.Join(dir, "Makefile")
 	if err := os.WriteFile(yp, []byte(yaml), 0o644); err != nil { //nolint:gosec
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestLint_MissingYAML(t *testing.T) {
 
 func TestLint_MissingMakefile(t *testing.T) {
 	dir := t.TempDir()
-	yp := filepath.Join(dir, "ward.yaml")
+	yp := filepath.Join(dir, "myapp.yaml")
 	if err := os.WriteFile(yp, []byte(cleanYAML), 0o644); err != nil { //nolint:gosec
 		t.Fatal(err)
 	}

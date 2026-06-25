@@ -109,14 +109,14 @@ func TestOverridePath_RoutesThroughAppDir(t *testing.T) {
 		config.SetAppDir("")
 		SetRegistryFile("")
 	})
-	config.SetAppDir(".ward")
-	SetRegistryFile("ward.yaml")
+	config.SetAppDir(".myapp")
+	SetRegistryFile("myapp.yaml")
 
 	got, err := OverridePath()
 	if err != nil {
 		t.Fatalf("OverridePath: %v", err)
 	}
-	want := filepath.Join(home, ".ward", "ward.yaml")
+	want := filepath.Join(home, ".myapp", "myapp.yaml")
 	if got != want {
 		t.Errorf("OverridePath = %q, want %q", got, want)
 	}
