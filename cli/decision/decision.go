@@ -50,7 +50,7 @@ func Evaluate(profileName string) (*audit.ProfileDecision, error) {
 }
 
 // CoordinatePtr returns a non-nil *profile.Coordinate from the
-// resolver result, suitable for lockdown.Driver.Coordinate. Callers
+// resolver result, suitable for a consumer's per-session lockdown coordinate. Callers
 func CoordinatePtr(profileName string) (*profile.Coordinate, error) {
 	res, err := profiles.Resolve(profileName)
 	if err != nil {
