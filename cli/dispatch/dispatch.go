@@ -38,6 +38,10 @@ type Config struct {
 	// alongside AllowedOwner. Empty means single-owner (AllowedOwner only).
 	AllowedOwners []string
 
+	// Preflight is the consumer's pluggable pre-flight verdict stage, run
+	// after the owner/open checks. Nil GOes; see runPreflight and Verdict.
+	Preflight func(ctx context.Context, ref *IssueRef, issue *Issue) (PreflightResult, error)
+
 	// ForgejoBaseURL enables Forgejo issue refs when set (scheme://host).
 	// Requires FetchForgejoIssue.
 	ForgejoBaseURL string
@@ -82,6 +86,10 @@ type Config struct {
 	WorktreeReapable func(ctx context.Context, runner *shell.Runner, repoPath, branch string) bool
 	WorktreeRemove   func(ctx context.Context, runner *shell.Runner, repoPath, worktreePath, branch string) error
 
+	// Backend places and launches detached workers. Nil installs the
+	// worktree backend; a container backend lifts the WorktreeRoot need.
+	Backend Backend
+
 	// SpawnForeground runs claude -p in the foreground, blocking until the
 	// child exits, returning its exit code. Defaults to spawnForegroundClaude.
 	SpawnForeground func(ctx context.Context, repoPath, bin string, argv, env []string) (int, error)
@@ -112,7 +120,8 @@ type Event struct {
 // Dispatcher is a configured dispatch subsystem. Build one with New and
 // hang Command off the host CLI's command tree.
 type Dispatcher struct {
-	cfg Config
+	cfg     Config
+	backend Backend
 }
 
 // New validates cfg, fills defaults, and returns a Dispatcher. It errors
@@ -122,7 +131,13 @@ func New(cfg Config) (*Dispatcher, error) {
 		return nil, err
 	}
 	applyConfigDefaults(&cfg)
-	return &Dispatcher{cfg: cfg}, nil
+	d := &Dispatcher{cfg: cfg}
+	if cfg.Backend != nil {
+		d.backend = cfg.Backend
+	} else {
+		d.backend = worktreeBackend{d: d}
+	}
+	return d, nil
 }
 
 // validateConfig refuses a Config missing any required seam.
@@ -136,8 +151,8 @@ func validateConfig(cfg Config) error {
 		return fmt.Errorf("dispatch: Config.AllowedOwner is required")
 	case cfg.RepoPath == nil:
 		return fmt.Errorf("dispatch: Config.RepoPath is required")
-	case cfg.WorktreeRoot == nil:
-		return fmt.Errorf("dispatch: Config.WorktreeRoot is required")
+	case cfg.Backend == nil && cfg.WorktreeRoot == nil:
+		return fmt.Errorf("dispatch: Config.WorktreeRoot is required (unless Config.Backend is set)")
 	case cfg.LogRoot == nil:
 		return fmt.Errorf("dispatch: Config.LogRoot is required")
 	case cfg.ForgejoBaseURL != "" && cfg.FetchForgejoIssue == nil:
@@ -337,16 +352,20 @@ const (
 	PlatformForgejo Platform = "forgejo"
 )
 
-// issueRef is the parsed shape of an issue reference. Empty Platform
-// means shortform - resolveDispatchIssue picks a forge.
-type issueRef struct {
+// IssueRef is the parsed shape of an issue reference. Empty Platform
+// means shortform - resolveDispatchIssue picks a forge. Shared core.
+type IssueRef struct {
 	Owner    string
 	Repo     string
 	Number   int
 	Platform Platform
 }
 
-func (i issueRef) String() string {
+// issueRef is the historical internal spelling, kept as an alias so the
+// package's existing call sites compile unchanged.
+type issueRef = IssueRef
+
+func (i IssueRef) String() string {
 	return fmt.Sprintf("%s/%s#%d", i.Owner, i.Repo, i.Number)
 }
 
@@ -383,6 +402,12 @@ func (d *Dispatcher) parseIssueRef(s string) (*issueRef, error) {
 		want += " or " + strings.TrimRight(d.cfg.ForgejoBaseURL, "/") + "/owner/repo/issues/N"
 	}
 	return nil, fmt.Errorf("dispatch: not an issue reference (want %s): %q", want, s)
+}
+
+// ParseIssueRef parses any supported reference form into an IssueRef, so
+// a consumer's Preflight or Backend resolves refs exactly as dispatch does.
+func (d *Dispatcher) ParseIssueRef(s string) (*IssueRef, error) {
+	return d.parseIssueRef(s)
 }
 
 func buildRef(m []string, platform Platform, s string) (*issueRef, error) {
@@ -449,6 +474,9 @@ func (d *Dispatcher) resolveDispatchIssue(ctx context.Context, raw string) (*iss
 	}
 	if !strings.EqualFold(issue.State, "OPEN") {
 		return nil, nil, fmt.Errorf("dispatch: refusing to dispatch against non-open issue %s (state=%s)", ref, issue.State)
+	}
+	if err := d.runPreflight(ctx, ref, issue); err != nil {
+		return nil, nil, err
 	}
 	return ref, issue, nil
 }
@@ -539,26 +567,41 @@ func (d *Dispatcher) runDetached(ctx context.Context, c *cli.Command, spec detac
 	permMode := c.String("permission-mode")
 	allowedTools := c.String("allowed-tools")
 
-	// Detached surfaces each get their own worktree+branch so concurrent
-	// workers never share a working tree.
+	// The backend places and launches the detached worker (worktree by
+	// default, or a consumer's container backend).
 	if !c.Bool("dry-run") {
 		d.reapBeforeDetachedDispatch(ctx, spec.mode)
 	}
-	cwd, err := d.resolveDetachedCwd(ctx, repoPath, ref, issue.Title, c.Bool("dry-run"))
-	if err != nil {
-		return fmt.Errorf("dispatch %s: %w", spec.mode, err)
-	}
 
 	if c.Bool("dry-run") {
+		cwd, err := d.backend.Prepare(ctx, repoPath, ref, issue.Title, true)
+		if err != nil {
+			return fmt.Errorf("dispatch %s: %w", spec.mode, err)
+		}
 		return printDetachedDryRun(spec.mode, c, ref, issue, cwd, permMode, allowedTools, prompt)
 	}
 
-	return d.spawnDetachedWorker(c, spec, ref, issue, cwd, prompt, permMode, allowedTools)
+	// Reserve before provisioning, and release if the launch aborts. A
+	// successful spawn hands the reservation to the worker; reap frees it.
+	reservation, err := d.backend.Reserve(ctx, ref)
+	if err != nil {
+		return fmt.Errorf("dispatch %s: reserve backend capacity: %w", spec.mode, err)
+	}
+	cwd, err := d.backend.Prepare(ctx, repoPath, ref, issue.Title, false)
+	if err != nil {
+		_ = reservation.Release()
+		return fmt.Errorf("dispatch %s: %w", spec.mode, err)
+	}
+	if err := d.spawnDetachedWorker(ctx, c, spec, ref, issue, cwd, repoPath, reservation, prompt, permMode, allowedTools); err != nil {
+		_ = reservation.Release()
+		return err
+	}
+	return nil
 }
 
 // spawnDetachedWorker pre-trusts the worktree, spawns the detached child,
 // and records the status sidecar. Split out to keep runDetached's complexity down.
-func (d *Dispatcher) spawnDetachedWorker(c *cli.Command, spec detachedSpec, ref *issueRef, issue *ghIssue, cwd, prompt, permMode, allowedTools string) error {
+func (d *Dispatcher) spawnDetachedWorker(ctx context.Context, c *cli.Command, spec detachedSpec, ref *issueRef, issue *ghIssue, cwd, repoPath string, reservation Reservation, prompt, permMode, allowedTools string) error {
 	// Pre-trust the worktree so the detached child never stalls on the
 	// folder-trust prompt. Soft-fail.
 	if err := d.ensureClaudeFolderTrust(cwd); err != nil {
@@ -576,7 +619,17 @@ func (d *Dispatcher) spawnDetachedWorker(c *cli.Command, spec detachedSpec, ref 
 	if err != nil {
 		return fmt.Errorf("dispatch %s: resolve log path: %w", spec.mode, err)
 	}
-	pid, err := d.cfg.SpawnDetached(cwd, logPath, bin, argv, detachedEnv(d.cfg.Runner.Env, spec.extraEnv))
+	pid, err := d.backend.Spawn(ctx, SpawnPlan{
+		Ref:         ref,
+		Issue:       issue,
+		RepoPath:    repoPath,
+		Cwd:         cwd,
+		Bin:         bin,
+		Argv:        argv,
+		Env:         detachedEnv(d.cfg.Runner.Env, spec.extraEnv),
+		LogPath:     logPath,
+		Reservation: reservation,
+	})
 	if err != nil {
 		return fmt.Errorf("dispatch %s: %w", spec.mode, err)
 	}
@@ -598,6 +651,9 @@ func (d *Dispatcher) spawnDetachedWorker(c *cli.Command, spec detachedSpec, ref 
 		return d.reportImmediateExit(spec.mode, ref, logPath, pid)
 	}
 	fmt.Printf("dispatch %s: spawned claude for %s (pid %d)\n", spec.mode, ref, pid)
+	if id := reservation.ID(); id != "" {
+		fmt.Printf("  reservation: %s (%s backend)\n", id, d.backend.Name())
+	}
 	fmt.Printf("  cwd: %s\n", cwd)
 	fmt.Printf("  log: %s\n", logPath)
 	fmt.Printf("  detached - survives this terminal closing. Follow with: tail -f %s\n", logPath)

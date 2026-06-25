@@ -20,7 +20,7 @@ Packages are grouped by **guarded surface** over a shared `pkg/`. See [architect
 - **shim** - PATH shim per protected binary (UX shadowing, not enforcement). See [deny-by-structure.md](deny-by-structure.md).
 - **doctor** - Verify the deny-by-structure floor (no passwordless sudo, no agent-executable binary, no cred env).
 - **sudo** - Policy-free interactive sudo plumbing over any stdin transport.
-- **dispatch** - Fire `claude` against a real open issue; consumer swaps the resolver.
+- **dispatch** - Fire `claude` at an open issue; swap resolver, backend, verdict.
 - **lockdown** / **profiles** / **profile** / **decision** - Permission-file writer, per-host profile registry, evaluator.
 - **cmd/cli-guard-hook** - PreToolUse binary for shell-only consumers.
 

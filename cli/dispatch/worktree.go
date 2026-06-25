@@ -74,12 +74,12 @@ func (d *Dispatcher) resolveDetachedCwd(ctx context.Context, repoPath string, re
 	return d.ensureDispatchWorktree(ctx, repoPath, ref, title)
 }
 
-// reapBeforeDetachedDispatch removes merged worktrees from prior detached
-// dispatches so sprawl stays self-limiting. Soft-fail: must not block.
+// reapBeforeDetachedDispatch reaps prior detached artifacts via the active
+// backend so sprawl stays self-limiting. Soft-fail: must not block.
 func (d *Dispatcher) reapBeforeDetachedDispatch(ctx context.Context, mode string) {
-	if removed, reapErr := d.reapDispatchWorktrees(ctx); reapErr != nil {
-		fmt.Fprintf(os.Stderr, "dispatch %s: worktree reap skipped (%v)\n", mode, reapErr)
+	if removed, reapErr := d.backend.Reap(ctx); reapErr != nil {
+		fmt.Fprintf(os.Stderr, "dispatch %s: %s reap skipped (%v)\n", mode, d.backend.Name(), reapErr)
 	} else if len(removed) > 0 {
-		fmt.Fprintf(os.Stderr, "dispatch %s: reaped %d merged worktree(s)\n", mode, len(removed))
+		fmt.Fprintf(os.Stderr, "dispatch %s: reaped %d merged %s artifact(s)\n", mode, len(removed), d.backend.Name())
 	}
 }

@@ -214,7 +214,7 @@ func TestSpawnDetachedWorker_ImmediateExitSurfacesFailure(t *testing.T) {
 	issue := &ghIssue{Number: 150, Title: "t", URL: "https://example/150"}
 	c := parsedHeadlessCmd(t, d, "example-org/example-repo#150")
 
-	err := d.spawnDetachedWorker(c, detachedSpec{mode: "headless"}, ref, issue, t.TempDir(), "prompt", "auto", "Bash")
+	err := d.spawnDetachedWorker(context.Background(), c, detachedSpec{mode: "headless"}, ref, issue, t.TempDir(), t.TempDir(), noopReservation{}, "prompt", "auto", "Bash")
 	if err == nil {
 		t.Fatal("expected immediate-exit failure, got nil")
 	}
@@ -240,7 +240,7 @@ func TestSpawnDetachedWorker_LiveChildSucceeds(t *testing.T) {
 	issue := &ghIssue{Number: 150, Title: "t", URL: "https://example/150"}
 	c := parsedHeadlessCmd(t, d, "example-org/example-repo#150")
 
-	if err := d.spawnDetachedWorker(c, detachedSpec{mode: "headless"}, ref, issue, t.TempDir(), "prompt", "auto", "Bash"); err != nil {
+	if err := d.spawnDetachedWorker(context.Background(), c, detachedSpec{mode: "headless"}, ref, issue, t.TempDir(), t.TempDir(), noopReservation{}, "prompt", "auto", "Bash"); err != nil {
 		t.Fatalf("live child should succeed, got: %v", err)
 	}
 }

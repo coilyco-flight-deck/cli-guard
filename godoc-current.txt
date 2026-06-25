@@ -150,6 +150,30 @@ real open GitHub issue, in the matching local checkout,
 
 TYPES
 
+type Backend interface {
+	// Name labels the backend in output and the audit Event
+	// (e.g. "worktree", "container").
+	Name() string
+
+	// Reserve claims capacity for one dispatch of ref before provisioning,
+	// returning a Reservation the caller releases if the launch aborts.
+	Reserve(ctx context.Context, ref *IssueRef) (Reservation, error)
+
+	// Prepare returns (and, unless dryRun, creates) the working directory
+	// the worker runs in. repoPath is the canonical local checkout.
+	Prepare(ctx context.Context, repoPath string, ref *IssueRef, title string, dryRun bool) (string, error)
+
+	// Spawn launches the detached worker described by plan and returns its
+	// pid (or a backend handle's pid-equivalent) for status + crash watch.
+	Spawn(ctx context.Context, plan SpawnPlan) (int, error)
+
+	// Reap removes finished artifacts (merged worktrees, exited containers)
+	// and returns the removed ids. Best-effort: must never block or fail hard.
+	Reap(ctx context.Context) ([]string, error)
+}
+    Backend abstracts where and how a detached dispatch runs: reserve capacity,
+    prepare a working dir, spawn the worker, reap finished work.
+
 type Config struct {
 	// Runner executes subprocesses (gh, git, open). Required.
 	Runner *shell.Runner
@@ -165,6 +189,10 @@ type Config struct {
 	// AllowedOwners is an optional set of additional owners dispatch accepts
 	// alongside AllowedOwner. Empty means single-owner (AllowedOwner only).
 	AllowedOwners []string
+
+	// Preflight is the consumer's pluggable pre-flight verdict stage, run
+	// after the owner/open checks. Nil GOes; see runPreflight and Verdict.
+	Preflight func(ctx context.Context, ref *IssueRef, issue *Issue) (PreflightResult, error)
 
 	// ForgejoBaseURL enables Forgejo issue refs when set (scheme://host).
 	// Requires FetchForgejoIssue.
@@ -210,6 +238,10 @@ type Config struct {
 	WorktreeReapable func(ctx context.Context, runner *shell.Runner, repoPath, branch string) bool
 	WorktreeRemove   func(ctx context.Context, runner *shell.Runner, repoPath, worktreePath, branch string) error
 
+	// Backend places and launches detached workers. Nil installs the
+	// worktree backend; a container backend lifts the WorktreeRoot need.
+	Backend Backend
+
 	// SpawnForeground runs claude -p in the foreground, blocking until the
 	// child exits, returning its exit code. Defaults to spawnForegroundClaude.
 	SpawnForeground func(ctx context.Context, repoPath, bin string, argv, env []string) (int, error)
@@ -252,6 +284,10 @@ func (d *Dispatcher) Command() *cli.Command
     Command returns the dispatch umbrella verb. It refuses bare invocation and
     requires a surface subverb (headless | interactive | consult | cascade).
 
+func (d *Dispatcher) ParseIssueRef(s string) (*IssueRef, error)
+    ParseIssueRef parses any supported reference form into an IssueRef, so a
+    consumer's Preflight or Backend resolves refs exactly as dispatch does.
+
 type Event struct {
 	Mode  string // "headless" or "interactive"
 	Ref   string // owner/repo#N
@@ -272,6 +308,17 @@ type Issue struct {
     Issue is the platform-neutral fetch result. GitHub and Forgejo share the
     same JSON field names so one struct covers both.
 
+type IssueRef struct {
+	Owner    string
+	Repo     string
+	Number   int
+	Platform Platform
+}
+    IssueRef is the parsed shape of an issue reference. Empty Platform means
+    shortform - resolveDispatchIssue picks a forge. Shared core.
+
+func (i IssueRef) String() string
+
 type Platform string
     Platform tags which forge an issue ref resolves against.
 
@@ -279,6 +326,13 @@ const (
 	PlatformGitHub  Platform = "github"
 	PlatformForgejo Platform = "forgejo"
 )
+type PreflightResult struct {
+	Verdict Verdict
+	Reason  string
+}
+    PreflightResult is what Config.Preflight returns: a Verdict plus an optional
+    human-readable reason folded into the refusal message.
+
 type Registry struct {
 	// Has unexported fields.
 }
@@ -294,6 +348,18 @@ func (r *Registry) Active() ([]Sidequest, error)
 func (r *Registry) Conflicts(absPath string) ([]Conflict, error)
     Conflicts returns every (sidequest, claim) pair overlapping absPath.
 
+type Reservation interface {
+	// ID identifies the reservation (container name, slot id) in output and
+	// audit. The worktree backend returns "".
+	ID() string
+
+	// Release frees the reservation. dispatch calls it on a failed launch;
+	// a successful spawn leaves it for Reap. Safe to call once.
+	Release() error
+}
+    Reservation is a backend's claim on capacity for one dispatch, taken by
+    Reserve and released if the launch aborts. Worktree's is a no-op.
+
 type Sidequest struct {
 	PID           int       `json:"pid"`
 	Ref           string    `json:"ref"`
@@ -305,6 +371,41 @@ type Sidequest struct {
 }
     Sidequest is one active headless dispatch as exposed to consumers.
 
+type SpawnPlan struct {
+	// Ref is the resolved, owner-checked issue reference.
+	Ref *IssueRef
+	// Issue is the fetched issue (title, body, URL, state).
+	Issue *Issue
+	// RepoPath is the canonical local checkout the worker lands into.
+	RepoPath string
+	// Cwd is the working directory returned by Backend.Prepare.
+	Cwd string
+	// Bin is the resolved claude binary the worker should exec.
+	Bin string
+	// Argv is the claude argv (prompt, permission mode, allowed tools).
+	Argv []string
+	// Env is the child environment, including any per-surface extras.
+	Env []string
+	// LogPath is the per-dispatch log file the worker's stdio lands in.
+	LogPath string
+	// Reservation is the slot Backend.Reserve claimed for this dispatch.
+	Reservation Reservation
+}
+    SpawnPlan carries everything Backend.Spawn needs to launch the detached
+    worker. A backend reads the fields it needs and ignores the rest.
+
+type Verdict string
+    Verdict is a consumer pre-flight outcome.
+
+const (
+	// VerdictGo proceeds with the dispatch.
+	VerdictGo Verdict = "go"
+	// VerdictNoGo refuses the dispatch outright (consumer veto).
+	VerdictNoGo Verdict = "no-go"
+	// VerdictWrongRepo refuses because the ref targets a repo this host
+	// does not serve - distinct from NO-GO so a caller can route it.
+	VerdictWrongRepo Verdict = "wrong-repo"
+)
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/doctor
 

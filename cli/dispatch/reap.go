@@ -149,15 +149,15 @@ The same sweep runs automatically at the start of every detached
 dispatch ('dispatch headless' / 'dispatch cascade'), so worktree sprawl
 is self-limiting; this verb is the explicit on-demand version.`,
 		Action: func(ctx context.Context, _ *cli.Command) error {
-			removed, err := d.reapDispatchWorktrees(ctx)
+			removed, err := d.backend.Reap(ctx)
 			if err != nil {
 				return fmt.Errorf("dispatch reap: %w", err)
 			}
 			if len(removed) == 0 {
-				fmt.Println("dispatch reap: no merged worktrees to remove")
+				fmt.Printf("dispatch reap: no merged %s artifacts to remove\n", d.backend.Name())
 				return nil
 			}
-			fmt.Printf("dispatch reap: removed %d merged worktree(s):\n", len(removed))
+			fmt.Printf("dispatch reap: removed %d merged %s artifact(s):\n", len(removed), d.backend.Name())
 			for _, p := range removed {
 				fmt.Printf("  %s\n", p)
 			}

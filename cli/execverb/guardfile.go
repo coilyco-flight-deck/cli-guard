@@ -140,9 +140,8 @@ func Parse(src []byte) (*Guardfile, error) {
 	return gf, nil
 }
 
-// validate enforces the cross-node invariants after every wrap child is applied:
-// the `allow` inspect list and the exec/passthrough funnel are mutually exclusive
-// shapes, and each needs its own minimum. All checks fail closed.
+// validate enforces cross-node invariants after every wrap child applies:
+// `allow` and the exec/passthrough funnel are exclusive. Fail closed.
 func (gf *Guardfile) validate() error {
 	if len(gf.Allow) > 0 {
 		if gf.Bin != "" {
