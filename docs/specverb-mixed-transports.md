@@ -20,6 +20,6 @@ An exec member carries no upstream spec, so it skips every spec-only seam:
 
 A spec member's reference doc comes from its committed spec lock (`specverb.Describe`); an exec member's comes from its parsed policy (`execverb.Describe`). Both land beside the guardfile as the same `<name>.md` artifact, refreshed by `gen` / `lock`.
 
-See [specverb-driver.md](specverb-driver.md) for the driver lifecycle and [execverb.md](execverb.md) for the exec dialect.
+See [specgen.md](specgen.md) for the driver lifecycle and [execverb.md](execverb.md) for the exec dialect.
 
 Origin: [cli-guard#130](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/130).

@@ -1,5 +1,5 @@
-// Command specverb-gen is the no-code uv-style driver for a spec-driven
-// consumer CLI: gen / lock / skew / run. See docs/specverb.md.
+// Command specgen is the no-code uv-style driver for a spec-driven
+// consumer CLI: gen / lock / skew / run. See docs/specgen.md.
 package main
 
 import (
@@ -8,13 +8,13 @@ import (
 	"fmt"
 	"os"
 
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specdrv"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen"
 	"github.com/urfave/cli/v3"
 )
 
 func main() {
 	if err := app().Run(context.Background(), os.Args); err != nil {
-		fmt.Fprintln(os.Stderr, "specverb-gen:", err)
+		fmt.Fprintln(os.Stderr, "specgen:", err)
 		os.Exit(exitCode(err))
 	}
 }
@@ -22,7 +22,7 @@ func main() {
 // exitCode maps a driver error to a process exit code, so skew drift is
 // distinguishable from an offline fetch or any other failure.
 func exitCode(err error) int {
-	if errors.Is(err, specdrv.ErrSkew) {
+	if errors.Is(err, specgen.ErrSkew) {
 		return 3
 	}
 	return 1
@@ -32,7 +32,7 @@ func exitCode(err error) int {
 // root flag so every verb reads the same value.
 func app() *cli.Command {
 	return &cli.Command{
-		Name:  "specverb-gen",
+		Name:  "specgen",
 		Usage: "no-code driver for a spec-driven consumer CLI (gen / lock / skew / run)",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -57,7 +57,7 @@ func app() *cli.Command {
 				return cli.ShowAppHelp(c)
 			}
 			gf := resolveGuardfile(c)
-			return specdrv.Gen(specdrv.Options{GuardfilePath: gf, Out: c.String("out")})
+			return specgen.Gen(specgen.Options{GuardfilePath: gf, Out: c.String("out")})
 		},
 	}
 }
@@ -71,7 +71,7 @@ func genCmd() *cli.Command {
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
 			gf := resolveGuardfile(c)
-			return specdrv.Gen(specdrv.Options{GuardfilePath: gf, Out: c.String("out")})
+			return specgen.Gen(specgen.Options{GuardfilePath: gf, Out: c.String("out")})
 		},
 	}
 }
@@ -86,7 +86,7 @@ func lockCmd() *cli.Command {
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
 			gf := resolveGuardfile(c)
-			return specdrv.Lock(specdrv.Options{
+			return specgen.Lock(specgen.Options{
 				GuardfilePath:   gf,
 				CLIGuardRef:     c.String("cli-guard-ref"),
 				CLIGuardReplace: c.String("cli-guard-replace"),
@@ -101,7 +101,7 @@ func skewCmd() *cli.Command {
 		Usage: "report drift between the committed spec lock and live upstream (exit 3 on drift)",
 		Action: func(_ context.Context, c *cli.Command) error {
 			gf := resolveGuardfile(c)
-			return specdrv.Skew(specdrv.Options{GuardfilePath: gf})
+			return specgen.Skew(specgen.Options{GuardfilePath: gf})
 		},
 	}
 }
@@ -116,7 +116,7 @@ func buildCmd() *cli.Command {
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
 			gf := resolveGuardfile(c)
-			return specdrv.Build(specdrv.Options{GuardfilePath: gf, Out: c.String("out"), Version: c.String("set-version")})
+			return specgen.Build(specgen.Options{GuardfilePath: gf, Out: c.String("out"), Version: c.String("set-version")})
 		},
 	}
 }
@@ -127,13 +127,13 @@ func runCmd() *cli.Command {
 		Usage: "materialize+build the consumer binary if stale, then exec it with the remaining args",
 		Action: func(_ context.Context, c *cli.Command) error {
 			gf := resolveGuardfile(c)
-			return specdrv.Run(specdrv.Options{GuardfilePath: gf, Args: c.Args().Slice()})
+			return specgen.Run(specgen.Options{GuardfilePath: gf, Args: c.Args().Slice()})
 		},
 	}
 }
 
 // resolveGuardfile returns the --guardfile value verbatim (empty when unset).
-// The driver (specdrv.loadGroup) owns discovery and the merge-vs-error rules.
+// The driver (specgen.loadGroup) owns discovery and the merge-vs-error rules.
 func resolveGuardfile(c *cli.Command) string {
 	return c.String("guardfile")
 }

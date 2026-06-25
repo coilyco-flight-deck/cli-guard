@@ -551,7 +551,7 @@ func (g Grant) ExecArgv() []string
     subcommand.
 
 type GrantInfo struct {
-	Name       string   `json:"name"`                  // dotted audit name, e.g. ward.ops.aws.s3.ls
+	Name       string   `json:"name"`                  // dotted audit name, e.g. <cli>.ops.aws.s3.ls
 	Subcommand []string `json:"subcommand,omitempty"`  // e.g. ["s3","ls"]; empty for the wildcard
 	Bin        string   `json:"bin,omitempty"`         // the funnel's own binary, set only for an inspect-list (`allow`) leaf
 	Exec       []string `json:"exec,omitempty"`        // tokens appended after the binary: the argv override when set, else the subcommand
@@ -566,7 +566,7 @@ type GrantInfo struct {
     authorizes, its flag policy, and any gates/guards that can still refuse it.
 
 type Guardfile struct {
-	Group      []string     // command path, e.g. ["ward", "git"]
+	Group      []string     // command path, e.g. ["<cli>", "git"]
 	Bin        string       // the real binary, fixed at parse
 	ArgvPrefix []string     // unoverridable leading argv (remote-exec transport)
 	Env        []EnvVar     // environment vars set on the wrapped process
@@ -604,7 +604,7 @@ type Runner func(ctx context.Context, bin string, argv, env []string) error
     real.
 
 type Surface struct {
-	Group      []string    `json:"group"`                 // command path, e.g. ["ward","ops","aws"]
+	Group      []string    `json:"group"`                 // command path, e.g. ["<cli>","ops","aws"]
 	Bin        string      `json:"bin"`                   // the wrapped binary, fixed at parse; empty for an inspect list
 	ArgvPrefix []string    `json:"argv_prefix,omitempty"` // unoverridable leading argv
 	Env        []string    `json:"env,omitempty"`         // env injections as "NAME = provider address" (source, never the resolved value)
@@ -1301,7 +1301,7 @@ type ProtectedBinary struct {
 	// only deny-direct is accepted in v1.
 	Mode string
 	// AllowedWrappers names the wrapper commands a human routes through
-	// instead (e.g. "kap", "ward"). Surfaced in remediation text.
+	// instead (e.g. "<cli>", "<cli>-ops"). Surfaced in remediation text.
 	AllowedWrappers []string
 	// ExpectedRealPaths are the canonical install locations of the real
 	// binary, used by doctor to reason about PATH-shim posture.
@@ -1579,10 +1579,10 @@ type Spec struct {
 Command cli-guard-hook is a single-purpose Claude Code PreToolUse binary for
 shell-only consumers. See docs/architecture.md for payload flow and flags.
 
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cmd/specverb-gen
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cmd/specgen
 
-Command specverb-gen is the no-code uv-style driver for a spec-driven consumer
-CLI: gen / lock / skew / run. See docs/specverb.md.
+Command specgen is the no-code uv-style driver for a spec-driven consumer CLI:
+gen / lock / skew / run. See docs/specgen.md.
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/egress
 
@@ -1994,9 +1994,9 @@ func Validate(expr string) error
     the build-time check that fails closed on a malformed `until`/`fail-when`.
 
 
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specdrv
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen
 
-package specdrv // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specdrv"
+package specgen // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen"
 
 Cache layout and staleness for the out-of-band materialized consumer binary,
 keyed by the Guardfile's location. See docs/specverb.md.
@@ -2007,7 +2007,7 @@ docs/specverb.md.
 
 Process replacement (syscall.Exec) and cache locking (flock) on Unix.
 
-Package specdrv is the no-code driver behind cmd/specverb-gen: the uv-style verb
+Package specgen is the no-code driver behind cmd/specgen: the uv-style verb
 surface (gen / lock / skew / run) over a Guardfile. See docs/specverb.md.
 
 CONSTANTS
@@ -2019,9 +2019,9 @@ const LockName = "specverb.lock"
 
 VARIABLES
 
-var ErrNoLock = errors.New("missing committed lock; run 'specverb-gen lock' first")
+var ErrNoLock = errors.New("missing committed lock; run 'specgen lock' first")
     ErrNoLock is returned by run and skew when a required committed lock is
-    absent, so the caller can point the user at `specverb-gen lock`.
+    absent, so the caller can point the user at `specgen lock`.
 
 var ErrSkew = errors.New("spec skew detected")
     ErrSkew is returned by skew when the committed spec lock drifts from
@@ -2033,7 +2033,7 @@ FUNCTIONS
 func Build(opts Options) error
     Build materializes the consumer binary out-of-band (same cache +
     staleness path as Run) and copies it to opts.Out instead of execing it.
-    See specverb-driver.md.
+    See specgen.md.
 
 func Gen(opts Options) error
     Gen renders the merged consumer main.go (cache, or --out for inspection) and
@@ -2078,11 +2078,11 @@ type Options struct {
     Options are the inputs shared by every driver verb.
 
 
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen/codegen
 
-package specgen // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen"
+package codegen // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen/codegen"
 
-Package specgen renders a complete consumer `main.go` from a KDL Guardfile,
+Package codegen renders a complete consumer `main.go` from a KDL Guardfile,
 so a consumer never hand-writes the specverb wiring. See docs/specverb.md.
 
 CONSTANTS
@@ -2092,7 +2092,7 @@ const (
 	TransportExec = "exec"
 )
     Transport is the dialect one merged member speaks: spec (HTTP/specverb) or
-    exec (wrapped binary/execverb). See docs/specverb-driver.md.
+    exec (wrapped binary/execverb). See docs/specgen.md.
 
 
 FUNCTIONS
@@ -2117,7 +2117,7 @@ type Params struct {
 	Binary        string // binary name, e.g. ward-kdl (Guardfile group[0])
 	GuardfileName string // embedded Guardfile filename, e.g. forgejo.guardfile.kdl
 	SpecLockName  string // committed, embedded spec lock filename, e.g. forgejo.swagger.lock.json
-	SpecURL       string // upstream Swagger URL; the `specverb-gen lock` source and bootstrap fallback
+	SpecURL       string // upstream Swagger URL; the `specgen lock` source and bootstrap fallback
 	SpecEnvVar    string // env var overriding the embedded lock, e.g. WARD_KDL_SPEC
 
 	// Providers are the value-source provider names this member's guardfile uses,
@@ -2133,9 +2133,8 @@ func Plan(gf *guardfile.Guardfile, guardfileName string) (Params, error)
     derivation behind both Render and the driver. guardfileName feeds the embed.
 
 func PlanExec(group, providers []string, guardfileName string) (Params, error)
-    PlanExec derives an exec member's Params from its wrap group and
-    the provider names its env injections use; no upstream spec. See
-    specverb-driver.md.
+    PlanExec derives an exec member's Params from its wrap group and the
+    provider names its env injections use; no upstream spec. See specgen.md.
 
 type SetParams struct {
 	Binary  string
@@ -2176,7 +2175,7 @@ func Mount(root *cli.Command, cfg Config) error
 
 func Prune(spec []byte, gf *guardfile.Guardfile) ([]byte, error)
     Prune returns a minimal spec doc holding only the operations gf grants and
-    their reachable schemas. Dispatches on version. See docs/specverb-driver.md.
+    their reachable schemas. Dispatches on version. See docs/specgen.md.
 
 
 TYPES

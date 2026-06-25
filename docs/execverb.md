@@ -41,6 +41,6 @@ Unknown nodes fail closed. Per-operation grants guard the kwarg (`deny-when secr
 
 ## Driver integration
 
-`specverb-gen` generates and merges exec consumers into a spec binary; `execverb.Describe` gives doc parity. See [mixed transports](specverb-mixed-transports.md).
+`specgen` generates and merges exec consumers into a spec binary; `execverb.Describe` gives doc parity. See [mixed transports](specverb-mixed-transports.md).
 
 Design: [#130](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/130), part of the security-pure-engine refactor [#123](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/123).
