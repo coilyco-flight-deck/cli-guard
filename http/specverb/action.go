@@ -15,9 +15,14 @@ import (
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/audit"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode"
 	"github.com/urfave/cli/v3"
 )
+
+// cacheOutcome carries a collect's cache-hit disposition from runCollectAction
+// to the envelope OnComplete hook. One per built leaf; a CLI runs one action.
+type cacheOutcome struct{ hit bool }
 
 // actionGroup is the CLI noun every complex action mounts under, e.g.
 // `forgejo action ci-watch`, mirroring the audit name `<path>.action.<name>`.
@@ -80,10 +85,16 @@ type collectStep struct {
 	Limit        string
 	DefaultLimit int
 	As           string
+	// CacheTTL is the on-disk cache lifetime, > 0 when the action declared a
+	// `cache "<ttl>"` modifier; zero disables caching for this collect.
+	CacheTTL time.Duration
 }
 
 // isCollect reports whether ad is an auto-pagination action.
 func (ad actionDescriptor) isCollect() bool { return ad.Collect != nil }
+
+// cacheable reports whether ad is a collect action with a configured TTL cache.
+func (ad actionDescriptor) cacheable() bool { return ad.isCollect() && ad.Collect.CacheTTL > 0 }
 
 // resolveActions resolves every Guardfile action into a descriptor, failing
 // closed at each gate; granted is the (verb, resource) set the Guardfile grants.
@@ -259,6 +270,12 @@ func (rt *runtime) buildActionLeaf(ad actionDescriptor) *cli.Command {
 		&cli.BoolFlag{Name: flagDryRun, Usage: "print the action plan (the call sequence and compiled until) without firing it"},
 		&cli.StringFlag{Name: flagOutput, Usage: "output format: yaml | yaml-stream | json | text | table"},
 	}
+	if ad.cacheable() {
+		flags = append(flags,
+			&cli.BoolFlag{Name: flagNoCache, Usage: "bypass the TTL cache for this run (no read, no write)"},
+			&cli.BoolFlag{Name: flagRefresh, Usage: "invalidate the cached entry and refetch"},
+		)
+	}
 	var positional []guardfile.Input
 	for _, in := range ad.Inputs {
 		if in.Positional {
@@ -267,17 +284,26 @@ func (rt *runtime) buildActionLeaf(ad actionDescriptor) *cli.Command {
 		}
 		flags = append(flags, &cli.StringFlag{Name: in.Name, Usage: in.Help})
 	}
+	outcome := &cacheOutcome{}
+	spec := verb.Spec{
+		Name:     ad.VerbName,
+		ArgsFunc: actionArgsFunc(ad),
+		Action:   rt.runAction(ad, outcome),
+	}
+	if ad.cacheable() {
+		spec.OnComplete = func(rec *audit.Record) {
+			if outcome.hit {
+				rec.Cache = "hit"
+			}
+		}
+	}
 	return &cli.Command{
 		Name:        ad.Name,
 		Usage:       actionUsage(ad),
 		Description: actionDescription(ad),
 		ArgsUsage:   argsUsage(inputNamesOf(positional)),
 		Flags:       flags,
-		Action: rt.wrap(verb.Spec{
-			Name:     ad.VerbName,
-			ArgsFunc: actionArgsFunc(ad),
-			Action:   rt.runAction(ad),
-		}),
+		Action:      rt.wrap(spec),
 	}
 }
 
@@ -352,7 +378,7 @@ func urlBoundInputs(ad actionDescriptor) map[string]bool {
 
 // runAction binds inputs, then runs the action: a multi-call sequence, or the
 // poll path (build the request, then print the plan or run the bounded loop).
-func (rt *runtime) runAction(ad actionDescriptor) cli.ActionFunc {
+func (rt *runtime) runAction(ad actionDescriptor, outcome *cacheOutcome) cli.ActionFunc {
 	return func(ctx context.Context, c *cli.Command) error {
 		strVars, jmesVars, err := bindInputs(ad, c)
 		if err != nil {
@@ -362,7 +388,7 @@ func (rt *runtime) runAction(ad actionDescriptor) cli.ActionFunc {
 			return rt.runCallAction(ctx, c, ad, strVars)
 		}
 		if ad.isCollect() {
-			return rt.runCollectAction(ctx, c, ad, strVars, jmesVars)
+			return rt.runCollectAction(ctx, c, ad, strVars, jmesVars, outcome)
 		}
 		dry := c.Bool(flagDryRun)
 		method, url, body, contentType, err := rt.buildLeafRequest(ctx, dry, ad, strVars)

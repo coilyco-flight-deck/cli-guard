@@ -133,6 +133,9 @@ type Collect struct {
 	Limit        string
 	DefaultLimit string
 	As           string
+	// Cache, when set, is the TTL string (e.g. "10m") serving the accumulated
+	// array from the on-disk ttl cache. Collect-only (see docs/specverb-actions.md).
+	Cache string
 }
 
 // Action is a named composite verb: exactly one of Poll, Calls, or Collect, plus
@@ -828,7 +831,7 @@ func parsePoll(n *kdl.Node) (Poll, error) {
 }
 
 // parseCollect reads a `collect <verb> <resource> { args {...}; page-param;
-// limit-param; limit; default-limit; as }` block.
+// limit-param; limit; default-limit; as; cache }` block.
 func parseCollect(n *kdl.Node) (Collect, error) {
 	args := n.Arguments()
 	if len(args) != 2 {
@@ -870,13 +873,14 @@ func applyCollectChild(col *Collect, c *kdl.Node) error {
 		"limit":         &col.Limit,
 		"default-limit": &col.DefaultLimit,
 		"as":            &col.As,
+		"cache":         &col.Cache,
 	}
 	target, ok := scalars[c.Name()]
 	if !ok {
 		if reservedActionKeywords[c.Name()] {
 			return fmt.Errorf("collect: %q is reserved for a future version (fail-closed)", c.Name())
 		}
-		return fmt.Errorf("collect: unknown body node %q (want args | page-param | limit-param | limit | default-limit | as; fail-closed)", c.Name())
+		return fmt.Errorf("collect: unknown body node %q (want args | page-param | limit-param | limit | default-limit | as | cache; fail-closed)", c.Name())
 	}
 	v, err := singleArg(c)
 	if err != nil {

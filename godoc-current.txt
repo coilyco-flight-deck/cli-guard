@@ -1793,6 +1793,9 @@ type Collect struct {
 	Limit        string
 	DefaultLimit string
 	As           string
+	// Cache, when set, is the TTL string (e.g. "10m") serving the accumulated
+	// array from the on-disk ttl cache. Collect-only (see docs/specverb-actions.md).
+	Cache string
 }
     Collect walks a paginated granted leaf, incrementing PageParam and
     appending each array response until the page returns fewer than Limit
@@ -2160,6 +2163,9 @@ type ActionCollectInfo struct {
 	LimitParam   string `json:"limit_param"`
 	DefaultLimit int    `json:"default_limit"`
 	As           string `json:"as"`
+	// Cache is the on-disk TTL (e.g. "10m") when the action declares a
+	// `cache "<ttl>"` modifier; empty when the collect does not cache.
+	Cache string `json:"cache,omitempty"`
 }
     ActionCollectInfo is the resolved auto-pagination leaf for the describe
     surface.
@@ -2564,6 +2570,9 @@ type Record struct {
 	// PolicySkipped is true when the shell-metacharacter validator was
 	// bypassed for this invocation. Set by consumers whose verb wiring
 	PolicySkipped bool `json:"policy_skipped,omitempty"`
+	// Cache is the TTL-cache disposition of a cache-eligible action, e.g. "hit"
+	// when a collect served from cache. Empty when no cache was consulted.
+	Cache string `json:"cache,omitempty"`
 }
     Record is one line in the audit log. Timestamp is unix seconds (int64),
     JSON-encoded as a number. Easier to sort and diff than RFC3339 strings.

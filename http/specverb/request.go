@@ -74,6 +74,8 @@ const (
 	flagQuery    = "query"
 	flagOutput   = "output"
 	flagBodyFile = "body-file"
+	flagNoCache  = "no-cache"
+	flagRefresh  = "refresh"
 )
 
 // buildLeaf turns one descriptor into a guarded leaf: query + body flags plus

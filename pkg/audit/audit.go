@@ -62,6 +62,9 @@ type Record struct {
 	// PolicySkipped is true when the shell-metacharacter validator was
 	// bypassed for this invocation. Set by consumers whose verb wiring
 	PolicySkipped bool `json:"policy_skipped,omitempty"`
+	// Cache is the TTL-cache disposition of a cache-eligible action, e.g. "hit"
+	// when a collect served from cache. Empty when no cache was consulted.
+	Cache string `json:"cache,omitempty"`
 }
 
 // ProfileDecision is the structured outcome of a per-session

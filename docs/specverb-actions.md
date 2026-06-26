@@ -67,10 +67,10 @@ wrap ward ops forgejo {
   tells the shell a job failed.
 - An `input` may carry a `default <jmespath>` pre-flighting the poll leaf to bind it when absent: [specverb-action-defaults.md](specverb-action-defaults.md).
 
-## Mount actions: shadowing a generated leaf
+## Collect and mount actions
 
-A two-arg `action <verb> <resource>` mounts at that leaf path, replacing the leaf
-and combining its `call` chain. See [specverb-action-mount.md](specverb-action-mount.md).
+- **collect** auto-paginates a list leaf into one array, optional `cache "<ttl>"` — [specverb-action-collect.md](specverb-action-collect.md).
+- **mount** (`action <verb> <resource>`) shadows the leaf, keeps the chain — [specverb-action-mount.md](specverb-action-mount.md).
 
 ## Reserved for later (do not author in v1)
 

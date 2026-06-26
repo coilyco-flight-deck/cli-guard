@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
@@ -97,6 +98,9 @@ type ActionCollectInfo struct {
 	LimitParam   string `json:"limit_param"`
 	DefaultLimit int    `json:"default_limit"`
 	As           string `json:"as"`
+	// Cache is the on-disk TTL (e.g. "10m") when the action declares a
+	// `cache "<ttl>"` modifier; empty when the collect does not cache.
+	Cache string `json:"cache,omitempty"`
 }
 
 // AuthInfo is the auth scope a describe consumer sees: scheme, header, and the
@@ -208,6 +212,7 @@ func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor,
 				LimitParam:   a.Collect.LimitParam,
 				DefaultLimit: a.Collect.DefaultLimit,
 				As:           a.Collect.As,
+				Cache:        collectCacheLabel(a.Collect.CacheTTL),
 			}
 		default:
 			info.Method, info.Path, info.Grant = a.Leaf.Method, a.Leaf.Path, a.Leaf.Grant
@@ -391,7 +396,19 @@ func writeCallAction(b *strings.Builder, a ActionInfo) {
 func writeCollectAction(b *strings.Builder, a ActionInfo) {
 	c := a.Collect
 	fmt.Fprintf(b, "Complex action. Collects every page from `%s %s`, incrementing `%s` and appending array responses until a page returns fewer than `%d` item(s).\n\n", c.Method, c.Path, c.PageParam, c.DefaultLimit)
+	if c.Cache != "" {
+		fmt.Fprintf(b, "Cached on disk for `%s` per resolved request; `--no-cache` bypasses and `--refresh` refetches.\n\n", c.Cache)
+	}
 	fmt.Fprintf(b, "Authorized by grant: %s.\n", c.Grant)
+}
+
+// collectCacheLabel renders a collect's cache TTL for the describe surface, or
+// "" when the action declares no cache.
+func collectCacheLabel(ttl time.Duration) string {
+	if ttl <= 0 {
+		return ""
+	}
+	return ttl.String()
 }
 
 // conditionLanguageNote names the until/fail-when dialect: JMESPath Community
