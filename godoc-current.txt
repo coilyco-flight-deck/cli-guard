@@ -3123,6 +3123,119 @@ type Reasoner interface {
     a why-line: a one-sentence statement of the threat or
 
 
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/fleetconfig
+
+package fleetconfig // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/fleetconfig"
+
+Package fleetconfig is the typed validator for the KDL fleet config:
+the agent-shaped schema that names which agents a fleet runs and how each one is
+launched. It is pure core data-typing, deliberately NOT a guarded surface.
+
+The three guarded surfaces (cli/, http/, mcp/) express permissions;
+this package structurally cannot. Its vocabulary has no `mount`, no `exec`, no
+`can run` - a fleet config names agents and their launch shape, never a grant.
+That package boundary IS the config/permission partition: config validation
+is a core concern, not a fourth surface, so the three-surface least-privilege
+identity stays legible. See docs/fleetconfig.md.
+
+CONSTANTS
+
+const SchemaVersion = 2
+    SchemaVersion is the fleet-config dialect this package parses. A `fleet`
+    block must declare exactly this version; a mismatch fails closed. See
+    docs/fleetconfig.md.
+
+
+TYPES
+
+type Agent struct {
+	Name            string // block name, e.g. `agent codex` -> "codex"
+	Binary          string // the launcher binary on PATH
+	ContextLevel    int    // WARD_CONTEXT_LEVEL floor (0..2); -1 when unset
+	Stream          string // stream mode, e.g. "none"
+	Auth            string // auth mode, e.g. "codex-file"
+	Model           string // model id
+	Endpoint        string // optional API endpoint override
+	Provider        string // optional provider name
+	ReasoningEffort string // reasoning-effort knob, e.g. "low"
+	Verbosity       string // verbosity knob, e.g. "low"
+	Argv            Argv   // the three launch argvs (preflight/headless/interactive)
+}
+    Agent describes one agent the fleet can run and how to launch it.
+    Every field is descriptive - a binary, a model, an argv shape - never a
+    permission.
+
+type Argv struct {
+	Preflight   []string // optional pre-launch probe argv
+	Headless    []string // non-interactive (exec) launch argv
+	Interactive []string // interactive launch argv
+}
+    Argv holds an agent's three launch argvs. Each is the full token list for
+    that mode (binary first), empty when the mode is not declared.
+
+type Attribution struct {
+	Name  string
+	Email string
+}
+    Attribution is the `attribution name=... email=...` commit identity.
+
+type Defaults struct {
+	Agent       string      // default agent name when a caller names none
+	Attribution Attribution // commit identity the fleet writes under
+}
+    Defaults are the fleet-wide fallbacks under the `defaults` block.
+
+type Director struct {
+	DefaultScope string // director.default-scope: the default coordinate scope
+}
+    Director holds the per-host director settings: the narrow node set an
+    operator-local source may set (the embedded fleet may seed a default).
+
+type Fleet struct {
+	// SchemaVersion is the declared dialect version (== SchemaVersion). Zero in
+	// an operator-local source, which carries no `fleet` block.
+	SchemaVersion int
+
+	// Defaults are the fleet-wide fallbacks: the default agent and the commit
+	// attribution. Zero-valued in an operator-local source.
+	Defaults Defaults
+
+	// Agents is the roster, in source order. Empty in an operator-local source.
+	Agents []Agent
+
+	// Director carries the per-host director settings, the only vocabulary an
+	// operator-local source may set. Nil when no `director` block is present.
+	Director *Director
+}
+    Fleet is the parsed form of one fleet config: the agent roster plus the
+    fleet-wide defaults, and optionally the per-host director settings.
+
+func Parse(src []byte) (Fleet, error)
+    Parse validates an embedded fleet config (the full schema): the common case,
+    equivalent to ParseSource(src, Embedded).
+
+func ParseSource(src []byte, source Source) (Fleet, error)
+    ParseSource validates a fleet config under the given source's accepted
+    subset. It fails closed on any out-of-subset node or malformed field.
+    See docs/fleetconfig.md.
+
+type Source int
+    Source selects which subset of the one grammar a parse accepts. One parser,
+    two sources: the grammar is shared, the accepted node set differs.
+
+const (
+	// Embedded is the fleet config shipped inside a binary: it accepts the full
+	// schema (the `fleet` block plus an optional `director` seed).
+	Embedded Source = iota
+
+	// OperatorLocal is a per-host operator file: it accepts only the narrow
+	// per-host node set (`director`) and rejects the embed-only `fleet` block.
+	OperatorLocal
+)
+func (s Source) String() string
+    String renders the source for error messages.
+
+
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/flock
 
 package flock // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/flock"

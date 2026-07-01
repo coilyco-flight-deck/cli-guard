@@ -42,13 +42,14 @@ Packages are grouped by **guarded surface** over a shared `pkg/`. See [architect
 - **policy** - Argv validation rejecting shell metacharacters.
 - **scope** - Resolve cwd to its git toplevel for the audit row's RepoRoot.
 - **exitcode** - Public exit-code taxonomy for orchestrators.
-- **valuesource** - Shared `value <provider>` resolution (env/file/literal, chains) for both engines.
-- **config** - Layered-config primitives and a generic `OverlayFile[T]`.
+- **valuesource** - Shared `value <provider>` resolution (env/file/literal, chains).
+- **config** - Layered-config primitives and an `OverlayFile[T]`.
+- **fleetconfig** - KDL fleet-config validator; core, not a guarded surface. See [fleetconfig.md](fleetconfig.md).
 - **ttlcache** - Generic TTL-keyed cache (backs the surface caches).
 - **workdir** - Working-directory resolution helper.
 - **skillgen** - Render an urfave/cli command tree into markdown or yaml.
-- **broker** / **credseed** - Root credential-broker policy core + creds env-file seeder. See [broker.md](broker.md).
-- **scan** / **attribution** / **flock** / **version** / **issueref** / **ownertrust** - Reusable helpers lifted from ward: junk-scan, attribution, advisory flock, semver, issue-ref, owner-trust gate. See [ward-helpers.md](ward-helpers.md).
+- **broker** / **credseed** - Credential-broker core + env-file seeder. See [broker.md](broker.md).
+- **scan** / **attribution** / **flock** / **version** / **issueref** / **ownertrust** - Reusable helpers lifted from ward. See [ward-helpers.md](ward-helpers.md).
 
 ## Repo development
 
