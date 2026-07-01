@@ -28,6 +28,7 @@ type GrantInfo struct {
 	Bin        string   `json:"bin,omitempty"`         // the funnel's own binary, set only for an inspect-list (`allow`) leaf
 	Exec       []string `json:"exec,omitempty"`        // tokens appended after the binary: the argv override when set, else the subcommand
 	Wildcard   bool     `json:"wildcard"`              // `can run *`: the whole binary passes through
+	Sealed     bool     `json:"sealed,omitempty"`      // `sealed`: pinned argv forwards exactly, no trailing caller args
 	Describe   string   `json:"describe,omitempty"`    // Guardfile describe note
 	AllowFlags []string `json:"allow_flags,omitempty"` // non-empty: strict flag allowlist
 	DenyFlags  []string `json:"deny_flags,omitempty"`  // default-allow minus these
@@ -83,6 +84,7 @@ func grantInfo(gf *Guardfile, g Grant) GrantInfo {
 		Subcommand: g.Subcommand,
 		Exec:       g.ExecArgv(),
 		Wildcard:   g.Wildcard,
+		Sealed:     g.Sealed,
 		Describe:   g.Describe,
 		AllowFlags: g.AllowFlags,
 		DenyFlags:  g.DenyFlags,
@@ -149,6 +151,9 @@ func (s *Surface) Markdown() string {
 		}
 		fmt.Fprintf(&b, "\n%s\n\n", heading)
 		fmt.Fprintf(&b, "`%s`\n", strings.TrimSpace(invocation+" "+strings.Join(g.Exec, " ")))
+		if g.Sealed {
+			b.WriteString("\nSealed: the pinned command forwards exactly; no trailing caller arguments are accepted.\n")
+		}
 		writeFlagPolicy(&b, g)
 		writeGuards(&b, g)
 	}

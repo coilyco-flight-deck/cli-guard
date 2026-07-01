@@ -1,5 +1,5 @@
 // Spec-lock pruning: reduce a full upstream Swagger document to the operations a
-// Guardfile grants + their transitive schemas. See docs/specgen.md.
+// Guardfile grants + their transitive schemas. See docs/kdl-specs.md.
 
 package specverb
 
@@ -12,7 +12,7 @@ import (
 )
 
 // Prune returns a minimal spec doc holding only the operations gf grants and
-// their reachable schemas. Dispatches on version. See docs/specgen.md.
+// their reachable schemas. Dispatches on version. See docs/kdl-specs.md.
 func Prune(spec []byte, gf *guardfile.Guardfile) ([]byte, error) {
 	if gf == nil {
 		return nil, fmt.Errorf("specverb: prune: nil guardfile")

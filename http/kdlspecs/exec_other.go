@@ -2,7 +2,7 @@
 
 // Process spawn (Windows has no syscall.Exec) and a no-op cache lock. run
 // spawns the binary as a child, mirrors stdio, and propagates its exit code.
-package specgen
+package kdlspecs
 
 import (
 	"errors"

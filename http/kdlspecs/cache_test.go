@@ -1,4 +1,4 @@
-package specgen
+package kdlspecs
 
 import (
 	"os"
