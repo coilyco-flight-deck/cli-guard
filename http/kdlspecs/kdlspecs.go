@@ -1,6 +1,6 @@
-// Package specgen is the no-code driver behind cmd/specgen: the uv-style
+// Package kdlspecs is the no-code driver behind cmd/kdl-specs: the uv-style
 // verb surface (gen / lock / skew / run) over a Guardfile. See docs/specverb.md.
-package specgen
+package kdlspecs
 
 import (
 	"encoding/json"
@@ -16,7 +16,7 @@ import (
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/execverb"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen/codegen"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/kdlspecs/codegen"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specverb"
 	kdl "github.com/calico32/kdl-go"
 )
@@ -32,8 +32,8 @@ type Options struct {
 }
 
 // ErrNoLock is returned by run and skew when a required committed lock is
-// absent, so the caller can point the user at `specgen lock`.
-var ErrNoLock = errors.New("missing committed lock; run 'specgen lock' first")
+// absent, so the caller can point the user at `kdl-specs lock`.
+var ErrNoLock = errors.New("missing committed lock; run 'kdl-specs lock' first")
 
 // ErrSkew is returned by skew when the committed spec lock drifts from upstream.
 var ErrSkew = errors.New("spec skew detected")
@@ -64,11 +64,11 @@ type group struct {
 func sniffTransport(src []byte) (string, error) {
 	doc, err := kdl.ParseString(string(src))
 	if err != nil {
-		return "", fmt.Errorf("specgen: parse KDL: %w", err)
+		return "", fmt.Errorf("kdl-specs: parse KDL: %w", err)
 	}
 	wrap := doc.GetNode("wrap")
 	if wrap == nil {
-		return "", fmt.Errorf("specgen: missing top-level `wrap` node")
+		return "", fmt.Errorf("kdl-specs: missing top-level `wrap` node")
 	}
 	for _, n := range wrap.Children().Nodes {
 		if n.Name() == "exec" {
@@ -83,16 +83,16 @@ func sniffTransport(src []byte) (string, error) {
 func readMember(path string) (member, error) {
 	b, err := os.ReadFile(path) //nolint:gosec // operator-supplied policy input
 	if err != nil {
-		return member{}, fmt.Errorf("specgen: read guardfile: %w", err)
+		return member{}, fmt.Errorf("kdl-specs: read guardfile: %w", err)
 	}
 	transport, err := sniffTransport(b)
 	if err != nil {
-		return member{}, fmt.Errorf("specgen: sniff %s: %w", path, err)
+		return member{}, fmt.Errorf("kdl-specs: sniff %s: %w", path, err)
 	}
 	if transport == codegen.TransportExec {
 		egf, err := execverb.Parse(b)
 		if err != nil {
-			return member{}, fmt.Errorf("specgen: parse exec guardfile %s: %w", path, err)
+			return member{}, fmt.Errorf("kdl-specs: parse exec guardfile %s: %w", path, err)
 		}
 		p, err := codegen.PlanExec(egf.Group, egf.Providers(), filepath.Base(path))
 		if err != nil {
@@ -104,11 +104,11 @@ func readMember(path string) (member, error) {
 	// so every downstream stage sees the merged grant set (docs/specverb-inherit.md).
 	flat, err := guardfile.Flatten(path)
 	if err != nil {
-		return member{}, fmt.Errorf("specgen: resolve guardfile %s: %w", path, err)
+		return member{}, fmt.Errorf("kdl-specs: resolve guardfile %s: %w", path, err)
 	}
 	gf, err := guardfile.Parse(flat)
 	if err != nil {
-		return member{}, fmt.Errorf("specgen: parse guardfile %s: %w", path, err)
+		return member{}, fmt.Errorf("kdl-specs: parse guardfile %s: %w", path, err)
 	}
 	p, err := codegen.Plan(gf, filepath.Base(path))
 	if err != nil {
@@ -118,7 +118,7 @@ func readMember(path string) (member, error) {
 }
 
 // loadGroup discovers the guardfiles that make up one merged binary, the common
-// prelude of every verb. See docs/specgen.md for the discovery rules.
+// prelude of every verb. See docs/kdl-specs.md for the discovery rules.
 func loadGroup(opts Options) (*group, error) {
 	dir := "."
 	var selector string
@@ -132,13 +132,13 @@ func loadGroup(opts Options) (*group, error) {
 	}
 	matches, err := filepath.Glob(filepath.Join(dir, "*.guardfile.kdl"))
 	if err != nil {
-		return nil, fmt.Errorf("specgen: discover guardfiles: %w", err)
+		return nil, fmt.Errorf("kdl-specs: discover guardfiles: %w", err)
 	}
 	if len(matches) == 0 {
 		if opts.GuardfilePath != "" {
-			return nil, fmt.Errorf("specgen: no *.guardfile.kdl beside %s", opts.GuardfilePath)
+			return nil, fmt.Errorf("kdl-specs: no *.guardfile.kdl beside %s", opts.GuardfilePath)
 		}
-		return nil, errors.New("specgen: no *.guardfile.kdl in cwd (set --guardfile)")
+		return nil, errors.New("kdl-specs: no *.guardfile.kdl in cwd (set --guardfile)")
 	}
 	sort.Strings(matches)
 	byBinary := map[string][]member{}
@@ -156,13 +156,13 @@ func loadGroup(opts Options) (*group, error) {
 	if selector == "" {
 		if len(byBinary) != 1 {
 			sort.Strings(order)
-			return nil, fmt.Errorf("specgen: %d binaries in %s (%s); pass --guardfile to pick one", len(byBinary), dir, strings.Join(order, ", "))
+			return nil, fmt.Errorf("kdl-specs: %d binaries in %s (%s); pass --guardfile to pick one", len(byBinary), dir, strings.Join(order, ", "))
 		}
 		selector = order[0]
 	}
 	members, ok := byBinary[selector]
 	if !ok {
-		return nil, fmt.Errorf("specgen: no guardfile for binary %q in %s", selector, dir)
+		return nil, fmt.Errorf("kdl-specs: no guardfile for binary %q in %s", selector, dir)
 	}
 	return &group{Dir: dir, Binary: selector, Members: members}, nil
 }
@@ -212,14 +212,14 @@ func Gen(opts Options) error {
 			return err
 		}
 		if err := os.MkdirAll(dir, 0o750); err != nil {
-			return fmt.Errorf("specgen: create cache dir: %w", err)
+			return fmt.Errorf("kdl-specs: create cache dir: %w", err)
 		}
 		out = filepath.Join(dir, "main.go")
 	}
 	if err := os.WriteFile(out, main, 0o600); err != nil {
-		return fmt.Errorf("specgen: write %s: %w", out, err)
+		return fmt.Errorf("kdl-specs: write %s: %w", out, err)
 	}
-	fmt.Fprintf(os.Stderr, "specgen: wrote %s\n", out)
+	fmt.Fprintf(os.Stderr, "kdl-specs: wrote %s\n", out)
 	for _, m := range g.Members {
 		if m.isExec() {
 			if err := emitExecReferenceDoc(g.Dir, m); err != nil {
@@ -246,9 +246,9 @@ func emitExecReferenceDoc(dir string, m member) error {
 	surface := execverb.Describe(m.ExecGF)
 	path := filepath.Join(dir, refDocName(m))
 	if err := os.WriteFile(path, []byte(surface.Markdown()), 0o644); err != nil { //nolint:gosec // human-facing committed reference
-		return fmt.Errorf("specgen: write exec reference doc: %w", err)
+		return fmt.Errorf("kdl-specs: write exec reference doc: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "specgen: wrote %s (%d grants)\n", path, len(surface.Grants))
+	fmt.Fprintf(os.Stderr, "kdl-specs: wrote %s (%d grants)\n", path, len(surface.Grants))
 	return nil
 }
 
@@ -258,10 +258,10 @@ func emitReferenceDocFromLock(dir string, m member) error {
 	specBytes, err := os.ReadFile(filepath.Join(dir, m.Params.SpecLockName)) //nolint:gosec // committed spec snapshot
 	if err != nil {
 		if os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "specgen: skipped reference doc (no spec lock %s; run lock)\n", m.Params.SpecLockName)
+			fmt.Fprintf(os.Stderr, "kdl-specs: skipped reference doc (no spec lock %s; run lock)\n", m.Params.SpecLockName)
 			return nil
 		}
-		return fmt.Errorf("specgen: read spec lock for reference doc: %w", err)
+		return fmt.Errorf("kdl-specs: read spec lock for reference doc: %w", err)
 	}
 	return writeReferenceDoc(dir, m, specBytes)
 }
@@ -271,13 +271,13 @@ func emitReferenceDocFromLock(dir string, m member) error {
 func writeReferenceDoc(dir string, m member, specBytes []byte) error {
 	surface, err := specverb.Describe(specverb.Config{Guardfile: m.GF, Spec: specBytes})
 	if err != nil {
-		return fmt.Errorf("specgen: build reference surface: %w", err)
+		return fmt.Errorf("kdl-specs: build reference surface: %w", err)
 	}
 	path := filepath.Join(dir, refDocName(m))
 	if err := os.WriteFile(path, []byte(surface.Markdown()), 0o644); err != nil { //nolint:gosec // human-facing committed reference
-		return fmt.Errorf("specgen: write reference doc: %w", err)
+		return fmt.Errorf("kdl-specs: write reference doc: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "specgen: wrote %s (%d verbs)\n", path, len(surface.Verbs))
+	fmt.Fprintf(os.Stderr, "kdl-specs: wrote %s (%d verbs)\n", path, len(surface.Verbs))
 	return nil
 }
 
@@ -291,20 +291,20 @@ func lockSpecs(g *group) (map[string][]byte, error) {
 		}
 		full, err := loadFullSpec(g.Dir, m)
 		if err != nil {
-			return nil, fmt.Errorf("specgen: load spec %s: %w", m.Params.GuardfileName, err)
+			return nil, fmt.Errorf("kdl-specs: load spec %s: %w", m.Params.GuardfileName, err)
 		}
 		// Commit only the granted slice, not the full upstream dump: the lock
-		// becomes the consumer's own contract. See docs/specgen.md.
+		// becomes the consumer's own contract. See docs/kdl-specs.md.
 		specBytes, err := specverb.Prune(full, m.GF)
 		if err != nil {
-			return nil, fmt.Errorf("specgen: prune spec %s: %w", m.Params.GuardfileName, err)
+			return nil, fmt.Errorf("kdl-specs: prune spec %s: %w", m.Params.GuardfileName, err)
 		}
 		specLockPath := filepath.Join(g.Dir, m.Params.SpecLockName)
 		if err := os.WriteFile(specLockPath, specBytes, 0o644); err != nil { //nolint:gosec // committed spec snapshot, not a secret
-			return nil, fmt.Errorf("specgen: write spec lock: %w", err)
+			return nil, fmt.Errorf("kdl-specs: write spec lock: %w", err)
 		}
 		specs[m.Path] = specBytes
-		fmt.Fprintf(os.Stderr, "specgen: locked %s (%d bytes, pruned from %d)\n", m.Params.SpecLockName, len(specBytes), len(full))
+		fmt.Fprintf(os.Stderr, "kdl-specs: locked %s (%d bytes, pruned from %d)\n", m.Params.SpecLockName, len(specBytes), len(full))
 	}
 	return specs, nil
 }
@@ -315,7 +315,7 @@ func loadFullSpec(dir string, m member) ([]byte, error) {
 	if m.GF != nil && m.GF.Spec != "" {
 		local := filepath.Join(dir, m.GF.Spec)
 		if b, rerr := os.ReadFile(local); rerr == nil { //nolint:gosec // operator-vendored spec beside the guardfile
-			fmt.Fprintf(os.Stderr, "specgen: read vendored spec %s\n", m.GF.Spec)
+			fmt.Fprintf(os.Stderr, "kdl-specs: read vendored spec %s\n", m.GF.Spec)
 			return b, nil
 		}
 	}
@@ -340,7 +340,7 @@ func Lock(opts Options) error {
 	}
 	tmp, err := os.MkdirTemp("", "specverb-lock-")
 	if err != nil {
-		return fmt.Errorf("specgen: temp build dir: %w", err)
+		return fmt.Errorf("kdl-specs: temp build dir: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 	if err := materializeModuleDir(tmp, main, g.Members, specs); err != nil {
@@ -353,7 +353,7 @@ func Lock(opts Options) error {
 	if err := writeDepLock(filepath.Join(g.Dir, LockName), dl); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "specgen: locked %s (cli-guard %s)\n", LockName, dl.CLIGuard)
+	fmt.Fprintf(os.Stderr, "kdl-specs: locked %s (cli-guard %s)\n", LockName, dl.CLIGuard)
 	for _, m := range g.Members {
 		if m.isExec() {
 			if err := emitExecReferenceDoc(g.Dir, m); err != nil {
@@ -383,19 +383,19 @@ func Skew(opts Options) error {
 		committed, err := os.ReadFile(filepath.Join(g.Dir, m.Params.SpecLockName)) //nolint:gosec // committed spec snapshot
 		if err != nil {
 			if os.IsNotExist(err) {
-				return fmt.Errorf("specgen: no spec lock %s: %w", m.Params.SpecLockName, ErrNoLock)
+				return fmt.Errorf("kdl-specs: no spec lock %s: %w", m.Params.SpecLockName, ErrNoLock)
 			}
-			return fmt.Errorf("specgen: read spec lock: %w", err)
+			return fmt.Errorf("kdl-specs: read spec lock: %w", err)
 		}
 		live, err := fetchSpec(m.Params.SpecURL)
 		if err != nil {
-			return fmt.Errorf("specgen: fetch spec %s: %w", m.Params.GuardfileName, err)
+			return fmt.Errorf("kdl-specs: fetch spec %s: %w", m.Params.GuardfileName, err)
 		}
 		// Prune live to the same granted slice the committed lock holds, so
 		// drift is reported only for operations this consumer exposes.
 		livePruned, err := specverb.Prune(live, m.GF)
 		if err != nil {
-			return fmt.Errorf("specgen: prune live spec %s: %w", m.Params.GuardfileName, err)
+			return fmt.Errorf("kdl-specs: prune live spec %s: %w", m.Params.GuardfileName, err)
 		}
 		d, err := diffSpecs(committed, livePruned)
 		if err != nil {
@@ -408,13 +408,13 @@ func Skew(opts Options) error {
 		}
 	}
 	if len(drift) > 0 {
-		fmt.Fprintf(os.Stderr, "specgen: %d spec change(s) since lock:\n", len(drift))
+		fmt.Fprintf(os.Stderr, "kdl-specs: %d spec change(s) since lock:\n", len(drift))
 		for _, d := range drift {
 			fmt.Fprintf(os.Stderr, "  %s\n", d)
 		}
 		return ErrSkew
 	}
-	fmt.Fprintln(os.Stderr, "specgen: no skew; committed spec locks match upstream")
+	fmt.Fprintln(os.Stderr, "kdl-specs: no skew; committed spec locks match upstream")
 	return nil
 }
 
@@ -429,7 +429,7 @@ func Run(opts Options) error {
 }
 
 // Build materializes the consumer binary out-of-band (same cache + staleness
-// path as Run) and copies it to opts.Out instead of execing it. See specgen.md.
+// path as Run) and copies it to opts.Out instead of execing it. See kdl-specs.md.
 func Build(opts Options) error {
 	binPath, g, err := materialize(opts)
 	if err != nil {
@@ -442,7 +442,7 @@ func Build(opts Options) error {
 	if err := copyExecutable(binPath, dest); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "specgen: built %s\n", dest)
+	fmt.Fprintf(os.Stderr, "kdl-specs: built %s\n", dest)
 	return nil
 }
 
@@ -461,9 +461,9 @@ func materialize(opts Options) (string, *group, error) {
 		specBytes, err := os.ReadFile(filepath.Join(g.Dir, m.Params.SpecLockName)) //nolint:gosec // committed spec snapshot
 		if err != nil {
 			if os.IsNotExist(err) {
-				return "", g, fmt.Errorf("specgen: no spec lock %s: %w", m.Params.SpecLockName, ErrNoLock)
+				return "", g, fmt.Errorf("kdl-specs: no spec lock %s: %w", m.Params.SpecLockName, ErrNoLock)
 			}
-			return "", g, fmt.Errorf("specgen: read spec lock: %w", err)
+			return "", g, fmt.Errorf("kdl-specs: read spec lock: %w", err)
 		}
 		specByPath[m.Path] = specBytes
 	}
@@ -471,9 +471,9 @@ func materialize(opts Options) (string, *group, error) {
 	depRaw, err := os.ReadFile(depLockPath) //nolint:gosec // committed dep lock
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", g, fmt.Errorf("specgen: no %s: %w", LockName, ErrNoLock)
+			return "", g, fmt.Errorf("kdl-specs: no %s: %w", LockName, ErrNoLock)
 		}
-		return "", g, fmt.Errorf("specgen: read %s: %w", LockName, err)
+		return "", g, fmt.Errorf("kdl-specs: read %s: %w", LockName, err)
 	}
 	dl, err := readDepLock(depLockPath)
 	if err != nil {
@@ -516,7 +516,7 @@ func hashMembers(mems []member) string {
 // go build -o: an existing dir (or trailing separator) takes the binary name.
 func resolveBuildDest(out, binary string) (string, error) {
 	if out == "" {
-		return "", fmt.Errorf("specgen: build needs an output path (--out)")
+		return "", fmt.Errorf("kdl-specs: build needs an output path (--out)")
 	}
 	dest := out
 	if strings.HasSuffix(out, string(os.PathSeparator)) {
@@ -525,7 +525,7 @@ func resolveBuildDest(out, binary string) (string, error) {
 		dest = filepath.Join(out, binary)
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
-		return "", fmt.Errorf("specgen: create output dir: %w", err)
+		return "", fmt.Errorf("kdl-specs: create output dir: %w", err)
 	}
 	return dest, nil
 }
@@ -535,27 +535,27 @@ func resolveBuildDest(out, binary string) (string, error) {
 func copyExecutable(src, dest string) error {
 	in, err := os.Open(src) //nolint:gosec // driver-built cache binary
 	if err != nil {
-		return fmt.Errorf("specgen: open built binary: %w", err)
+		return fmt.Errorf("kdl-specs: open built binary: %w", err)
 	}
 	defer func() { _ = in.Close() }()
 	tmp, err := os.CreateTemp(filepath.Dir(dest), ".specverb-build-*")
 	if err != nil {
-		return fmt.Errorf("specgen: create temp binary: %w", err)
+		return fmt.Errorf("kdl-specs: create temp binary: %w", err)
 	}
 	tmpName := tmp.Name()
 	defer func() { _ = os.Remove(tmpName) }()
 	if _, err := io.Copy(tmp, in); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("specgen: copy binary: %w", err)
+		return fmt.Errorf("kdl-specs: copy binary: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("specgen: close temp binary: %w", err)
+		return fmt.Errorf("kdl-specs: close temp binary: %w", err)
 	}
 	if err := os.Chmod(tmpName, 0o755); err != nil { //nolint:gosec // executable output
-		return fmt.Errorf("specgen: chmod binary: %w", err)
+		return fmt.Errorf("kdl-specs: chmod binary: %w", err)
 	}
 	if err := os.Rename(tmpName, dest); err != nil {
-		return fmt.Errorf("specgen: install binary: %w", err)
+		return fmt.Errorf("kdl-specs: install binary: %w", err)
 	}
 	return nil
 }
@@ -564,15 +564,15 @@ func copyExecutable(src, dest string) error {
 // changed, releasing the lock before return so Run can exec the fresh image.
 func materializeIfStale(cdir, binPath string, main []byte, mems []member, specByPath map[string][]byte, dl *DepLock, want stamp) error {
 	if err := os.MkdirAll(cdir, 0o750); err != nil {
-		return fmt.Errorf("specgen: create cache dir: %w", err)
+		return fmt.Errorf("kdl-specs: create cache dir: %w", err)
 	}
 	lf, err := os.OpenFile(filepath.Join(cdir, ".lock"), os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // driver-owned cache dir
 	if err != nil {
-		return fmt.Errorf("specgen: open cache lock: %w", err)
+		return fmt.Errorf("kdl-specs: open cache lock: %w", err)
 	}
 	defer func() { _ = lf.Close() }()
 	if err := lockFile(lf); err != nil {
-		return fmt.Errorf("specgen: lock cache: %w", err)
+		return fmt.Errorf("kdl-specs: lock cache: %w", err)
 	}
 	defer func() { _ = unlockFile(lf) }()
 
@@ -586,7 +586,7 @@ func materializeIfStale(cdir, binPath string, main []byte, mems []member, specBy
 		return err
 	}
 	if err := os.MkdirAll(filepath.Join(cdir, "bin"), 0o750); err != nil {
-		return fmt.Errorf("specgen: create bin dir: %w", err)
+		return fmt.Errorf("kdl-specs: create bin dir: %w", err)
 	}
 	args := []string{"build", "-mod=readonly"}
 	// Stamp the consumer's release version into main.Version, mirroring the way
@@ -605,7 +605,7 @@ func materializeIfStale(cdir, binPath string, main []byte, mems []member, specBy
 // plus each member's embeds (guardfile always, spec lock for spec members).
 func materializeModuleDir(dir string, main []byte, mems []member, specByPath map[string][]byte) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return fmt.Errorf("specgen: create module dir: %w", err)
+		return fmt.Errorf("kdl-specs: create module dir: %w", err)
 	}
 	files := map[string][]byte{"main.go": main}
 	for _, m := range mems {
@@ -616,7 +616,7 @@ func materializeModuleDir(dir string, main []byte, mems []member, specByPath map
 	}
 	for name, b := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), b, 0o600); err != nil {
-			return fmt.Errorf("specgen: write %s: %w", name, err)
+			return fmt.Errorf("kdl-specs: write %s: %w", name, err)
 		}
 	}
 	return nil
@@ -642,11 +642,11 @@ func fetchSpec(specURL string) ([]byte, error) {
 func diffSpecs(committed, live []byte) ([]string, error) {
 	c, err := normalizeSpec(committed)
 	if err != nil {
-		return nil, fmt.Errorf("specgen: parse committed spec lock: %w", err)
+		return nil, fmt.Errorf("kdl-specs: parse committed spec lock: %w", err)
 	}
 	l, err := normalizeSpec(live)
 	if err != nil {
-		return nil, fmt.Errorf("specgen: parse live spec: %w", err)
+		return nil, fmt.Errorf("kdl-specs: parse live spec: %w", err)
 	}
 	var drift []string
 	for _, section := range []string{"paths", "definitions"} {

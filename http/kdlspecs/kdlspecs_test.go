@@ -1,4 +1,4 @@
-package specgen
+package kdlspecs
 
 import (
 	"errors"
@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen/codegen"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/kdlspecs/codegen"
 )
 
 const guardfileFixture = `wrap ward-kdl ops forgejo {

@@ -1539,10 +1539,10 @@ type Spec struct {
 Command cli-guard-hook is a single-purpose Claude Code PreToolUse binary for
 shell-only consumers. See docs/architecture.md for payload flow and flags.
 
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cmd/specgen
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cmd/kdl-specs
 
-Command specgen is the no-code uv-style driver for a spec-driven consumer CLI:
-gen / lock / skew / run. See docs/specgen.md.
+Command kdl-specs is the no-code uv-style driver for a spec-driven consumer CLI:
+gen / lock / skew / run. See docs/kdl-specs.md.
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/egress
 
@@ -1917,53 +1917,9 @@ func (v ValueSource) IsZero() bool
     IsZero reports whether the source is unset (no provider named).
 
 
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/kdlspecs
 
-package respfmt // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt"
-
-Package respfmt renders a JSON response body through an optional JMESPath
-projection and one of five output formats: yaml (default),
-
-CONSTANTS
-
-const (
-	OutputYAML       = "yaml"
-	OutputYAMLStream = "yaml-stream"
-	OutputJSON       = "json"
-	OutputText       = "text"
-	OutputTable      = "table"
-)
-    Output names mirror the aws CLI vocabulary verbatim.
-
-
-FUNCTIONS
-
-func Eval(data any, expr string, vars map[string]any) (any, error)
-    Eval evaluates expr against decoded data, with vars injected as
-    native `$name` variables (keys are bare names; Eval adds the `$`).
-    See specverb-actions.md.
-
-func EvalBool(data any, expr string, vars map[string]any) (bool, error)
-    EvalBool evaluates expr and reports its JMESPath truthiness, the predicate
-    form `until` and `fail-when` need. A non-boolean result is reduced via
-    Truthy.
-
-func Render(raw []byte, query, output string) ([]byte, error)
-    Render applies the optional JMESPath projection to raw and formats the
-    result per output. Empty raw returns empty bytes, no error. Empty query
-
-func Truthy(v any) bool
-    Truthy reports JMESPath truthiness: null, false, "", [], and {} are false;
-    everything else (including the number 0) is true, per the JMESPath spec.
-
-func Validate(expr string) error
-    Validate reports whether expr parses as JMESPath, without evaluating it:
-    the build-time check that fails closed on a malformed `until`/`fail-when`.
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen
-
-package specgen // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen"
+package kdlspecs // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/kdlspecs"
 
 Cache layout and staleness for the out-of-band materialized consumer binary,
 keyed by the Guardfile's location. See docs/specverb.md.
@@ -1974,7 +1930,7 @@ docs/specverb.md.
 
 Process replacement (syscall.Exec) and cache locking (flock) on Unix.
 
-Package specgen is the no-code driver behind cmd/specgen: the uv-style verb
+Package kdlspecs is the no-code driver behind cmd/kdl-specs: the uv-style verb
 surface (gen / lock / skew / run) over a Guardfile. See docs/specverb.md.
 
 CONSTANTS
@@ -1986,9 +1942,9 @@ const LockName = "specverb.lock"
 
 VARIABLES
 
-var ErrNoLock = errors.New("missing committed lock; run 'specgen lock' first")
+var ErrNoLock = errors.New("missing committed lock; run 'kdl-specs lock' first")
     ErrNoLock is returned by run and skew when a required committed lock is
-    absent, so the caller can point the user at `specgen lock`.
+    absent, so the caller can point the user at `kdl-specs lock`.
 
 var ErrSkew = errors.New("spec skew detected")
     ErrSkew is returned by skew when the committed spec lock drifts from
@@ -2000,7 +1956,7 @@ FUNCTIONS
 func Build(opts Options) error
     Build materializes the consumer binary out-of-band (same cache +
     staleness path as Run) and copies it to opts.Out instead of execing it.
-    See specgen.md.
+    See kdl-specs.md.
 
 func Gen(opts Options) error
     Gen renders the merged consumer main.go (cache, or --out for inspection) and
@@ -2045,9 +2001,9 @@ type Options struct {
     Options are the inputs shared by every driver verb.
 
 
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen/codegen
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/kdlspecs/codegen
 
-package codegen // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen/codegen"
+package codegen // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/kdlspecs/codegen"
 
 Package codegen renders a complete consumer `main.go` from a KDL Guardfile,
 so a consumer never hand-writes the specverb wiring. See docs/specverb.md.
@@ -2059,7 +2015,7 @@ const (
 	TransportExec = "exec"
 )
     Transport is the dialect one merged member speaks: spec (HTTP/specverb) or
-    exec (wrapped binary/execverb). See docs/specgen.md.
+    exec (wrapped binary/execverb). See docs/kdl-specs.md.
 
 
 FUNCTIONS
@@ -2084,7 +2040,7 @@ type Params struct {
 	Binary        string // binary name, e.g. ward-kdl (Guardfile group[0])
 	GuardfileName string // embedded Guardfile filename, e.g. forgejo.guardfile.kdl
 	SpecLockName  string // committed, embedded spec lock filename, e.g. forgejo.swagger.lock.json
-	SpecURL       string // upstream Swagger URL; the `specgen lock` source and bootstrap fallback
+	SpecURL       string // upstream Swagger URL; the `kdl-specs lock` source and bootstrap fallback
 	SpecEnvVar    string // env var overriding the embedded lock, e.g. WARD_KDL_SPEC
 
 	// Providers are the value-source provider names this member's guardfile uses,
@@ -2101,7 +2057,7 @@ func Plan(gf *guardfile.Guardfile, guardfileName string) (Params, error)
 
 func PlanExec(group, providers []string, guardfileName string) (Params, error)
     PlanExec derives an exec member's Params from its wrap group and the
-    provider names its env injections use; no upstream spec. See specgen.md.
+    provider names its env injections use; no upstream spec. See kdl-specs.md.
 
 type SetParams struct {
 	Binary  string
@@ -2120,6 +2076,50 @@ func PlanSet(gfs []*guardfile.Guardfile, names []string) (SetParams, error)
     PlanSet derives the merged params for guardfiles that share a binary name.
     It fails closed on an empty set or a Group[0] disagreement (one binary per
     merge).
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt
+
+package respfmt // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt"
+
+Package respfmt renders a JSON response body through an optional JMESPath
+projection and one of five output formats: yaml (default),
+
+CONSTANTS
+
+const (
+	OutputYAML       = "yaml"
+	OutputYAMLStream = "yaml-stream"
+	OutputJSON       = "json"
+	OutputText       = "text"
+	OutputTable      = "table"
+)
+    Output names mirror the aws CLI vocabulary verbatim.
+
+
+FUNCTIONS
+
+func Eval(data any, expr string, vars map[string]any) (any, error)
+    Eval evaluates expr against decoded data, with vars injected as
+    native `$name` variables (keys are bare names; Eval adds the `$`).
+    See specverb-actions.md.
+
+func EvalBool(data any, expr string, vars map[string]any) (bool, error)
+    EvalBool evaluates expr and reports its JMESPath truthiness, the predicate
+    form `until` and `fail-when` need. A non-boolean result is reduced via
+    Truthy.
+
+func Render(raw []byte, query, output string) ([]byte, error)
+    Render applies the optional JMESPath projection to raw and formats the
+    result per output. Empty raw returns empty bytes, no error. Empty query
+
+func Truthy(v any) bool
+    Truthy reports JMESPath truthiness: null, false, "", [], and {} are false;
+    everything else (including the number 0) is true, per the JMESPath spec.
+
+func Validate(expr string) error
+    Validate reports whether expr parses as JMESPath, without evaluating it:
+    the build-time check that fails closed on a malformed `until`/`fail-when`.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specverb
@@ -2142,7 +2142,7 @@ func Mount(root *cli.Command, cfg Config) error
 
 func Prune(spec []byte, gf *guardfile.Guardfile) ([]byte, error)
     Prune returns a minimal spec doc holding only the operations gf grants and
-    their reachable schemas. Dispatches on version. See docs/specgen.md.
+    their reachable schemas. Dispatches on version. See docs/kdl-specs.md.
 
 
 TYPES

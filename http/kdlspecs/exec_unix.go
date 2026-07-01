@@ -1,7 +1,7 @@
 //go:build !windows
 
 // Process replacement (syscall.Exec) and cache locking (flock) on Unix.
-package specgen
+package kdlspecs
 
 import (
 	"os"
