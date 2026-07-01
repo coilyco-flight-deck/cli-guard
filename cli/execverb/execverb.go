@@ -256,6 +256,10 @@ func actionFor(gf *Guardfile, g Grant, gates []gateFunc, run Runner, host HostRe
 		if err := checkFlagPolicy(args, g); err != nil {
 			return exitcode.New(exitcode.UserError, "user_error", err, "this flag is refused by the Guardfile policy")
 		}
+		if g.Sealed && len(args) > 0 {
+			err := fmt.Errorf("`%s` is sealed: it forwards its pinned command exactly and accepts no trailing arguments", g.subcommandLabel())
+			return exitcode.New(exitcode.UserError, "user_error", err, "this call is refused by the Guardfile: sealed verbs take no caller arguments")
+		}
 		env, err := resolveEnv(ctx, gf, providers)
 		if err != nil {
 			return exitcode.New(exitcode.Internal, "internal", err, "check the env value provider address and credentials")

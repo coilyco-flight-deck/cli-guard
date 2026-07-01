@@ -542,6 +542,10 @@ type Grant struct {
 	// in place of Subcommand. ArgvSet marks an explicit (maybe empty) override.
 	Argv    []string
 	ArgvSet bool
+
+	// Sealed forbids trailing caller args: the pinned `argv` forwards exactly,
+	// with no caller-supplied tokens appended. Requires ArgvSet (parse-enforced).
+	Sealed bool
 }
     Grant is one `can run <subcommand>` sentence plus its flag policy.
 
@@ -556,6 +560,7 @@ type GrantInfo struct {
 	Bin        string   `json:"bin,omitempty"`         // the funnel's own binary, set only for an inspect-list (`allow`) leaf
 	Exec       []string `json:"exec,omitempty"`        // tokens appended after the binary: the argv override when set, else the subcommand
 	Wildcard   bool     `json:"wildcard"`              // `can run *`: the whole binary passes through
+	Sealed     bool     `json:"sealed,omitempty"`      // `sealed`: pinned argv forwards exactly, no trailing caller args
 	Describe   string   `json:"describe,omitempty"`    // Guardfile describe note
 	AllowFlags []string `json:"allow_flags,omitempty"` // non-empty: strict flag allowlist
 	DenyFlags  []string `json:"deny_flags,omitempty"`  // default-allow minus these

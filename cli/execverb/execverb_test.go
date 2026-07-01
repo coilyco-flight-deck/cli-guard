@@ -426,6 +426,56 @@ func TestArgvOverrideParseFailsClosed(t *testing.T) {
 	}
 }
 
+// sealedGuardfile exercises the `sealed` clause: a strictly-single-resource
+// verb whose pinned `argv` forwards exactly, refusing any trailing caller arg.
+const sealedGuardfile = `wrap ward-kdl ops forgejo {
+	exec kubectl
+
+	can run "read runner-token" {
+		argv "get" "secret" "forgejo-runner-secrets" "-n" "forgejo" "-o" "go-template={{.data.api-token | base64decode}}"
+		sealed
+		describe "read only the forgejo runner secret; no pivot"
+	}
+}`
+
+// TestSealedForwardsPinnedArgvWithNoArgs proves a sealed verb with no trailing
+// tokens runs its pinned argv verbatim.
+func TestSealedForwardsPinnedArgvWithNoArgs(t *testing.T) {
+	var cp capture
+	if err := runArgv(t, sealedGuardfile, &cp, "ops", "forgejo", "read", "runner-token"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if cp.bin != "kubectl" {
+		t.Errorf("bin = %q, want kubectl", cp.bin)
+	}
+	want := "get secret forgejo-runner-secrets -n forgejo -o go-template={{.data.api-token | base64decode}}"
+	if got := strings.Join(cp.argv, " "); got != want {
+		t.Errorf("argv = %q,\nwant   %q", got, want)
+	}
+}
+
+// TestSealedRefusesTrailingArg proves any caller-supplied token is refused,
+// blocking the widening `read othersecret -n kube-system` pivot.
+func TestSealedRefusesTrailingArg(t *testing.T) {
+	var cp capture
+	err := runArgv(t, sealedGuardfile, &cp, "ops", "forgejo", "read", "runner-token", "othersecret", "-n", "kube-system")
+	if err == nil {
+		t.Fatal("expected a sealed verb to refuse trailing args")
+	}
+	if cp.bin != "" {
+		t.Errorf("sealed refusal still executed: %s %v", cp.bin, cp.argv)
+	}
+}
+
+// TestSealedWithoutArgvIsParseError proves `sealed` without a pinned `argv`
+// fails closed at parse time (nothing to seal).
+func TestSealedWithoutArgvIsParseError(t *testing.T) {
+	src := `wrap ward-kdl ops forgejo { exec kubectl; can run read { sealed } }`
+	if _, err := Parse([]byte(src)); err == nil {
+		t.Error("expected a parse failure for `sealed` without `argv`")
+	}
+}
+
 // inspectGuardfile is the `allow` inspect-list sugar: one wrap opening N
 // read-only binaries as a flat list, each an independent open passthrough.
 const inspectGuardfile = `wrap ward-kdl inspect {

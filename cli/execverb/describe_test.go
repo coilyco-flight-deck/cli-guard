@@ -87,6 +87,24 @@ func TestDescribeArgvOverride(t *testing.T) {
 	}
 }
 
+func TestDescribeSealed(t *testing.T) {
+	gf, err := Parse([]byte(`wrap ward-kdl ops forgejo {
+		exec kubectl
+		can run "read runner-token" { argv "get" "secret" "forgejo-runner-secrets"; sealed }
+	}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	s := Describe(gf)
+	if !s.Grants[0].Sealed {
+		t.Error("grant Sealed: got false, want true")
+	}
+	md := s.Markdown()
+	if !strings.Contains(md, "Sealed: the pinned command forwards exactly") {
+		t.Errorf("markdown missing the sealed note\n---\n%s", md)
+	}
+}
+
 func TestDescribeInspectList(t *testing.T) {
 	gf, err := Parse([]byte(`wrap ward-kdl inspect {
 		allow ls cat grep
