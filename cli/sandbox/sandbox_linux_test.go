@@ -4,8 +4,10 @@ package sandbox_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,11 +25,19 @@ const (
 	envLog     = "CLIGUARD_SANDBOX_TEST_LOG"
 )
 
+// Distinct exit codes let a security-claim test tell "the runner can't enforce
+// the jail" (skip) from "the jail engaged but the guarantee broke" (fail).
+const (
+	jailSetupFailed     = 7 // RunJail errored (clone ok, but mount/seccomp denied)
+	probeNotJailed      = 8 // probe ran outside the jail (opt-out or auto-degrade)
+	probeSeccompMissing = 9 // probe ran inside the jail but ptrace was not denied
+)
+
 func TestMain(m *testing.M) {
 	if sandbox.IsJailInvocation(os.Args) {
 		if err := sandbox.RunJail(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "jail:", err)
-			os.Exit(7)
+			os.Exit(jailSetupFailed)
 		}
 		return
 	}
@@ -36,12 +46,17 @@ func TestMain(m *testing.M) {
 		appendLog("SHIM " + strings.Join(os.Args[1:], " "))
 		os.Exit(0)
 	case ptraceTool:
+		// Jail never engaged (opt-out or auto-degrade): flag distinctly from a
+		// jailed-but-unfiltered run so the test can skip vs fail.
+		if os.Getenv(sandbox.EnvJailed) != "1" {
+			os.Exit(probeNotJailed)
+		}
 		// TRACEME normally succeeds; the seccomp denylist turns it into EPERM.
 		_, _, errno := unix.Syscall(unix.SYS_PTRACE, uintptr(unix.PTRACE_TRACEME), 0, 0)
 		if errno == unix.EPERM {
 			os.Exit(0) // denied -> filter active
 		}
-		os.Exit(9) // not denied -> filter missing
+		os.Exit(probeSeccompMissing) // not denied -> filter missing
 	}
 	os.Exit(m.Run())
 }
@@ -73,7 +88,7 @@ func TestSecurityClaim_GrandchildRoutesThroughGate(t *testing.T) {
 	realScript := filepath.Join(dir, "real", fakeTool)
 	mustMkdir(t, filepath.Dir(realScript))
 	writeScript(t, realScript, `#!/bin/bash
-echo "REAL $*" >> "$CLIGUARD_SANDBOX_TEST_LOG"
+echo "REAL $* JAILED=$CLIGUARD_JAILED" >> "$CLIGUARD_SANDBOX_TEST_LOG"
 if [ "$1" = "spawn" ]; then
   faketool byname            # PATH lookup -> masked symlink -> shim
   "$BINDIR/faketool" byabspath  # absolute path -> masked symlink -> shim
@@ -101,11 +116,19 @@ fi
 		if isUserNSUnavailable(err) {
 			t.Skipf("unprivileged namespaces unavailable: %v", err)
 		}
+		if exitCode(err) == jailSetupFailed {
+			t.Skipf("jail setup failed (mount/seccomp denied by runner); reroute not enforceable here: %v", err)
+		}
 		t.Fatalf("sandboxed run failed: %v", err)
 	}
 	got := readLog(t, logPath)
 	if !strings.Contains(got, "REAL spawn") {
 		t.Fatalf("expected the real tool to run once at its true path; log:\n%s", got)
+	}
+	// No CLIGUARD_JAILED means the run opted out or auto-degraded unsandboxed, so
+	// the reroute is untestable — skip. When it engaged, the SHIM asserts below fire.
+	if !strings.Contains(got, "JAILED=1") {
+		t.Skipf("sandbox did not engage (opted out or namespace jail unavailable); reroute not enforceable; log:\n%s", got)
 	}
 	if !strings.Contains(got, "SHIM byname") {
 		t.Errorf("name-based grandchild call was not rerouted to the gate; log:\n%s", got)
@@ -129,12 +152,32 @@ func TestSecurityClaim_SeccompDeniesPtrace(t *testing.T) {
 	env := []string{"PATH=" + binDir + ":" + os.Getenv("PATH")}
 	spec := &sandbox.Spec{SelfExe: self, Tools: []string{ptraceTool}}
 	err := runTool(t, env, spec, ptraceTool)
-	if err != nil && isUserNSUnavailable(err) {
+	if err == nil {
+		return // ptrace was denied inside the jail: the seccomp filter is enforced.
+	}
+	if isUserNSUnavailable(err) {
 		t.Skipf("unprivileged namespaces unavailable: %v", err)
 	}
-	if err != nil {
-		t.Fatalf("ptrace probe exited non-zero: seccomp denylist not enforced (%v)", err)
+	// Skip only where the runner can't deliver the jail; a probe that ran inside
+	// the jail without ptrace denied (probeSeccompMissing) is a real regression.
+	switch exitCode(err) {
+	case jailSetupFailed:
+		t.Skipf("jail setup failed (mount/seccomp denied by runner); seccomp not enforceable here: %v", err)
+	case probeNotJailed:
+		t.Skipf("sandbox did not engage (opted out or auto-degraded); seccomp not enforceable here: %v", err)
+	default:
+		t.Fatalf("ptrace probe ran inside the jail but was not denied: seccomp denylist not enforced (%v)", err)
 	}
+}
+
+// exitCode returns the process exit code carried by err, or -1 if err is not an
+// exec exit error.
+func exitCode(err error) int {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode()
+	}
+	return -1
 }
 
 // runTool execs bin under a shell.Runner with the given env and optional

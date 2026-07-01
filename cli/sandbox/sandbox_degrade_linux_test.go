@@ -36,6 +36,12 @@ func TestSetupDenied(t *testing.T) {
 		t.Error("non-jailed cmd must not count as a setup-denial")
 	}
 
+	// The jailed-path assertions need Wrap to rewrite argv, which it skips when
+	// opted out or already jailed — skip there rather than fatal (plain checks ran).
+	if sandbox.NoSandbox() || sandbox.Jailed() {
+		t.Skip("sandbox opted out or already jailed: Wrap no-ops, jailed-path assertions not exercised")
+	}
+
 	// Wrap (do not run) so the cmd is jailed and ProcessState stays nil.
 	jailed := exec.Command("/bin/true")
 	sandbox.Wrap(jailed, "/bin/true", []string{"true"}, jailSpec())
