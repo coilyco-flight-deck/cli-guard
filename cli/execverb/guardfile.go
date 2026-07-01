@@ -68,6 +68,10 @@ type Grant struct {
 	// in place of Subcommand. ArgvSet marks an explicit (maybe empty) override.
 	Argv    []string
 	ArgvSet bool
+
+	// Sealed forbids trailing caller args: the pinned `argv` forwards exactly,
+	// with no caller-supplied tokens appended. Requires ArgvSet (parse-enforced).
+	Sealed bool
 }
 
 // ExecArgv returns the tokens appended after the binary and argv-prefix: the
@@ -476,6 +480,9 @@ func parseGrant(n *kdl.Node) (Grant, error) {
 	if g.Wildcard && g.ArgvSet {
 		return Grant{}, fmt.Errorf("execverb: `can run *` cannot take an `argv` override (the wildcard funnels the whole binary; fail-closed)")
 	}
+	if g.Sealed && !g.ArgvSet {
+		return Grant{}, fmt.Errorf("execverb: grant %q: `sealed` requires a pinned `argv` (nothing to seal without it; fail-closed)", g.subcommandLabel())
+	}
 	return g, nil
 }
 
@@ -505,6 +512,12 @@ func (g *Grant) applyGrantChild(c *kdl.Node) error {
 		for _, a := range c.Arguments() {
 			g.Argv = append(g.Argv, a.String())
 		}
+		return nil
+	case "sealed":
+		if len(c.Arguments()) != 0 {
+			return fmt.Errorf("execverb: grant %q: `sealed` takes no value (fail-closed)", g.subcommandLabel())
+		}
+		g.Sealed = true
 		return nil
 	default:
 		return g.applyPolicyNode(c)
