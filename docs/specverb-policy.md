@@ -4,7 +4,7 @@ The policy surface a Guardfile authors on top of the `op`-bound grants. See [spe
 
 ## Value sources
 
-A secret or opaque host is named, never committed: `value <provider> "<address>"`. The provider names a store; the address is whatever it interprets (an SSM path, a tailnet device name, an env var). cli-guard never reads the store - a registered `specverb.Provider` does, so store clients stay in the consumer. It ships three no-SDK built-ins (`env`, `file`, `literal`); a consumer registers the rest via `Config.Providers` (the generated binary wires `ssm`, `tailscale`). An unregistered provider fails closed at request time, never a silent empty secret; an offline build/describe/mount needs nothing wired.
+A secret or opaque host is named, never committed: `value <provider> "<address>"`. The provider names a store; the address is whatever it interprets (an SSM path, a tailnet device, an env var). cli-guard never reads the store - a registered `specverb.Provider` does, so store clients stay in the consumer. It ships three no-SDK built-ins (`env`, `file`, `literal`); the rest come via `Config.Providers`. An unregistered provider fails closed at request time, never a silent empty secret. A `value` may also name a fallback list (a children block); see [specverb-value-chain.md](specverb-value-chain.md).
 
 ## Auth schemes
 

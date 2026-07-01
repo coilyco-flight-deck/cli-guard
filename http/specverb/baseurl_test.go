@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -24,7 +25,8 @@ func baseURLValueFixture(t *testing.T) (*guardfile.Guardfile, []byte) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if gf.BaseURL != "" || gf.BaseURLValue != (guardfile.ValueSource{Provider: "ssm", Address: "/coilysiren/open-webui/url"}) {
+	wantChain := guardfile.ValueChain{{Provider: "ssm", Address: "/coilysiren/open-webui/url"}}
+	if gf.BaseURL != "" || !reflect.DeepEqual(gf.BaseURLValue, wantChain) {
 		t.Fatalf("base-url parse: BaseURL=%q BaseURLValue=%+v", gf.BaseURL, gf.BaseURLValue)
 	}
 	return gf, spec

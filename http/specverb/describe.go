@@ -467,25 +467,17 @@ func fixedBodySentence(fixed map[string]any) string {
 	return fmt.Sprintf("Always sends the fixed body {%s}; takes no body flags.", strings.Join(parts, ", "))
 }
 
-// authSourceDisplay renders the value source(s) a describe surface shows: a single
-// `provider address`, or `name=provider address` pairs for the query-param scheme.
+// authSourceDisplay renders the scheme's value chain(s) a describe surface shows
+// (`provider address`, fallbacks joined by " | "), never the resolved secret.
 func authSourceDisplay(a guardfile.Auth) string {
 	if a.Scheme != "query-param" {
-		return valueSourceDisplay(a.Value)
+		return a.Value.String()
 	}
 	parts := make([]string, len(a.Params))
 	for i, p := range a.Params {
-		parts[i] = p.Name + "=" + valueSourceDisplay(p.Value)
+		parts[i] = p.Name + "=" + p.Value.String()
 	}
 	return strings.Join(parts, ", ")
-}
-
-// valueSourceDisplay renders one source as `provider address`, or "" when unset.
-func valueSourceDisplay(vs guardfile.ValueSource) string {
-	if vs.IsZero() {
-		return ""
-	}
-	return vs.Provider + " " + vs.Address
 }
 
 // authSentence states how the engine authenticates in plain language, naming the

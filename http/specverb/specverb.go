@@ -247,7 +247,7 @@ func findOrCreateGroup(parent *cli.Command, name string) *cli.Command {
 // value-resolved host (stays offline), else the resolved static base.
 func baseURLDisplay(gf *guardfile.Guardfile, static string) string {
 	if !gf.BaseURLValue.IsZero() {
-		return "(resolved from " + gf.BaseURLValue.Provider + " " + gf.BaseURLValue.Address + ")"
+		return "(resolved from " + gf.BaseURLValue.String() + ")"
 	}
 	return static
 }

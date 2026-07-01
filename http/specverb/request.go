@@ -21,6 +21,7 @@ import (
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/valuesource"
 	"github.com/urfave/cli/v3"
 )
 
@@ -37,9 +38,9 @@ type runtime struct {
 	wrap      func(verb.Spec) cli.ActionFunc
 	restrict  []guardfile.Restriction
 
-	// baseURLValue (zero = static baseURL) resolves the host through a provider
-	// once, caching it. See specverb-policy.md.
-	baseURLValue guardfile.ValueSource
+	// baseURLValue (zero = static baseURL) resolves the host through the first
+	// available source in its chain once, caching it. See specverb-policy.md.
+	baseURLValue guardfile.ValueChain
 	baseURLOnce  sync.Once
 	baseURLVal   string
 	baseURLErr   error
@@ -52,10 +53,10 @@ func (rt *runtime) baseForRequest(ctx context.Context, dry bool) (string, error)
 		return rt.baseURL, nil
 	}
 	if dry {
-		return "{base-url:" + rt.baseURLValue.Provider + " " + rt.baseURLValue.Address + "}", nil
+		return "{base-url:" + rt.baseURLValue.String() + "}", nil
 	}
 	rt.baseURLOnce.Do(func() {
-		v, err := rt.resolveValue(ctx, rt.baseURLValue)
+		v, err := rt.resolveChain(ctx, rt.baseURLValue)
 		if err != nil {
 			rt.baseURLErr = err
 			return
@@ -446,7 +447,7 @@ func (rt *runtime) authorize(ctx context.Context, req *http.Request) error {
 	if rt.auth.Scheme == "query-param" {
 		q := req.URL.Query()
 		for _, p := range rt.auth.Params {
-			secret, err := rt.resolveValue(ctx, p.Value)
+			secret, err := rt.resolveChain(ctx, p.Value)
 			if err != nil {
 				return err
 			}
@@ -455,7 +456,7 @@ func (rt *runtime) authorize(ctx context.Context, req *http.Request) error {
 		req.URL.RawQuery = q.Encode()
 		return nil
 	}
-	secret, err := rt.resolveValue(ctx, rt.auth.Value)
+	secret, err := rt.resolveChain(ctx, rt.auth.Value)
 	if err != nil {
 		return err
 	}
@@ -463,22 +464,25 @@ func (rt *runtime) authorize(ctx context.Context, req *http.Request) error {
 	return nil
 }
 
-// resolveValue reads one value through the named provider. A missing provider or
-// a resolver error is a coded Internal failure: fail closed, never leak.
-func (rt *runtime) resolveValue(ctx context.Context, vs guardfile.ValueSource) (string, error) {
-	p := rt.providers[vs.Provider]
-	if p == nil {
-		return "", exitcode.New(exitcode.Internal, "internal",
-			fmt.Errorf("no provider registered for %q", vs.Provider),
-			"register the value provider via specverb.Config.Providers")
-	}
-	v, err := p(ctx, vs.Address)
+// resolveChain resolves a value chain to its first available source, wrapping an
+// all-failed chain as a coded Internal error - never a value, never a silent empty.
+func (rt *runtime) resolveChain(ctx context.Context, chain guardfile.ValueChain) (string, error) {
+	v, err := valuesource.ResolveFirst(ctx, rt.providers, chainSources(chain))
 	if err != nil {
-		return "", exitcode.New(exitcode.Internal, "internal",
-			fmt.Errorf("resolve value from %s %s: %w", vs.Provider, vs.Address, err),
-			"check the value provider address and credentials")
+		return "", exitcode.New(exitcode.Internal, "internal", err,
+			"check the value provider address and credentials, or register the provider via specverb.Config.Providers")
 	}
 	return v, nil
+}
+
+// chainSources lowers a guardfile.ValueChain to the []valuesource.Source the
+// shared resolver walks, keeping guardfile free of the resolution layer.
+func chainSources(chain guardfile.ValueChain) []valuesource.Source {
+	out := make([]valuesource.Source, len(chain))
+	for i, vs := range chain {
+		out[i] = valuesource.Source{Provider: vs.Provider, Address: vs.Address}
+	}
+	return out
 }
 
 // fire resolves the secret, sends the request, and renders the response.

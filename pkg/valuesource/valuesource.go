@@ -56,3 +56,31 @@ func Resolve(ctx context.Context, providers map[string]Provider, provider, addre
 	}
 	return p(ctx, address)
 }
+
+// Source is one (provider, address) pair: where a value is read and the address
+// the provider interprets. An ordered slice of these is a fallback chain.
+type Source struct {
+	Provider string
+	Address  string
+}
+
+// ResolveFirst returns the first source resolving to a non-empty value with no
+// error, else a combined error naming each tried source - never a value (#176).
+func ResolveFirst(ctx context.Context, providers map[string]Provider, sources []Source) (string, error) {
+	if len(sources) == 0 {
+		return "", fmt.Errorf("value chain names no source")
+	}
+	reasons := make([]string, 0, len(sources))
+	for _, s := range sources {
+		v, err := Resolve(ctx, providers, s.Provider, s.Address)
+		switch {
+		case err != nil:
+			reasons = append(reasons, fmt.Sprintf("%s %s: %v", s.Provider, s.Address, err))
+		case v == "":
+			reasons = append(reasons, fmt.Sprintf("%s %s: resolved empty", s.Provider, s.Address))
+		default:
+			return v, nil
+		}
+	}
+	return "", fmt.Errorf("no value source resolved: %s", strings.Join(reasons, "; "))
+}

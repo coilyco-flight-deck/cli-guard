@@ -28,7 +28,7 @@ func TestParseFixture(t *testing.T) {
 		t.Errorf("BaseURL = %q, want %q", got, want)
 	}
 
-	wantAuth := Auth{Scheme: "header-token", Header: "Authorization", Prefix: "token ", Value: ValueSource{Provider: "ssm", Address: "/forgejo/api-token"}}
+	wantAuth := Auth{Scheme: "header-token", Header: "Authorization", Prefix: "token ", Value: ValueChain{{Provider: "ssm", Address: "/forgejo/api-token"}}}
 	if !reflect.DeepEqual(gf.Auth, wantAuth) {
 		t.Errorf("Auth = %+v, want %+v", gf.Auth, wantAuth)
 	}
@@ -316,7 +316,7 @@ func TestParseAuthSchemes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bearer parse: %v", err)
 	}
-	want := Auth{Scheme: "bearer", Header: "Authorization", Prefix: "Bearer ", Value: ValueSource{Provider: "ssm", Address: "/tailscale/api-key"}}
+	want := Auth{Scheme: "bearer", Header: "Authorization", Prefix: "Bearer ", Value: ValueChain{{Provider: "ssm", Address: "/tailscale/api-key"}}}
 	if !reflect.DeepEqual(bearer.Auth, want) {
 		t.Errorf("bearer auth = %+v, want %+v", bearer.Auth, want)
 	}
@@ -335,9 +335,12 @@ func TestParseAuthSchemes(t *testing.T) {
 	if qp.Auth.Scheme != "query-param" || len(qp.Auth.Params) != 2 {
 		t.Fatalf("query-param auth = %+v", qp.Auth)
 	}
-	if qp.Auth.Params[0] != (QueryAuthParam{Name: "key", Value: ValueSource{Provider: "ssm", Address: "/trello/api-key"}}) ||
-		qp.Auth.Params[1] != (QueryAuthParam{Name: "token", Value: ValueSource{Provider: "ssm", Address: "/trello/api-token"}}) {
-		t.Errorf("query-param params = %+v", qp.Auth.Params)
+	wantParams := []QueryAuthParam{
+		{Name: "key", Value: ValueChain{{Provider: "ssm", Address: "/trello/api-key"}}},
+		{Name: "token", Value: ValueChain{{Provider: "ssm", Address: "/trello/api-token"}}},
+	}
+	if !reflect.DeepEqual(qp.Auth.Params, wantParams) {
+		t.Errorf("query-param params = %+v, want %+v", qp.Auth.Params, wantParams)
 	}
 }
 
@@ -366,7 +369,7 @@ func TestParseBaseURLForms(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ssm base-url parse: %v", err)
 	}
-	if ssm.BaseURL != "" || ssm.BaseURLValue != (ValueSource{Provider: "ssm", Address: "/coilysiren/open-webui/url"}) {
+	if ssm.BaseURL != "" || !reflect.DeepEqual(ssm.BaseURLValue, ValueChain{{Provider: "ssm", Address: "/coilysiren/open-webui/url"}}) {
 		t.Errorf("value form: BaseURL=%q BaseURLValue=%+v", ssm.BaseURL, ssm.BaseURLValue)
 	}
 }
@@ -478,10 +481,10 @@ func TestParseValueProviders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if gf.Auth.Value != (ValueSource{Provider: "env", Address: "OWUI_TOKEN"}) {
+	if !reflect.DeepEqual(gf.Auth.Value, ValueChain{{Provider: "env", Address: "OWUI_TOKEN"}}) {
 		t.Errorf("auth value = %+v", gf.Auth.Value)
 	}
-	if gf.BaseURLValue != (ValueSource{Provider: "tailscale", Address: "open-webui"}) {
+	if !reflect.DeepEqual(gf.BaseURLValue, ValueChain{{Provider: "tailscale", Address: "open-webui"}}) {
 		t.Errorf("base-url value = %+v", gf.BaseURLValue)
 	}
 	got := gf.Providers()
@@ -501,6 +504,102 @@ func TestParseValueArityFailsClosed(t *testing.T) {
 			auth header-token { header H; value ssm "/a" "/b" } }`,
 		"base-url value bare": `wrap w ops owui { spec s
 			base-url { value ssm }
+			auth bearer { value ssm "/x" }
+			can get session { op o } }`,
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Parse([]byte(src)); err == nil {
+				t.Errorf("expected error for %s, got nil", name)
+			}
+		})
+	}
+}
+
+// TestParseValueChainForm asserts the children-block fallback list parses to an
+// ordered ValueChain and that Providers() dedups across every chain.
+func TestParseValueChainForm(t *testing.T) {
+	gf, err := Parse([]byte(`wrap w ops forgejo {
+		spec s
+		base-url {
+			value {
+				env FORGEJO_BASE_URL
+				ssm "/forgejo/base-url"
+			}
+		}
+		auth header-token {
+			header Authorization
+			value {
+				env FORGEJO_API_TOKEN
+				ssm "/forgejo/coilyco-ops/api-token"
+			}
+		}
+		can get session { op o }
+	}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	wantAuth := ValueChain{
+		{Provider: "env", Address: "FORGEJO_API_TOKEN"},
+		{Provider: "ssm", Address: "/forgejo/coilyco-ops/api-token"},
+	}
+	if !reflect.DeepEqual(gf.Auth.Value, wantAuth) {
+		t.Errorf("auth chain = %+v, want %+v", gf.Auth.Value, wantAuth)
+	}
+	wantBase := ValueChain{
+		{Provider: "env", Address: "FORGEJO_BASE_URL"},
+		{Provider: "ssm", Address: "/forgejo/base-url"},
+	}
+	if !reflect.DeepEqual(gf.BaseURLValue, wantBase) {
+		t.Errorf("base-url chain = %+v, want %+v", gf.BaseURLValue, wantBase)
+	}
+	// env appears in both chains; Providers() reports each distinct provider once.
+	got := gf.Providers()
+	want := map[string]bool{"env": true, "ssm": true}
+	if len(got) != 2 || !want[got[0]] || !want[got[1]] {
+		t.Errorf("Providers() = %v, want env+ssm deduped", got)
+	}
+}
+
+// TestParseValueChainQueryParam asserts each query-param secret takes its own
+// fallback list independently.
+func TestParseValueChainQueryParam(t *testing.T) {
+	gf, err := Parse([]byte(`wrap w ops trello {
+		spec s
+		auth query-param {
+			param key { value { env TRELLO_KEY; ssm "/trello/key" } }
+			param token { value ssm "/trello/token" }
+		}
+		can create cards { op "post-cards" }
+	}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	wantParams := []QueryAuthParam{
+		{Name: "key", Value: ValueChain{{Provider: "env", Address: "TRELLO_KEY"}, {Provider: "ssm", Address: "/trello/key"}}},
+		{Name: "token", Value: ValueChain{{Provider: "ssm", Address: "/trello/token"}}},
+	}
+	if !reflect.DeepEqual(gf.Auth.Params, wantParams) {
+		t.Errorf("params = %+v, want %+v", gf.Auth.Params, wantParams)
+	}
+}
+
+// TestParseValueChainFailsClosed asserts the fallback-block grammar rejects every
+// malformed shape at parse time (empty, missing address, mixed form, nested source).
+func TestParseValueChainFailsClosed(t *testing.T) {
+	cases := map[string]string{
+		"empty block": `wrap w { spec s
+			auth header-token { header H; value { } } }`,
+		"source missing address": `wrap w { spec s
+			auth header-token { header H; value { env; ssm "/a" } } }`,
+		"mixed inline and block": `wrap w { spec s
+			auth header-token { header H; value ssm "/a" { env FOO } } }`,
+		"source with children": `wrap w { spec s
+			auth header-token { header H; value { env FOO { ssm "/a" } } } }`,
+		"source with properties": `wrap w { spec s
+			auth header-token { header H; value { env addr="/a" } } }`,
+		"base-url empty block": `wrap w ops owui { spec s
+			base-url { value { } }
 			auth bearer { value ssm "/x" }
 			can get session { op o } }`,
 	}

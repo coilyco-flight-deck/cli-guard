@@ -1765,7 +1765,7 @@ type Auth struct {
 	Scheme string
 	Header string
 	Prefix string // trailing space is significant, e.g. "token "
-	Value  ValueSource
+	Value  ValueChain
 
 	// Params are the query-param scheme's ordered secrets, each injected as a
 	// query parameter (Trello's ?key=&token=). Empty for the header schemes.
@@ -1845,7 +1845,7 @@ type Guardfile struct {
 	BaseURL string
 	// BaseURLValue resolves the base-url at request time (block form
 	// `base-url { value ... }`), exclusive with BaseURL. See specverb-policy.md.
-	BaseURLValue ValueSource
+	BaseURLValue ValueChain
 	Auth         Auth
 	Grants       []Grant
 	Restrict     []Restriction
@@ -1892,7 +1892,7 @@ type Poll struct {
 
 type QueryAuthParam struct {
 	Name  string
-	Value ValueSource
+	Value ValueChain
 }
     QueryAuthParam is one secret of the query-param scheme: a query parameter
     Name whose value is read from the named value source.
@@ -1904,6 +1904,18 @@ type Restriction struct {
     Restriction is a wrap-level `restrict <param> matches "<glob>"...`
     allowlist: a {Param}-carrying leaf must match a Glob or fail closed.
     See docs/specverb.md.
+
+type ValueChain []ValueSource
+    ValueChain is an ordered fallback list of value sources: resolution takes
+    the first yielding a non-empty value. See specverb-value-chain.md.
+
+func (c ValueChain) IsZero() bool
+    IsZero reports whether the chain names no source.
+
+func (c ValueChain) String() string
+    String renders the chain as `provider address` sources joined by " | "
+    (the symbolic form describe/--dry-run show; "" when zero, never a resolved
+    value).
 
 type ValueSource struct {
 	Provider string
@@ -3404,6 +3416,11 @@ func Resolve(ctx context.Context, providers map[string]Provider, provider, addre
     a resolver error is returned for the caller to wrap; the value is never
     logged.
 
+func ResolveFirst(ctx context.Context, providers map[string]Provider, sources []Source) (string, error)
+    ResolveFirst returns the first source resolving to a non-empty value with
+    no error, else a combined error naming each tried source - never a value
+    (#176).
+
 
 TYPES
 
@@ -3411,6 +3428,14 @@ type Provider func(ctx context.Context, address string) (string, error)
     Provider resolves the value at address for one named value source.
     A consumer registers store-backed resolvers; the same func type drives both
     engines.
+
+type Source struct {
+	Provider string
+	Address  string
+}
+    Source is one (provider, address) pair: where a value is read and the
+    address the provider interprets. An ordered slice of these is a fallback
+    chain.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/version

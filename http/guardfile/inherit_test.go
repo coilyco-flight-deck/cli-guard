@@ -78,7 +78,7 @@ func TestInheritLayeredChain(t *testing.T) {
 	if gf.BaseURL != "https://forgejo.coilysiren.me/api/v1" {
 		t.Errorf("inherited base-url = %q", gf.BaseURL)
 	}
-	if gf.Auth.Scheme != "header-token" || gf.Auth.Value.Address != "/forgejo/api-token" {
+	if gf.Auth.Scheme != "header-token" || gf.Auth.Value.String() != "ssm /forgejo/api-token" {
 		t.Errorf("inherited auth not carried: %+v", gf.Auth)
 	}
 	// The emit→reparse round-trip must preserve significant trailing whitespace.

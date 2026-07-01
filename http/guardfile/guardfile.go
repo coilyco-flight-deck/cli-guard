@@ -4,6 +4,7 @@ package guardfile
 
 import (
 	"fmt"
+	"strings"
 
 	kdl "github.com/calico32/kdl-go"
 )
@@ -18,13 +19,30 @@ type ValueSource struct {
 // IsZero reports whether the source is unset (no provider named).
 func (v ValueSource) IsZero() bool { return v.Provider == "" }
 
+// ValueChain is an ordered fallback list of value sources: resolution takes the
+// first yielding a non-empty value. See specverb-value-chain.md.
+type ValueChain []ValueSource
+
+// IsZero reports whether the chain names no source.
+func (c ValueChain) IsZero() bool { return len(c) == 0 }
+
+// String renders the chain as `provider address` sources joined by " | " (the
+// symbolic form describe/--dry-run show; "" when zero, never a resolved value).
+func (c ValueChain) String() string {
+	parts := make([]string, 0, len(c))
+	for _, vs := range c {
+		parts = append(parts, vs.Provider+" "+vs.Address)
+	}
+	return strings.Join(parts, " | ")
+}
+
 // Auth describes how the engine authenticates to the target API. Three schemes:
 // header-token, bearer, query-param (dual-secret). See docs/specverb.md.
 type Auth struct {
 	Scheme string
 	Header string
 	Prefix string // trailing space is significant, e.g. "token "
-	Value  ValueSource
+	Value  ValueChain
 
 	// Params are the query-param scheme's ordered secrets, each injected as a
 	// query parameter (Trello's ?key=&token=). Empty for the header schemes.
@@ -35,7 +53,7 @@ type Auth struct {
 // whose value is read from the named value source.
 type QueryAuthParam struct {
 	Name  string
-	Value ValueSource
+	Value ValueChain
 }
 
 // Grant is one policy sentence: modal verb resource [qualifiers...] [key=value...].
@@ -165,7 +183,7 @@ type Guardfile struct {
 	BaseURL string
 	// BaseURLValue resolves the base-url at request time (block form
 	// `base-url { value ... }`), exclusive with BaseURL. See specverb-policy.md.
-	BaseURLValue ValueSource
+	BaseURLValue ValueChain
 	Auth         Auth
 	Grants       []Grant
 	Restrict     []Restriction
@@ -273,11 +291,11 @@ func (gf *Guardfile) applyBaseURL(n *kdl.Node) error {
 		if c.Name() != "value" {
 			return fmt.Errorf("guardfile: base-url: unknown field %q (want value; fail-closed)", c.Name())
 		}
-		vs, err := parseValueSource(c)
+		vc, err := parseValueChain(c)
 		if err != nil {
 			return fmt.Errorf("guardfile: base-url: %w", err)
 		}
-		gf.BaseURLValue = vs
+		gf.BaseURLValue = vc
 	}
 	if gf.BaseURLValue.IsZero() {
 		return fmt.Errorf("guardfile: base-url block requires `value <provider> \"...\"`")
@@ -285,10 +303,40 @@ func (gf *Guardfile) applyBaseURL(n *kdl.Node) error {
 	return nil
 }
 
-// parseValueSource reads a `value <provider> "<address>"` node into a
-// ValueSource: exactly two arguments, the provider name then the address.
-func parseValueSource(n *kdl.Node) (ValueSource, error) {
+// parseValueChain reads a `value` node in either form (inline `value <p> "<a>"`
+// or a `{ ... }` fallback block) into a ValueChain. See specverb-value-chain.md.
+func parseValueChain(n *kdl.Node) (ValueChain, error) {
+	_, hasBlock := n.ChildrenInline()
 	args := n.Arguments()
+	switch {
+	case hasBlock && len(args) > 0:
+		return nil, fmt.Errorf("value takes either an inline `value <provider> \"<address>\"` or a `{ ... }` fallback block, not both (fail-closed)")
+	case hasBlock:
+		children := n.Children().Nodes
+		if len(children) == 0 {
+			return nil, fmt.Errorf("value block is empty; list at least one `<provider> \"<address>\"` fallback source")
+		}
+		chain := make(ValueChain, 0, len(children))
+		for _, c := range children {
+			vs, err := valueSourceFromChild(c)
+			if err != nil {
+				return nil, err
+			}
+			chain = append(chain, vs)
+		}
+		return chain, nil
+	default:
+		vs, err := valueSourceInline(args)
+		if err != nil {
+			return nil, err
+		}
+		return ValueChain{vs}, nil
+	}
+}
+
+// valueSourceInline reads the inline `value <provider> "<address>"` args: exactly
+// two, the provider name then the address, both non-empty.
+func valueSourceInline(args []kdl.Value) (ValueSource, error) {
 	if len(args) != 2 {
 		return ValueSource{}, fmt.Errorf("value needs a provider and an address, e.g. `value ssm \"/forgejo/api-token\"` (got %d arg(s))", len(args))
 	}
@@ -299,17 +347,37 @@ func parseValueSource(n *kdl.Node) (ValueSource, error) {
 	return vs, nil
 }
 
+// valueSourceFromChild reads one `<provider> "<address>"` fallback source inside a
+// value block: the node name is the provider, its single argument the address.
+func valueSourceFromChild(c *kdl.Node) (ValueSource, error) {
+	provider := c.Name()
+	args := c.Arguments()
+	if len(args) != 1 {
+		return ValueSource{}, fmt.Errorf("value source %q needs an address, e.g. `%s \"/forgejo/api-token\"` (got %d arg(s))", provider, provider, len(args))
+	}
+	if len(c.Children().Nodes) > 0 || len(c.Properties()) > 0 {
+		return ValueSource{}, fmt.Errorf("value source %q takes a single address argument, no children or properties (fail-closed)", provider)
+	}
+	vs := ValueSource{Provider: provider, Address: args[0].String()}
+	if vs.Provider == "" || vs.Address == "" {
+		return ValueSource{}, fmt.Errorf("value source needs a non-empty provider and address")
+	}
+	return vs, nil
+}
+
 // Providers returns the distinct provider names every value source in gf names,
 // so a consumer (or the codegen) can wire exactly the resolvers in use.
 func (gf *Guardfile) Providers() []string {
 	seen := map[string]bool{}
 	var out []string
-	add := func(vs ValueSource) {
-		if vs.Provider == "" || seen[vs.Provider] {
-			return
+	add := func(chain ValueChain) {
+		for _, vs := range chain {
+			if vs.Provider == "" || seen[vs.Provider] {
+				continue
+			}
+			seen[vs.Provider] = true
+			out = append(out, vs.Provider)
 		}
-		seen[vs.Provider] = true
-		out = append(out, vs.Provider)
 	}
 	add(gf.Auth.Value)
 	for _, p := range gf.Auth.Params {
@@ -408,11 +476,11 @@ func parseHeaderTokenAuth(n *kdl.Node) (Auth, error) {
 			}
 			a.Prefix = v
 		case "value":
-			vs, ferr := parseValueSource(c)
+			vc, ferr := parseValueChain(c)
 			if ferr != nil {
 				return Auth{}, fmt.Errorf("guardfile: auth %w", ferr)
 			}
-			a.Value = vs
+			a.Value = vc
 		default:
 			return Auth{}, fmt.Errorf("guardfile: auth: unknown field %q (fail-closed)", c.Name())
 		}
@@ -431,11 +499,11 @@ func parseBearerAuth(n *kdl.Node) (Auth, error) {
 		if c.Name() != "value" {
 			return Auth{}, fmt.Errorf("guardfile: auth bearer: unknown field %q (want value; fail-closed)", c.Name())
 		}
-		vs, ferr := parseValueSource(c)
+		vc, ferr := parseValueChain(c)
 		if ferr != nil {
 			return Auth{}, fmt.Errorf("guardfile: auth bearer %w", ferr)
 		}
-		a.Value = vs
+		a.Value = vc
 	}
 	if a.Value.IsZero() {
 		return Auth{}, fmt.Errorf("guardfile: auth bearer requires `value <provider> \"...\"`")
@@ -460,11 +528,11 @@ func parseQueryParamAuth(n *kdl.Node) (Auth, error) {
 			if cc.Name() != "value" {
 				return Auth{}, fmt.Errorf("guardfile: auth query-param %s: unknown field %q (want value)", name, cc.Name())
 			}
-			vs, ferr := parseValueSource(cc)
+			vc, ferr := parseValueChain(cc)
 			if ferr != nil {
 				return Auth{}, fmt.Errorf("guardfile: auth query-param %s: %w", name, ferr)
 			}
-			p.Value = vs
+			p.Value = vc
 		}
 		if p.Value.IsZero() {
 			return Auth{}, fmt.Errorf("guardfile: auth query-param %q requires `value <provider> \"...\"`", name)

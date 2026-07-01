@@ -42,7 +42,7 @@ Packages are grouped by **guarded surface** over a shared `pkg/`. See [architect
 - **policy** - Argv validation rejecting shell metacharacters.
 - **scope** - Resolve cwd to its git toplevel for the audit row's RepoRoot.
 - **exitcode** - Public exit-code taxonomy for orchestrators.
-- **valuesource** - Shared `value <provider>` resolution (env/file/literal) for both engines.
+- **valuesource** - Shared `value <provider>` resolution (env/file/literal, chains) for both engines.
 - **config** - Layered-config primitives and a generic `OverlayFile[T]`.
 - **ttlcache** - Generic TTL-keyed cache (backs the surface caches).
 - **workdir** - Working-directory resolution helper.
