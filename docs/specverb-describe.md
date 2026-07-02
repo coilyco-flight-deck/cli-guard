@@ -33,6 +33,10 @@ can delete repos {
 
 The note flows into `Grant.Describe`, then into the verb's `--help`, the describe model, and (later) the generated skill, so a human can add the description Forgejo's sparse spec omits without touching Go. The parser fails closed on any grant-body node other than `describe`.
 
+## Guardfile `doc-link` footer
+
+A wrap block's `doc-link` nodes render as a generated `## See also` footer, so a regenerated reference doc keeps its back-links to the hand-written hub docs. See [doc-link.md](doc-link.md).
+
 ## Follow-ups (not silent gaps)
 
 The `Surface` model is the shared source the next consumers read: generated markdown docs and a generated skill (both deferred from this visibility pass), shell completions, and query-param mounting. Origin: [cli-guard#104](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/104).

@@ -18,6 +18,7 @@ type Surface struct {
 	Inspect    bool        `json:"inspect,omitempty"`     // the `allow` inspect-list shape: each grant funnels its own binary, no single Bin
 	Guards     []string    `json:"guards,omitempty"`      // wrap-level guards (the passthrough host gate), applied to every leaf
 	Grants     []GrantInfo `json:"grants"`                // every mounted leaf, in mount order
+	DocLinks   []DocLink   `json:"doc_links,omitempty"`   // `doc-link` footer pointers back to companion docs
 }
 
 // GrantInfo is one mounted grant: its CLI placement, the real invocation it
@@ -45,7 +46,7 @@ func Describe(gf *Guardfile) *Surface {
 	if len(gf.Allow) > 0 {
 		return describeAllow(gf)
 	}
-	s := &Surface{Group: gf.Group, Bin: gf.Bin, ArgvPrefix: gf.ArgvPrefix}
+	s := &Surface{Group: gf.Group, Bin: gf.Bin, ArgvPrefix: gf.ArgvPrefix, DocLinks: gf.DocLinks}
 	for _, e := range gf.Env {
 		s.Env = append(s.Env, e.Name+" = "+strings.TrimSpace(e.Provider+" "+e.Address))
 	}
@@ -61,7 +62,7 @@ func Describe(gf *Guardfile) *Surface {
 // describeAllow renders the `allow` inspect-list surface: one open-passthrough
 // leaf per binary (each its own Bin), carrying the wrap-level guards.
 func describeAllow(gf *Guardfile) *Surface {
-	s := &Surface{Group: gf.Group, Inspect: true}
+	s := &Surface{Group: gf.Group, Inspect: true, DocLinks: gf.DocLinks}
 	for _, bin := range gf.Allow {
 		member := allowMember(gf, bin)
 		gi := grantInfo(member, member.Grants[0])
@@ -157,6 +158,7 @@ func (s *Surface) Markdown() string {
 		writeFlagPolicy(&b, g)
 		writeGuards(&b, g)
 	}
+	writeSeeAlso(&b, s.DocLinks)
 	return b.String()
 }
 
@@ -176,7 +178,24 @@ func (s *Surface) markdownInspect() string {
 		fmt.Fprintf(&b, "`%s <args...>` (open passthrough)\n", g.Bin)
 		writeGuards(&b, g)
 	}
+	writeSeeAlso(&b, s.DocLinks)
 	return b.String()
+}
+
+// writeSeeAlso appends the `## See also` footer, one bullet per doc-link, so the
+// generated reference doc points back to its companion docs. No-op when empty.
+func writeSeeAlso(b *strings.Builder, links []DocLink) {
+	if len(links) == 0 {
+		return
+	}
+	b.WriteString("\n## See also\n\n")
+	for _, l := range links {
+		fmt.Fprintf(b, "- [%s](%s)", l.Text, l.Href)
+		if l.Desc != "" {
+			fmt.Fprintf(b, " - %s", l.Desc)
+		}
+		b.WriteString("\n")
+	}
 }
 
 // writeFlagPolicy states the grant's flag rule: a strict allowlist, a denylist,

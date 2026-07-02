@@ -18,6 +18,7 @@ type Guardfile struct {
 	Env        []EnvVar     // environment vars set on the wrapped process
 	Grants     []Grant      // mounted leaves
 	Whens      []WhenClause // wrap-level passthrough guards (never pass/only pass), enforced on every leaf - the host gate
+	DocLinks   []DocLink    // `doc-link` footer pointers rendered in the generated reference doc
 
 	// Allow lists bare binaries that each mount as an independent open-passthrough
 	// funnel: inspect-list sugar, mutually exclusive with exec/can run (docs/execverb.md).
@@ -30,6 +31,14 @@ type Guardfile struct {
 	// passthrough marks the `passthrough <bin>` sugar: exec + an implicit
 	// `can run *` funnel. It can never coexist with `exec` or a `can run` grant.
 	passthrough bool
+}
+
+// DocLink is one `doc-link` footer entry: a `## See also` back-pointer from the
+// generated reference doc to a hand-written companion doc. See docs/doc-link.md.
+type DocLink struct {
+	Href string // link target: a relative path or URL
+	Text string // link text; defaults to Href when omitted
+	Desc string // optional trailing description after the link
 }
 
 // EnvVar is one `env` injection: an environment variable set on the wrapped
@@ -188,6 +197,8 @@ func (gf *Guardfile) applyNode(n *kdl.Node) error {
 		return gf.appendPassClause(n, false)
 	case "when", "deny-when":
 		return gf.appendWrapWhen(n)
+	case "doc-link":
+		return gf.parseDocLink(n)
 	default:
 		return fmt.Errorf("execverb: unknown node %q in wrap body (fail-closed)", n.Name())
 	}
@@ -415,6 +426,30 @@ func (gf *Guardfile) parseAllow(n *kdl.Node) error {
 		}
 		gf.Allow = append(gf.Allow, name)
 	}
+	return nil
+}
+
+// parseDocLink reads `doc-link "<href>" ["<text>" ["<desc>"]]`: a `## See also`
+// footer pointer. href required, text defaults to href, desc optional.
+func (gf *Guardfile) parseDocLink(n *kdl.Node) error {
+	if children := n.Children(); children != nil && len(children.Nodes) > 0 {
+		return fmt.Errorf("execverb: `doc-link` takes positional args, not a block (fail-closed)")
+	}
+	args := stringArgs(n)
+	if len(args) == 0 || args[0] == "" {
+		return fmt.Errorf("execverb: `doc-link` needs a target, e.g. `doc-link \"../ward-kdl.md\" \"ward-kdl.md\"`")
+	}
+	if len(args) > 3 {
+		return fmt.Errorf("execverb: `doc-link` takes at most href, text, and description (fail-closed)")
+	}
+	dl := DocLink{Href: args[0], Text: args[0]}
+	if len(args) >= 2 && args[1] != "" {
+		dl.Text = args[1]
+	}
+	if len(args) == 3 {
+		dl.Desc = args[2]
+	}
+	gf.DocLinks = append(gf.DocLinks, dl)
 	return nil
 }
 
