@@ -19,13 +19,14 @@ import (
 // Surface is the in-engine model of a mounted command surface: the structural
 // truth shared by help, the describe verb, and (later) completions and the skill.
 type Surface struct {
-	Group    []string          `json:"group"`              // command path, e.g. ["ward","ops","forgejo"]
-	BaseURL  string            `json:"base_url"`           // resolved request base, scheme defaulted
-	Auth     AuthInfo          `json:"auth"`               // how the engine authenticates
-	Verbs    []VerbInfo        `json:"verbs"`              // every mounted leaf, in mount order
-	Actions  []ActionInfo      `json:"actions,omitempty"`  // complex actions, in declaration order
-	Denied   []DenyInfo        `json:"denied,omitempty"`   // blocked classes, in declaration order
-	Restrict []RestrictionInfo `json:"restrict,omitempty"` // wrap-level scope allowlists
+	Group    []string            `json:"group"`               // command path, e.g. ["ward","ops","forgejo"]
+	BaseURL  string              `json:"base_url"`            // resolved request base, scheme defaulted
+	Auth     AuthInfo            `json:"auth"`                // how the engine authenticates
+	Verbs    []VerbInfo          `json:"verbs"`               // every mounted leaf, in mount order
+	Actions  []ActionInfo        `json:"actions,omitempty"`   // complex actions, in declaration order
+	Denied   []DenyInfo          `json:"denied,omitempty"`    // blocked classes, in declaration order
+	Restrict []RestrictionInfo   `json:"restrict,omitempty"`  // wrap-level scope allowlists
+	DocLinks []guardfile.DocLink `json:"doc_links,omitempty"` // `doc-link` footer pointers back to companion docs
 }
 
 // RestrictionInfo is one wrap-level restrict clause for the describe surface: the
@@ -229,6 +230,7 @@ func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor,
 	for _, r := range gf.Restrict {
 		s.Restrict = append(s.Restrict, RestrictionInfo{Param: r.Param, Globs: r.Globs})
 	}
+	s.DocLinks = gf.DocLinks
 	return s
 }
 
@@ -303,7 +305,24 @@ func renderProse(s *Surface) string {
 	writeActions(&b, prefix, s.Actions)
 	writeRestrictions(&b, s.Restrict)
 	writeDenied(&b, prefix, s.Denied)
+	writeSeeAlso(&b, s.DocLinks)
 	return b.String()
+}
+
+// writeSeeAlso appends the `## See also` footer, one bullet per doc-link, so the
+// generated reference doc points back to its companion docs. No-op when empty.
+func writeSeeAlso(b *strings.Builder, links []guardfile.DocLink) {
+	if len(links) == 0 {
+		return
+	}
+	b.WriteString("\n## See also\n\n")
+	for _, l := range links {
+		fmt.Fprintf(b, "- [%s](%s)", l.Text, l.Href)
+		if l.Desc != "" {
+			fmt.Fprintf(b, " - %s", l.Desc)
+		}
+		b.WriteString("\n")
+	}
 }
 
 // writeRestrictions renders the wrap-level scope allowlists: each gated param and
