@@ -3225,6 +3225,10 @@ type Fleet struct {
 	// Agents is the roster, in source order. Empty in an operator-local source.
 	Agents []Agent
 
+	// Roles is the per-role capability roster (ward#578): each startup role names
+	// the guardfile set it holds. Empty when no `roles` block is present.
+	Roles []Role
+
 	// Director carries the per-host director settings, the only vocabulary an
 	// operator-local source may set. Nil when no `director` block is present.
 	Director *Director
@@ -3240,6 +3244,22 @@ func ParseSource(src []byte, source Source) (Fleet, error)
     ParseSource validates a fleet config under the given source's accepted
     subset. It fails closed on any out-of-subset node or malformed field.
     See docs/fleetconfig.md.
+
+type Guardfiles struct {
+	List   []string // flat list of guardfile names; nil when Prefix is set
+	Prefix string   // a name prefix selecting a set; "" when List is used
+}
+    Guardfiles is a role's guardfile set: EITHER a flat List of names OR a
+    single Prefix selecting by name prefix, mutually exclusive; both zero means
+    none (ward#578).
+
+type Role struct {
+	Name       string     // block name, e.g. `role advisor` -> "advisor"
+	Guardfiles Guardfiles // the guardfile set this role holds (list or prefix)
+}
+    Role is one entry in the per-role capability roster (ward#578): a role name
+    and the descriptive guardfile set it holds (the guardfile's own body is the
+    grant).
 
 type Source int
     Source selects which subset of the one grammar a parse accepts. One parser,

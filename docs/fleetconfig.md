@@ -24,6 +24,10 @@ fleet {
         argv { headless codex "exec"; interactive codex }
     }
     // ... claude, opencode, goose per the design
+    roles {
+        role engineer { }
+        role advisor { guardfiles "ward-kdl.aws.guardfile.kdl" "ward-kdl.tailscale.guardfile.kdl" }
+    }
 }
 director { default-scope "team" }
 ```
@@ -40,6 +44,9 @@ director { default-scope "team" }
     `stream`, `auth`, `model`, `endpoint`, `provider`, `reasoning-effort`,
     `verbosity`, and `argv { preflight; headless; interactive }` (each a full
     token list, binary first).
+  - **`roles`** - optional per-role capability roster (ward#578): each
+    `role <name>` names the guardfile set it holds (a flat list, or a single
+    `prefix="..."`). Entries are descriptive names, never grants (see [below](#why-core)).
 - **`director`** - per-host settings; `default-scope` seeds the coordinate
   scope. Accepted by both sources.
 
