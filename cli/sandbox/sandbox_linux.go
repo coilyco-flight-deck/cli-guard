@@ -168,6 +168,14 @@ func installToolShim(tool, stash, shim string) error {
 			return fmt.Errorf("sandbox: stash bind %s: %w", tool, err)
 		}
 		realTarget = stashed
+	} else {
+		// Symlinked $0-sensitive tool (brew derives HOMEBREW_PREFIX from $0's
+		// grandparent): exec a canonical-dir symlink so the prefix resolves right (ward#546).
+		link := filepath.Join(filepath.Dir(canonical), "."+tool+".cliguard")
+		_ = os.Remove(link)
+		if err := os.Symlink(realPath, link); err == nil {
+			realTarget = link
+		}
 	}
 	if err := os.Setenv(RealBinEnv(tool), realTarget); err != nil {
 		return fmt.Errorf("sandbox: set realbin env %s: %w", tool, err)
