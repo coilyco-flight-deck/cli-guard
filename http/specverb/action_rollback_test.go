@@ -13,6 +13,7 @@ import (
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/stepflow"
 	"github.com/urfave/cli/v3"
 )
 
@@ -98,16 +99,16 @@ type firedStep struct {
 	resolved map[string]string
 }
 
-// fakeStepRunner is a non-HTTP stepRunner recording each fired step: it proves
-// the sequence/rollback/canary engine is transport-agnostic (the step seam).
+// fakeStepRunner is a non-HTTP stepflow.Runner recording each fired step: it
+// proves the sequence/rollback/canary engine is transport-agnostic (the seam).
 type fakeStepRunner struct {
 	responses map[string]any
 	failOn    string
 	fired     []firedStep
 }
 
-func (f *fakeStepRunner) fireStep(_ context.Context, _ *cli.Command, leaf opDescriptor, args []guardfile.ArgBind, resolve func(string) (string, error)) (any, []byte, error) {
-	rec := firedStep{leaf: leaf.Leaf, resolved: map[string]string{}}
+func (f *fakeStepRunner) Fire(_ context.Context, _ *cli.Command, leaf stepflow.Leaf, args []guardfile.ArgBind, resolve stepflow.Resolve) (any, []byte, error) {
+	rec := firedStep{leaf: leaf.Label(), resolved: map[string]string{}}
 	for _, a := range args {
 		v, err := resolve(a.Value)
 		if err != nil {
@@ -116,16 +117,20 @@ func (f *fakeStepRunner) fireStep(_ context.Context, _ *cli.Command, leaf opDesc
 		rec.resolved[a.Name] = v
 	}
 	f.fired = append(f.fired, rec)
-	if leaf.Leaf == f.failOn {
-		return nil, nil, fmt.Errorf("fake: %s failed", leaf.Leaf)
+	if leaf.Label() == f.failOn {
+		return nil, nil, fmt.Errorf("fake: %s failed", leaf.Label())
 	}
-	resp := f.responses[leaf.Leaf]
+	resp := f.responses[leaf.Label()]
 	raw, _ := json.Marshal(resp)
 	return resp, raw, nil
 }
 
-func (f *fakeStepRunner) planStep(_ context.Context, leaf opDescriptor, _ []guardfile.ArgBind, _ func(string) (string, error)) (map[string]any, error) {
-	return map[string]any{"leaf": leaf.Leaf}, nil
+func (f *fakeStepRunner) Sample(ctx context.Context, c *cli.Command, leaf stepflow.Leaf, args []guardfile.ArgBind, resolve stepflow.Resolve) (any, []byte, error) {
+	return f.Fire(ctx, c, leaf, args, resolve)
+}
+
+func (f *fakeStepRunner) Plan(_ context.Context, leaf stepflow.Leaf, _ []guardfile.ArgBind, _ stepflow.Resolve) (map[string]any, error) {
+	return map[string]any{"leaf": leaf.Label()}, nil
 }
 
 // fakeRunnerGuardfile declares a three-step action, the first two carrying

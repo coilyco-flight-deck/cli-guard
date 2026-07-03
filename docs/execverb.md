@@ -19,14 +19,15 @@ wrap ward git {
 - **`env <NAME> { value <provider> "<addr>" }`** (child of `exec`) - an env var on the wrapped process, resolved at exec time via a provider (so a secret comes from SSM, not the guardfile); `env "NAME" "literal"` for a committed value. Providers via `pkg/valuesource`.
 - **`can run <subcommand>`** - deny-by-default: only named subcommands mount. A quoted multi-word sentence (`"admin user list"`) is a nested path.
 - **`argv <tokens...>`** (child of a grant) - per-grant invocation override: tokens appended after `argv-prefix` in place of the subcommand, decoupling the leaf name from what runs (`headless { argv "-p" }` -> `claude -p <args>`; bare `argv` runs the bin). Override tokens are trusted and skip the flag policy. Not allowed with `can run "*"`.
-- **`sealed`** (child of a grant) - forbids trailing caller args so the pinned `argv` forwards **exactly** - a strict single-resource verb (`read runner-token { argv get secret ...; sealed }` can't widen to `read othersecret`). Requires `argv`; without it is a parse error. A non-empty caller token is refused before exec.
+- **`sealed`** (child of a grant) - forbids trailing caller args so the pinned `argv` forwards **exactly** - a strict single-resource verb. Requires `argv`; a non-empty caller token is refused before exec.
 - **`can run "*"`** - open-passthrough grant: the group is one leaf, every operation reaches the binary. Must be the only grant.
 - **`passthrough <bin>`** - funnel sugar (`exec` + `can run "*"`) with wrap-level `never pass`/`only pass` guards. See [passthrough.md](passthrough.md).
 - **Flag policy per grant** - `deny-flag` (default-allow minus denials) or `allow-flag` (strict allowlist). `describe` adds a note.
 - **`when <selector> matches <glob...>`** / **`deny-when ...`** - argv guards. `when` passes only on a match, `deny-when` refuses on one. The selector names an argv slot: a **flag name** (`secret-id` reads `--secret-id`), **`any-arg`** (all positionals), or **`argN`** (Nth positional, 0-based). `{ only-reads }` scopes to read-only aws ops. A `*` glob needs quoting.
 - **`gate <name> { ... }`** - a registered preflight gate for logic not sayable declaratively (`pattern`, `allow`), e.g. `aws-read`. Unknown names fail closed.
-- **`never run`** - an explicit denial; parses for docs, mounts nothing.
+- **`never run`** - an explicit denial; parses for docs, mounts none.
 - **`allow <bin...>`** - inspect-list sugar: N read-only funnels per wrap. See [execverb-inspect.md](execverb-inspect.md).
+- **`action` / `bin`** - complex actions + the per-grant binary override. See [execverb-actions.md](execverb-actions.md).
 
 Unknown nodes fail closed. Per-operation grants guard a kwarg (`deny-when secret-id matches "*prod*"`) or positional (`deny-when arg0 matches "*tfstate*"`); a `can run "*"` funnel uses `any-arg`.
 

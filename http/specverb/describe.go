@@ -229,15 +229,18 @@ func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor,
 		switch {
 		case a.isCall():
 			for _, step := range a.Calls {
-				ci := ActionCallInfo{Method: step.Leaf.Method, Path: step.Leaf.Path, Grant: step.Leaf.Grant, As: step.As}
+				op := leafOp(step.Leaf)
+				ci := ActionCallInfo{Method: op.Method, Path: op.Path, Grant: op.Grant, As: step.As}
 				if step.Compensate != nil {
-					ci.Compensate = &ActionCompensateInfo{Method: step.Compensate.Leaf.Method, Path: step.Compensate.Leaf.Path, Grant: step.Compensate.Leaf.Grant}
+					comp := leafOp(step.Compensate.Leaf)
+					ci.Compensate = &ActionCompensateInfo{Method: comp.Method, Path: comp.Path, Grant: comp.Grant}
 				}
 				info.Calls = append(info.Calls, ci)
 			}
 			if a.Canary != nil {
+				can := leafOp(a.Canary.Leaf)
 				info.Canary = &ActionCanaryInfo{
-					Method: a.Canary.Leaf.Method, Path: a.Canary.Leaf.Path, Grant: a.Canary.Leaf.Grant,
+					Method: can.Method, Path: can.Path, Grant: can.Grant,
 					Every: a.Canary.Every.String(), Window: a.Canary.Window.String(),
 					DegradedWhen: a.Canary.DegradedWhen, HealthyWhen: a.Canary.HealthyWhen, As: a.Canary.As,
 				}

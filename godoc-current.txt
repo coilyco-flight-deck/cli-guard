@@ -492,6 +492,11 @@ func Mount(root *cli.Command, cfg Config) error
 
 TYPES
 
+type CaptureRunner func(ctx context.Context, bin string, argv, env []string) (stdout, stderr []byte, exitCode int, err error)
+    CaptureRunner fires a step command and captures its output, unlike Runner
+    which streams to the operator's stdio. Injected for tests; nil execs for
+    real. err is reserved for a spawn failure; a non-zero exit returns exitCode.
+
 type Config struct {
 	// Guardfile is the parsed exec-dialect policy.
 	Guardfile *Guardfile
@@ -506,6 +511,10 @@ type Config struct {
 
 	// Run fires the command. nil execs for real.
 	Run Runner
+
+	// RunCapture fires an action step and captures its output (the streamed Run
+	// seam cannot feed step data-flow). nil execs for real. Injected for tests.
+	RunCapture CaptureRunner
 
 	// Host resolves `shell <cmd>` selectors for wrap-level guards. nil execs for
 	// real (cli/exec). Injected for tests.
@@ -555,6 +564,10 @@ type Grant struct {
 	// Sealed forbids trailing caller args: the pinned `argv` forwards exactly,
 	// with no caller-supplied tokens appended. Requires ArgvSet (parse-enforced).
 	Sealed bool
+
+	// Bin overrides the wrap binary for this grant only (multi-binary pipelines),
+	// still fixed at parse: the caller can never substitute it. See docs/.
+	Bin string
 }
     Grant is one `can run <subcommand>` sentence plus its flag policy.
 
@@ -562,6 +575,10 @@ func (g Grant) ExecArgv() []string
     ExecArgv returns the tokens appended after the binary and argv-prefix:
     the `argv` override when set (possibly empty, a bare launch), else the
     subcommand.
+
+func (g Grant) ExecBin(wrapBin string) string
+    ExecBin returns the binary this grant runs: its own override, else the
+    wrap's.
 
 type GrantInfo struct {
 	Name       string   `json:"name"`                  // dotted audit name, e.g. <cli>.ops.aws.s3.ls
@@ -595,6 +612,10 @@ type Guardfile struct {
 	// WrapWhens are wrap-level when/deny-when guards applied to every `allow`
 	// funnel - the read-only floor over the whole inspect list (allow only).
 	WrapWhens []WhenClause
+
+	// Actions are the declared complex actions: call sequences with compensations
+	// and a canary over granted exec leaves. See docs/execverb-actions.md.
+	Actions []guardfile.Action
 
 	// Has unexported fields.
 }
@@ -1341,9 +1362,8 @@ const (
 
 FUNCTIONS
 
-func IsJailInvocation(argv []string) bool
-    IsJailInvocation reports whether argv is the internal jail-helper re-exec;
-    the consumer's main calls RunJail when true.
+func IsJailInvocation(_ []string) bool
+    IsJailInvocation is always false off Linux.
 
 func Jailed() bool
     Jailed reports whether the current process is already running inside a jail.
@@ -1360,19 +1380,16 @@ func RealBinEnv(tool string) string
     RealBinEnv returns the env-var name carrying tool's stashed real path,
     upper-casing the name and mapping non-alphanumerics to '_'.
 
-func RunJail(args []string) error
-    RunJail is the in-namespace helper: it shims the wrapped tools, installs the
-    seccomp denylist, and execs the real tool (args is os.Args[2:]).
+func RunJail(_ []string) error
+    RunJail is unsupported off Linux.
 
-func SetupDenied(cmd *exec.Cmd, err error) bool
-    SetupDenied reports whether a jailed cmd failed to *start* on a clone
-    denial (EPERM/EACCES, child never ran), so the caller may retry it.
-    See docs/sandbox.md.
+func SetupDenied(_ *exec.Cmd, _ error) bool
+    SetupDenied is always false off Linux: nothing was jailed, so there is no
+    namespace-denial to degrade from.
 
-func Wrap(cmd *exec.Cmd, realPath string, argv []string, spec *Spec)
-    Wrap rewrites cmd to re-exec the consumer binary as the jail helper in a
-    fresh user+mount namespace. No-op when jailed, opted out (EnvNoSandbox),
-    or spec nil.
+func Wrap(_ *exec.Cmd, _ string, _ []string, _ *Spec)
+    Wrap is a no-op off Linux: OS-level jailing is unsupported, so the caller
+    execs the real binary directly (pre-sandbox behavior).
 
 
 TYPES
@@ -1770,6 +1787,10 @@ type Action struct {
     Action is a named composite verb: exactly one of Poll, Calls, or Collect,
     plus an optional FailWhen exit. See specverb-actions.md.
 
+func ParseActionNode(n *kdl.Node) (Action, error)
+    ParseActionNode parses one `action` KDL node into an Action: the entry the
+    exec dialect shares, so both dialects speak one action grammar.
+
 func (a Action) IsMount() bool
     IsMount reports whether the action shadows a leaf path (two-arg form).
 
@@ -1995,7 +2016,8 @@ The uv-style dependency lockfile (specverb.lock) and the `go` plumbing
 that resolves and replays it for a reproducible out-of-band build. See
 docs/specverb.md.
 
-Process replacement (syscall.Exec) and cache locking (flock) on Unix.
+Process spawn (Windows has no syscall.Exec) and a no-op cache lock. run spawns
+the binary as a child, mirrors stdio, and propagates its exit code.
 
 Package kdlspecs is the no-code driver behind cmd/kdl-specs: the uv-style verb
 surface (gen / lock / skew / run) over a Guardfile. See docs/specverb.md.
@@ -3570,6 +3592,114 @@ type Entry struct {
 }
     Entry is one leaf verb in the structured (yaml) form of the command tree.
     Programmatic consumers (an external orchestrator, a plan-time
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/stepflow
+
+package stepflow // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/stepflow"
+
+Package stepflow is the transport-agnostic engine behind complex-action call
+sequences: ordered steps, compensating rollback, and the canary health watch.
+A dialect (specverb HTTP, execverb exec/ssh) resolves its granted leaves
+into Steps and supplies a Runner; the engine owns ordering, reverse-order
+compensation, and the canary verdict loop. See docs/specverb-rollback.md.
+
+FUNCTIONS
+
+func CoerceScalar(s string) any
+    CoerceScalar lowers an input string to a number where it parses as one (so
+    `run_number==$run` compares number to number), otherwise the string itself.
+
+func CondScope(jmesVars, bindings map[string]any) map[string]any
+    CondScope merges the coerced inputs and the step bindings into one JMESPath
+    variable scope; a step binding wins over an equally-named input.
+
+func PlanCalls(ctx context.Context, steps []Step, resolve Resolve, r Runner) ([]any, error)
+    PlanCalls renders each step (with its compensation) for a --dry-run through
+    the Runner's Plan, firing nothing. resolve leaves $step.field placeholders.
+
+func PlanCanary(ctx context.Context, can *Canary, resolve Resolve, r Runner) (map[string]any, error)
+    PlanCanary renders the canary block for a --dry-run: the watched leaf,
+    the bounds, and the verdict predicates. Fires nothing.
+
+func ResolveArg(value string, inputs map[string]string, bindings map[string]any) (string, error)
+    ResolveArg resolves a step arg value: a literal verbatim, a `$input`
+    from the bound inputs, or a `$step.field` projected out of a prior step's
+    response.
+
+func ResolveArgDry(value string, inputs map[string]string) string
+    ResolveArgDry resolves an arg value for a --dry-run plan: literals and bound
+    inputs resolve, a $step.field stays a `${ref}` placeholder (nothing fired).
+
+func Run(ctx context.Context, c *cli.Command, name string, steps []Step, can *Canary,
+	strVars map[string]string, jmesVars map[string]any, r Runner,
+) (bindings map[string]any, lastRaw []byte, err error)
+    Run executes the ordered steps, then the optional canary. A step failure
+    compensates the completed steps in reverse; the canary drives the same
+    path on degradation or a blind (unobservable) sample. Bindings and the last
+    response come back for the caller's rendering and fail-when.
+
+func ScalarToString(v any) string
+    ScalarToString renders a JMESPath scalar result for use as an argv or URL
+    value: whole-number floats lose the trailing ".0", others format naturally.
+
+
+TYPES
+
+type Canary struct {
+	Leaf         Leaf
+	Args         []guardfile.ArgBind
+	Every        time.Duration
+	Window       time.Duration
+	DegradedWhen string // JMESPath; truthy mid-window triggers rollback
+	HealthyWhen  string // optional JMESPath; truthy ends the watch early, clean
+	As           string // binding name for each sampled response
+}
+    Canary re-samples a granted health leaf every Every up to Window after the
+    forward steps, driving the rollback path on DegradedWhen mid-window.
+
+type Compensation struct {
+	Leaf Leaf
+	Args []guardfile.ArgBind
+}
+    Compensation is a step's rollback: a granted leaf fired (with Args) to undo
+    its parent step when a later step or the canary fails.
+
+type Leaf interface {
+	// Label names the leaf in operator-facing errors, e.g. "create snapshot".
+	Label() string
+}
+    Leaf is one resolved, granted step target. The engine only labels it;
+    the Runner that resolved it knows its concrete type (HTTP op, exec grant).
+
+type Resolve func(string) (string, error)
+    Resolve maps one arg value (a literal, $input, or $step.field reference)
+    onto its bound string. See ResolveArg.
+
+type Runner interface {
+	// Fire runs a forward or compensation step, returning the decoded response
+	// (for $as data-flow) and its raw bytes. An error marks the step failed.
+	Fire(ctx context.Context, c *cli.Command, leaf Leaf, args []guardfile.ArgBind,
+		resolve Resolve) (decoded any, raw []byte, err error)
+	// Sample takes one canary observation. Only a transport-level failure (the
+	// probe could not run at all) is an error; a degraded result is data.
+	Sample(ctx context.Context, c *cli.Command, leaf Leaf, args []guardfile.ArgBind,
+		resolve Resolve) (decoded any, raw []byte, err error)
+	// Plan renders a resolved step for a --dry-run, firing nothing.
+	Plan(ctx context.Context, leaf Leaf, args []guardfile.ArgBind,
+		resolve Resolve) (map[string]any, error)
+}
+    Runner fires (or plans) one resolved step: the transport seam. Fire errors
+    fail the step; Sample tolerates a degraded probe so the canary can judge it.
+
+type Step struct {
+	Leaf       Leaf
+	Args       []guardfile.ArgBind
+	As         string
+	Compensate *Compensation
+}
+    Step is one resolved forward step: a granted leaf, its arg bindings,
+    the optional `as` binding name, and the optional compensation undoing it.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/ttlcache

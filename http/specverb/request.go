@@ -21,6 +21,7 @@ import (
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/stepflow"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/valuesource"
 	"github.com/urfave/cli/v3"
 )
@@ -40,7 +41,7 @@ type runtime struct {
 
 	// stepRun fires an action's steps; the runtime is the default HTTP
 	// implementation, a test may inject a fake. See docs/specverb-rollback.md.
-	stepRun stepRunner
+	stepRun stepflow.Runner
 
 	// baseURLValue (zero = static baseURL) resolves the host through the first
 	// available source in its chain once, caching it. See specverb-policy.md.

@@ -42,6 +42,10 @@ type Config struct {
 	// Run fires the command. nil execs for real.
 	Run Runner
 
+	// RunCapture fires an action step and captures its output (the streamed Run
+	// seam cannot feed step data-flow). nil execs for real. Injected for tests.
+	RunCapture CaptureRunner
+
 	// Host resolves `shell <cmd>` selectors for wrap-level guards. nil execs for
 	// real (cli/exec). Injected for tests.
 	Host HostResolver
@@ -74,18 +78,38 @@ func Build(cfg Config) (*cli.Command, error) {
 	if len(gf.Allow) > 0 {
 		return buildAllow(root, gf, wrap, run, host, providers)
 	}
+	if done, out, err := mountGrants(root, gf, wrap, run, host, providers); done || err != nil {
+		return out, err
+	}
+	capture := cfg.RunCapture
+	if capture == nil {
+		capture = realCapture
+	}
+	if err := mountActions(root, gf, wrap, capture, host, providers); err != nil {
+		return nil, err
+	}
+	return root, nil
+}
+
+// mountGrants mounts every named grant; a wildcard funnel takes over the group
+// (done=true) and cannot coexist with actions.
+func mountGrants(root *cli.Command, gf *Guardfile, wrap func(verb.Spec) cli.ActionFunc, run Runner, host HostResolver, providers map[string]valuesource.Provider) (bool, *cli.Command, error) {
 	for _, g := range gf.Grants {
 		if g.Wildcard {
 			if len(gf.Grants) != 1 {
-				return nil, fmt.Errorf("execverb: `can run *` must be the only grant (fail-closed)")
+				return true, nil, fmt.Errorf("execverb: `can run *` must be the only grant (fail-closed)")
 			}
-			return mountWildcard(root, gf, g, wrap, run, host, providers)
+			if len(gf.Actions) > 0 {
+				return true, nil, fmt.Errorf("execverb: `action` needs named `can run` grants, not a wildcard funnel (fail-closed)")
+			}
+			out, err := mountWildcard(root, gf, g, wrap, run, host, providers)
+			return true, out, err
 		}
 		if err := mountGrant(root, gf, g, wrap, run, host, providers); err != nil {
-			return nil, err
+			return true, nil, err
 		}
 	}
-	return root, nil
+	return false, root, nil
 }
 
 // mountWildcard turns the group itself into one open passthrough leaf; the
@@ -264,8 +288,8 @@ func actionFor(gf *Guardfile, g Grant, gates []gateFunc, run Runner, host HostRe
 		if err != nil {
 			return exitcode.New(exitcode.Internal, "internal", err, "check the env value provider address and credentials")
 		}
-		argv := append(append(append([]string{}, gf.ArgvPrefix...), g.ExecArgv()...), args...)
-		if err := run(ctx, gf.Bin, argv, env); err != nil {
+		argv := append(append(append([]string{}, gf.argvPrefixFor(g)...), g.ExecArgv()...), args...)
+		if err := run(ctx, g.ExecBin(gf.Bin), argv, env); err != nil {
 			return exitcode.New(exitcode.UpstreamFailed, "upstream_failed", err, "the wrapped command failed")
 		}
 		return nil
@@ -450,8 +474,8 @@ func flagValue(args []string, flag string) (string, bool) {
 // leafUsage renders the one-line help: the real invocation (ExecArgv reflects
 // any `argv` override, so it shows what runs) plus the policy.
 func leafUsage(gf *Guardfile, g Grant) string {
-	invocation := append(append([]string{}, gf.ArgvPrefix...), g.ExecArgv()...)
-	u := fmt.Sprintf("exec: %s %s", gf.Bin, strings.TrimSpace(strings.Join(invocation, " ")))
+	invocation := append(append([]string{}, gf.argvPrefixFor(g)...), g.ExecArgv()...)
+	u := fmt.Sprintf("exec: %s %s", g.ExecBin(gf.Bin), strings.TrimSpace(strings.Join(invocation, " ")))
 	if g.Wildcard {
 		u += " <args...> (open passthrough)"
 	}

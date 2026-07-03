@@ -10,6 +10,7 @@ import (
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/stepflow"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/urfave/cli/v3"
 )
@@ -42,7 +43,7 @@ type Config struct {
 
 	// stepRun overrides the transport firing an action's steps; nil uses the HTTP
 	// runtime. A test seam for a fake step runner. See specverb-rollback.md.
-	stepRun stepRunner
+	stepRun stepflow.Runner
 }
 
 // opDescriptor is the tiny per-operation payload the generic action binds to,

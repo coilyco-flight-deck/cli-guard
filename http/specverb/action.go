@@ -17,6 +17,7 @@ import (
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/audit"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/stepflow"
 	"github.com/urfave/cli/v3"
 )
 
@@ -49,7 +50,7 @@ type actionDescriptor struct {
 
 	// Calls is the resolved multi-call sequence; non-empty marks a call action,
 	// mutually exclusive with the poll fields above.
-	Calls []callStep
+	Calls []stepflow.Step
 
 	// Collect is the resolved auto-pagination step; non-nil marks a collect
 	// action, mutually exclusive with poll/call.
@@ -57,7 +58,7 @@ type actionDescriptor struct {
 
 	// Canary is the resolved health-window watch fired after the call steps; on
 	// mid-window degradation it drives the rollback path. Call actions only.
-	Canary *canaryStep
+	Canary *stepflow.Canary
 
 	// MountVerb/MountResource: the mount form shadows that leaf path instead of
 	// mounting under the `action` noun. Empty for a named action.
@@ -69,36 +70,9 @@ type actionDescriptor struct {
 // isMount reports whether ad shadows a leaf path (the `action <verb> <resource>` form).
 func (ad actionDescriptor) isMount() bool { return ad.MountResource != "" }
 
-// callStep is one resolved step of a multi-call action: a granted leaf, its arg
-// bindings, and the optional `as` name its response binds to for later steps.
-type callStep struct {
-	Leaf opDescriptor
-	Args []guardfile.ArgBind
-	As   string
-
-	// Compensate is the resolved rollback step fired to undo this call when a
-	// later step (or the canary) fails; nil when the call declares none.
-	Compensate *compensateStep
-}
-
-// compensateStep is a resolved compensation: the granted leaf and args fired in
-// reverse order to roll back an already-run callStep. See specverb-rollback.md.
-type compensateStep struct {
-	Leaf opDescriptor
-	Args []guardfile.ArgBind
-}
-
-// canaryStep is a resolved canary watch: a granted leaf re-sampled Every up to
-// Window, with the degraded/healthy verdicts that end it. See specverb-rollback.md.
-type canaryStep struct {
-	Leaf         opDescriptor
-	Args         []guardfile.ArgBind
-	Every        time.Duration
-	Window       time.Duration
-	DegradedWhen string
-	HealthyWhen  string
-	As           string
-}
+// leafOp recovers the HTTP opDescriptor from an engine leaf. specverb only ever
+// resolves opDescriptor leaves, so the assertion cannot fail on a built tree.
+func leafOp(l stepflow.Leaf) opDescriptor { return l.(opDescriptor) }
 
 // isCall reports whether ad is a multi-call action (vs a poll).
 func (ad actionDescriptor) isCall() bool { return len(ad.Calls) > 0 }
@@ -388,7 +362,7 @@ func urlBoundInputs(ad actionDescriptor) map[string]bool {
 	}
 	if ad.isCall() {
 		for _, s := range ad.Calls {
-			mark(s.Leaf, s.Args)
+			mark(leafOp(s.Leaf), s.Args)
 		}
 		return bound
 	}
@@ -477,7 +451,7 @@ func (rt *runtime) resolveDefaults(ctx context.Context, c *cli.Command, ad actio
 				fmt.Errorf("action %q: input %q default %q resolved to a non-scalar value", ad.Name, in.Name, in.Default),
 				"a default must select a single value, e.g. max(...) or [0].field")
 		}
-		strVars[in.Name] = scalarToString(v)
+		strVars[in.Name] = stepflow.ScalarToString(v)
 		jmesVars[in.Name] = v
 	}
 	return nil
@@ -838,7 +812,8 @@ func actionDescription(ad actionDescriptor) string {
 	case ad.isCall():
 		b.WriteString("Runs this sequence of granted calls, threading $step.field data between them:\n")
 		for i, s := range ad.Calls {
-			fmt.Fprintf(&b, "  %d. %s %s", i+1, s.Leaf.Method, s.Leaf.Path)
+			op := leafOp(s.Leaf)
+			fmt.Fprintf(&b, "  %d. %s %s", i+1, op.Method, op.Path)
 			if s.As != "" {
 				fmt.Fprintf(&b, " (as %s)", s.As)
 			}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/policy"
 	kdl "github.com/calico32/kdl-go"
 )
@@ -27,6 +28,10 @@ type Guardfile struct {
 	// WrapWhens are wrap-level when/deny-when guards applied to every `allow`
 	// funnel - the read-only floor over the whole inspect list (allow only).
 	WrapWhens []WhenClause
+
+	// Actions are the declared complex actions: call sequences with compensations
+	// and a canary over granted exec leaves. See docs/execverb-actions.md.
+	Actions []guardfile.Action
 
 	// passthrough marks the `passthrough <bin>` sugar: exec + an implicit
 	// `can run *` funnel. It can never coexist with `exec` or a `can run` grant.
@@ -81,6 +86,27 @@ type Grant struct {
 	// Sealed forbids trailing caller args: the pinned `argv` forwards exactly,
 	// with no caller-supplied tokens appended. Requires ArgvSet (parse-enforced).
 	Sealed bool
+
+	// Bin overrides the wrap binary for this grant only (multi-binary pipelines),
+	// still fixed at parse: the caller can never substitute it. See docs/.
+	Bin string
+}
+
+// ExecBin returns the binary this grant runs: its own override, else the wrap's.
+func (g Grant) ExecBin(wrapBin string) string {
+	if g.Bin != "" {
+		return g.Bin
+	}
+	return wrapBin
+}
+
+// argvPrefixFor returns the transport prefix a grant inherits: a `bin`-overridden
+// grant does not inherit the wrap's prefix (that prefix pins the wrap binary).
+func (gf *Guardfile) argvPrefixFor(g Grant) []string {
+	if g.Bin != "" {
+		return nil
+	}
+	return gf.ArgvPrefix
 }
 
 // ExecArgv returns the tokens appended after the binary and argv-prefix: the
@@ -163,6 +189,9 @@ func (gf *Guardfile) validate() error {
 		if len(gf.Grants) > 0 {
 			return fmt.Errorf("execverb: `allow` is mutually exclusive with `can run` (fail-closed)")
 		}
+		if len(gf.Actions) > 0 {
+			return fmt.Errorf("execverb: `action` needs named `can run` grants, not an `allow` list (fail-closed)")
+		}
 		return nil
 	}
 	if len(gf.WrapWhens) > 0 {
@@ -199,9 +228,25 @@ func (gf *Guardfile) applyNode(n *kdl.Node) error {
 		return gf.appendWrapWhen(n)
 	case "doc-link":
 		return gf.parseDocLink(n)
+	case "action":
+		return gf.appendAction(n)
 	default:
 		return fmt.Errorf("execverb: unknown node %q in wrap body (fail-closed)", n.Name())
 	}
+}
+
+// appendAction parses an `action` node through the shared grammar and attaches
+// it; the exec dialect only runs call actions, enforced at resolve (fail-closed).
+func (gf *Guardfile) appendAction(n *kdl.Node) error {
+	if gf.passthrough {
+		return fmt.Errorf("execverb: `action` cannot appear under `passthrough` - actions compose named `can run` grants (fail-closed)")
+	}
+	act, err := guardfile.ParseActionNode(n)
+	if err != nil {
+		return fmt.Errorf("execverb: %w", err)
+	}
+	gf.Actions = append(gf.Actions, act)
+	return nil
 }
 
 // appendGrant parses a `can run` grant and mounts it; refused under passthrough,
@@ -512,13 +557,24 @@ func parseGrant(n *kdl.Node) (Grant, error) {
 			return Grant{}, err
 		}
 	}
-	if g.Wildcard && g.ArgvSet {
-		return Grant{}, fmt.Errorf("execverb: `can run *` cannot take an `argv` override (the wildcard funnels the whole binary; fail-closed)")
-	}
-	if g.Sealed && !g.ArgvSet {
-		return Grant{}, fmt.Errorf("execverb: grant %q: `sealed` requires a pinned `argv` (nothing to seal without it; fail-closed)", g.subcommandLabel())
+	if err := g.validateShape(); err != nil {
+		return Grant{}, err
 	}
 	return g, nil
+}
+
+// validateShape enforces the cross-child grant invariants after parse.
+func (g Grant) validateShape() error {
+	if g.Wildcard && g.ArgvSet {
+		return fmt.Errorf("execverb: `can run *` cannot take an `argv` override (the wildcard funnels the whole binary; fail-closed)")
+	}
+	if g.Wildcard && g.Bin != "" {
+		return fmt.Errorf("execverb: `can run *` cannot take a `bin` override (the wildcard IS the wrap binary's funnel; fail-closed)")
+	}
+	if g.Sealed && !g.ArgvSet {
+		return fmt.Errorf("execverb: grant %q: `sealed` requires a pinned `argv` (nothing to seal without it; fail-closed)", g.subcommandLabel())
+	}
+	return nil
 }
 
 // applyGrantChild dispatches one child of a `can run` grant: a gate, a
@@ -539,6 +595,17 @@ func (g *Grant) applyGrantChild(c *kdl.Node) error {
 		}
 		g.Whens = append(g.Whens, wc)
 		return nil
+	case "argv", "sealed", "bin":
+		return g.applyGrantPin(c)
+	default:
+		return g.applyPolicyNode(c)
+	}
+}
+
+// applyGrantPin reads the invocation-pinning children of a grant: the `argv`
+// override, the `sealed` marker, and the `bin` binary override.
+func (g *Grant) applyGrantPin(c *kdl.Node) error {
+	switch c.Name() {
 	case "argv":
 		if g.ArgvSet {
 			return fmt.Errorf("execverb: grant %q: duplicate `argv` override (fail-closed)", g.subcommandLabel())
@@ -547,16 +614,31 @@ func (g *Grant) applyGrantChild(c *kdl.Node) error {
 		for _, a := range c.Arguments() {
 			g.Argv = append(g.Argv, a.String())
 		}
-		return nil
 	case "sealed":
 		if len(c.Arguments()) != 0 {
 			return fmt.Errorf("execverb: grant %q: `sealed` takes no value (fail-closed)", g.subcommandLabel())
 		}
 		g.Sealed = true
-		return nil
-	default:
-		return g.applyPolicyNode(c)
+	case "bin":
+		if g.Bin != "" {
+			return fmt.Errorf("execverb: grant %q: duplicate `bin` override (fail-closed)", g.subcommandLabel())
+		}
+		v, err := singleGrantArg(c)
+		if err != nil {
+			return err
+		}
+		g.Bin = v
 	}
+	return nil
+}
+
+// singleGrantArg reads the single string argument of a grant child node.
+func singleGrantArg(c *kdl.Node) (string, error) {
+	args := c.Arguments()
+	if len(args) != 1 || args[0].String() == "" {
+		return "", fmt.Errorf("execverb: %q expects exactly one non-empty value", c.Name())
+	}
+	return args[0].String(), nil
 }
 
 // parseWhen reads a `when|deny-when <selector> matches <glob...>` guard and its

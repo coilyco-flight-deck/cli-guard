@@ -10,9 +10,10 @@ pipeline without a compiled state machine. Filed as
 
 Three primitives, all deny-by-default and per-call audited:
 
-1. **A transport-agnostic step abstraction.** The engine fires each step through a
-   `stepRunner` seam, not a hard-wired HTTP call. The shipped runtime is the HTTP
-   implementation. An exec/ssh transport (execverb) is the intended second one.
+1. **A transport-agnostic step abstraction.** The engine lives in `pkg/stepflow`
+   and fires each step through its `Runner` seam, not a hard-wired HTTP call.
+   Two shipped transports: the specverb HTTP runtime, and execverb's captured
+   exec/ssh runner (exec-dialect actions, [execverb.md](execverb.md)).
 2. **A compensating rollback.** A `call` may declare a `compensate` step. When a
    later step fails, the engine walks the completed steps in reverse and fires
    each compensation, undoing the work instead of aborting bare.
@@ -61,17 +62,19 @@ action promote {
 - A **`degraded-when` match** rolls the completed steps back and exits
   `canary_degraded`. An optional **`healthy-when`** ends the watch early and
   clean. The **window elapsing** with neither verdict is a pass.
+- A **blind sample** (the probe could not run at all) also rolls back, exiting
+  `canary_blind`: an unobservable target is never left promoted.
 - `--dry-run` prints each call with its compensation and the canary block, firing
   nothing; `describe` documents both.
 
 ## Testing the seam
 
-The `stepRunner` interface is the unit-test seam: a fake runner
-(`action_rollback_test.go`) records fired steps off the same guardfile, proving
-the engine is transport-independent. End-to-end tests drive the HTTP path against
-an `httptest` server.
+The `stepflow.Runner` interface is the unit-test seam: fake runners
+(`pkg/stepflow/stepflow_test.go`, `action_rollback_test.go`) record fired steps,
+proving the engine is transport-independent. End-to-end tests drive the HTTP
+path against an `httptest` server and the exec path against a scripted capture.
 
 ## See also
 
 - [specverb-actions.md](specverb-actions.md) - the engine these primitives extend.
-- [execverb.md](execverb.md) - the exec/ssh transport, the intended second runner.
+- [execverb.md](execverb.md) - the exec/ssh transport (exec-dialect actions).

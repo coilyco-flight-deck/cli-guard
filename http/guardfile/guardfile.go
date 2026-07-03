@@ -744,6 +744,10 @@ func parseDocLink(n *kdl.Node) (DocLink, error) {
 	return dl, nil
 }
 
+// ParseActionNode parses one `action` KDL node into an Action: the entry the
+// exec dialect shares, so both dialects speak one action grammar.
+func ParseActionNode(n *kdl.Node) (Action, error) { return parseAction(n) }
+
 // parseAction reads one `action <name> { ... }` block into an Action. It fails
 // closed: an unknown body node, a missing poll, or a reserved keyword is an error.
 func parseAction(n *kdl.Node) (Action, error) {
@@ -986,10 +990,19 @@ func parseCall(n *kdl.Node) (Call, error) {
 	return cl, nil
 }
 
-// parseArgBinds reads an `args { <name> <value> ... }` block into ArgBinds,
-// shared by call, compensate, and canary. label names the owner for errors.
+// parseArgBinds reads an `args` block, two forms: named children (spec dialect)
+// or positional values (exec dialect, Name empty). Mixing them fails closed.
 func parseArgBinds(n *kdl.Node, label string) ([]ArgBind, error) {
 	var binds []ArgBind
+	if args := n.Arguments(); len(args) > 0 {
+		if len(n.Children().Nodes) > 0 {
+			return nil, fmt.Errorf("%s args: positional values and named children cannot mix (fail-closed)", label)
+		}
+		for _, a := range args {
+			binds = append(binds, ArgBind{Value: a.String()})
+		}
+		return binds, nil
+	}
 	for _, a := range n.Children().Nodes {
 		v, err := singleArg(a)
 		if err != nil {
