@@ -107,6 +107,52 @@ func TestContextLevelUnset(t *testing.T) {
 	}
 }
 
+// TestParseRoles exercises the per-role capability roster (ward#578): a flat
+// list, a prefix, an empty-set role, and that the parsed shape round-trips.
+func TestParseRoles(t *testing.T) {
+	src := `
+fleet {
+    schema-version 2
+    agent claude { binary claude }
+    roles {
+        role engineer { }
+        role director {
+            guardfiles "ward-kdl.tailscale.guardfile.kdl"
+        }
+        role advisor {
+            guardfiles "ward-kdl.aws.guardfile.kdl" "ward-kdl.tailscale.guardfile.kdl"
+        }
+        role observer {
+            guardfiles prefix="ward-kdl.observe"
+        }
+    }
+}
+`
+	f, err := fleetconfig.Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(f.Roles) != 4 {
+		t.Fatalf("len(Roles) = %d, want 4", len(f.Roles))
+	}
+	byName := map[string]fleetconfig.Role{}
+	for _, r := range f.Roles {
+		byName[r.Name] = r
+	}
+	if g := byName["engineer"].Guardfiles; len(g.List) != 0 || g.Prefix != "" {
+		t.Errorf("engineer holds an unexpected set: %+v", g)
+	}
+	if g := byName["director"].Guardfiles; len(g.List) != 1 || g.List[0] != "ward-kdl.tailscale.guardfile.kdl" {
+		t.Errorf("director list = %+v", g)
+	}
+	if g := byName["advisor"].Guardfiles; len(g.List) != 2 {
+		t.Errorf("advisor list = %+v (want 2)", g)
+	}
+	if g := byName["observer"].Guardfiles; g.Prefix != "ward-kdl.observe" || len(g.List) != 0 {
+		t.Errorf("observer guardfiles = %+v", g)
+	}
+}
+
 func TestParseRejects(t *testing.T) {
 	cases := []struct {
 		name string
@@ -187,6 +233,51 @@ func TestParseRejects(t *testing.T) {
 			name: "duplicate argv mode",
 			src:  `fleet { schema-version 2; agent a { binary a; argv { headless a; headless b } } }`,
 			want: "duplicate",
+		},
+		{
+			name: "roles guardfiles list and prefix",
+			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { guardfiles "x" prefix="y" } } }`,
+			want: "flat list OR a prefix",
+		},
+		{
+			name: "roles guardfiles empty node",
+			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { guardfiles } } }`,
+			want: "needs a flat list of names or a prefix",
+		},
+		{
+			name: "roles guardfiles unknown property",
+			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { guardfiles suffix="z" } } }`,
+			want: "unknown property",
+		},
+		{
+			name: "roles unknown child",
+			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { bogus "x" } } }`,
+			want: "unknown node",
+		},
+		{
+			name: "roles non-role child",
+			src:  `fleet { schema-version 2; agent a { binary a }; roles { bogus { } } }`,
+			want: "unknown node",
+		},
+		{
+			name: "duplicate role",
+			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { }; role r { } } }`,
+			want: "duplicate role",
+		},
+		{
+			name: "empty roles block",
+			src:  `fleet { schema-version 2; agent a { binary a }; roles { } }`,
+			want: "declares no `role`",
+		},
+		{
+			name: "duplicate roles block",
+			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { } }; roles { role s { } } }`,
+			want: "duplicate `roles`",
+		},
+		{
+			name: "permission token in roles",
+			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { mount "/x" } } }`,
+			want: "permission token",
 		},
 		{
 			name: "invalid KDL",
