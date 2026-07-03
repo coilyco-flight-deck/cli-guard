@@ -30,18 +30,11 @@ func resolveCallAction(spec *spec, gf *guardfile.Guardfile, granted map[grantKey
 	bound := map[string]bool{}
 	var steps []callStep
 	for i, call := range a.Calls {
-		g, ok := granted[grantKey{Verb: call.Verb, Resource: call.Resource}]
-		if !ok {
-			return actionDescriptor{}, fmt.Errorf("specverb: action %q call %d: %q %q which no `can` grant authorizes (deny-by-default; add `can %s %s`)", a.Name, i+1, call.Verb, call.Resource, call.Verb, call.Resource)
-		}
-		leaf, err := resolveDescriptor(spec, gf.Group, g)
+		step, err := resolveCallStep(spec, gf, granted, a.Name, i, call, inputNames, bound)
 		if err != nil {
-			return actionDescriptor{}, fmt.Errorf("specverb: action %q call %d: %w", a.Name, i+1, err)
-		}
-		if err := validateCallArgs(a.Name, i+1, call, leaf, inputNames, bound); err != nil {
 			return actionDescriptor{}, err
 		}
-		steps = append(steps, callStep{Leaf: leaf, Args: call.Args, As: call.As})
+		steps = append(steps, step)
 		if call.As != "" {
 			bound[call.As] = true
 		}
@@ -51,12 +44,21 @@ func resolveCallAction(spec *spec, gf *guardfile.Guardfile, granted map[grantKey
 			return actionDescriptor{}, fmt.Errorf("specverb: action %q: fail-when: %w", a.Name, err)
 		}
 	}
+	var canary *canaryStep
+	if a.Canary != nil {
+		c, cerr := resolveCanary(spec, gf, granted, a.Name, a.Canary, inputNames, bound)
+		if cerr != nil {
+			return actionDescriptor{}, cerr
+		}
+		canary = c
+	}
 	return actionDescriptor{
 		Name:          a.Name,
 		VerbName:      actionVerbName(gf.Group, a),
 		Describe:      a.Describe,
 		Inputs:        a.Inputs,
 		Calls:         steps,
+		Canary:        canary,
 		FailWhen:      a.FailWhen,
 		MountVerb:     a.MountVerb,
 		MountResource: a.MountResource,
@@ -64,9 +66,106 @@ func resolveCallAction(spec *spec, gf *guardfile.Guardfile, granted map[grantKey
 	}, nil
 }
 
-// validateCallArgs checks one call's args: a `$ref` names a declared input or a
-// prior `as` binding, and the arg targets a real path param, flag, or sugar.
-func validateCallArgs(action string, step int, call guardfile.Call, leaf opDescriptor, inputNames, bound map[string]bool) error {
+// resolveCallStep resolves one call step: its granted leaf, arg validation, and
+// the optional compensation, all fail-closed. bound is the prior steps' `as` set.
+func resolveCallStep(spec *spec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant, action string, i int, call guardfile.Call, inputNames, bound map[string]bool) (callStep, error) {
+	leaf, err := resolveGrantedLeaf(spec, gf, granted, action, fmt.Sprintf("call %d", i+1), call.Verb, call.Resource)
+	if err != nil {
+		return callStep{}, err
+	}
+	if err := validateCallArgs(action, fmt.Sprintf("call %d", i+1), call.Args, leaf, inputNames, bound); err != nil {
+		return callStep{}, err
+	}
+	step := callStep{Leaf: leaf, Args: call.Args, As: call.As}
+	if call.Compensate != nil {
+		comp, cerr := resolveCompensation(spec, gf, granted, action, i+1, call, inputNames, bound)
+		if cerr != nil {
+			return callStep{}, cerr
+		}
+		step.Compensate = comp
+	}
+	return step, nil
+}
+
+// resolveGrantedLeaf recovers the granted leaf a step names, failing closed on a
+// (verb, resource) the Guardfile does not `can`-grant. label sits in errors.
+func resolveGrantedLeaf(spec *spec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant, action, label, verb, resource string) (opDescriptor, error) {
+	g, ok := granted[grantKey{Verb: verb, Resource: resource}]
+	if !ok {
+		return opDescriptor{}, fmt.Errorf("specverb: action %q %s: %q %q which no `can` grant authorizes (deny-by-default; add `can %s %s`)", action, label, verb, resource, verb, resource)
+	}
+	leaf, err := resolveDescriptor(spec, gf.Group, g)
+	if err != nil {
+		return opDescriptor{}, fmt.Errorf("specverb: action %q %s: %w", action, label, err)
+	}
+	return leaf, nil
+}
+
+// resolveCompensation resolves a call's rollback step: a granted leaf whose args
+// may reference inputs and the bindings live when it ran. See specverb-rollback.md.
+func resolveCompensation(spec *spec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant, action string, step int, call guardfile.Call, inputNames, bound map[string]bool) (*compensateStep, error) {
+	comp := call.Compensate
+	label := fmt.Sprintf("call %d compensate", step)
+	leaf, err := resolveGrantedLeaf(spec, gf, granted, action, label, comp.Verb, comp.Resource)
+	if err != nil {
+		return nil, err
+	}
+	compBound := bound
+	if call.As != "" {
+		compBound = cloneSet(bound)
+		compBound[call.As] = true // the compensation runs after its call, so that `as` is bound
+	}
+	if err := validateCallArgs(action, label, comp.Args, leaf, inputNames, compBound); err != nil {
+		return nil, err
+	}
+	return &compensateStep{Leaf: leaf, Args: comp.Args}, nil
+}
+
+// resolveCanary resolves an action's canary watch: a granted leaf, its bounds,
+// verdict predicates, and args. bound is the forward steps' `as` set. Nil in, nil out.
+func resolveCanary(spec *spec, gf *guardfile.Guardfile, granted map[grantKey]guardfile.Grant, action string, can *guardfile.Canary, inputNames, bound map[string]bool) (*canaryStep, error) {
+	leaf, err := resolveGrantedLeaf(spec, gf, granted, action, "canary", can.Verb, can.Resource)
+	if err != nil {
+		return nil, err
+	}
+	every, err := positiveDuration(can.Every)
+	if err != nil {
+		return nil, fmt.Errorf("specverb: action %q: canary every: %w", action, err)
+	}
+	window, err := positiveDuration(can.Window)
+	if err != nil {
+		return nil, fmt.Errorf("specverb: action %q: canary window: %w", action, err)
+	}
+	if err := respfmt.Validate(can.DegradedWhen); err != nil {
+		return nil, fmt.Errorf("specverb: action %q: canary degraded-when: %w", action, err)
+	}
+	if can.HealthyWhen != "" {
+		if err := respfmt.Validate(can.HealthyWhen); err != nil {
+			return nil, fmt.Errorf("specverb: action %q: canary healthy-when: %w", action, err)
+		}
+	}
+	if err := validateCallArgs(action, "canary", can.Args, leaf, inputNames, bound); err != nil {
+		return nil, err
+	}
+	return &canaryStep{
+		Leaf: leaf, Args: can.Args, Every: every, Window: window,
+		DegradedWhen: can.DegradedWhen, HealthyWhen: can.HealthyWhen, As: can.As,
+	}, nil
+}
+
+// cloneSet returns a shallow copy of a string set, so a caller can extend the
+// scope for one step without mutating the shared bound set.
+func cloneSet(in map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(in)+1)
+	for k := range in {
+		out[k] = true
+	}
+	return out
+}
+
+// validateCallArgs checks a step's args: a `$ref` names an input or a bound `as`,
+// and the arg targets a real path param, flag, or sugar. where labels the step.
+func validateCallArgs(action, where string, args []guardfile.ArgBind, leaf opDescriptor, inputNames, bound map[string]bool) error {
 	paramNames := map[string]bool{}
 	for _, p := range leaf.PathParams {
 		paramNames[p] = true
@@ -75,27 +174,27 @@ func validateCallArgs(action string, step int, call guardfile.Call, leaf opDescr
 	for _, f := range append(append(append([]fieldFlag{}, leaf.QueryFlags...), leaf.BodyFlags...), leaf.FormFlags...) {
 		flagNames[f.Name] = true
 	}
-	for _, arg := range call.Args {
-		if err := validateCallArgRef(action, step, arg, inputNames, bound); err != nil {
+	for _, arg := range args {
+		if err := validateCallArgRef(action, where, arg, inputNames, bound); err != nil {
 			return err
 		}
 		switch {
 		case arg.Name == ownerRepoArg:
 			if !paramNames["owner"] || !paramNames["repo"] {
-				return fmt.Errorf("specverb: action %q call %d: arg %q needs the leaf to take owner+repo path params, but %s %s does not", action, step, ownerRepoArg, leaf.Method, leaf.Path)
+				return fmt.Errorf("specverb: action %q %s: arg %q needs the leaf to take owner+repo path params, but %s %s does not", action, where, ownerRepoArg, leaf.Method, leaf.Path)
 			}
 		case paramNames[arg.Name] || flagNames[arg.Name]:
 			// binds a real path param or flag
 		default:
-			return fmt.Errorf("specverb: action %q call %d: arg %q targets nothing on %s %s (not a path param or flag; fail-closed)", action, step, arg.Name, leaf.Method, leaf.Path)
+			return fmt.Errorf("specverb: action %q %s: arg %q targets nothing on %s %s (not a path param or flag; fail-closed)", action, where, arg.Name, leaf.Method, leaf.Path)
 		}
 	}
 	return nil
 }
 
 // validateCallArgRef checks a `$ref` arg value: a bare `$name` is a declared
-// input, a `$step.field` names a prior step's `as` binding. Literals pass.
-func validateCallArgRef(action string, step int, arg guardfile.ArgBind, inputNames, bound map[string]bool) error {
+// input, a `$step.field` names a bound `as` binding. Literals pass.
+func validateCallArgRef(action, where string, arg guardfile.ArgBind, inputNames, bound map[string]bool) error {
 	if !strings.HasPrefix(arg.Value, "$") {
 		return nil
 	}
@@ -103,54 +202,47 @@ func validateCallArgRef(action string, step int, arg guardfile.ArgBind, inputNam
 	if dot := strings.IndexByte(ref, '.'); dot >= 0 {
 		head := ref[:dot]
 		if !bound[head] {
-			return fmt.Errorf("specverb: action %q call %d: arg %q references $%s.* but no prior step binds `as %s`", action, step, arg.Name, head, head)
+			return fmt.Errorf("specverb: action %q %s: arg %q references $%s.* but no step in scope binds `as %s`", action, where, arg.Name, head, head)
 		}
 		return nil
 	}
 	if !inputNames[ref] {
-		return fmt.Errorf("specverb: action %q call %d: arg %q references $%s, which no `input` declares", action, step, arg.Name, ref)
+		return fmt.Errorf("specverb: action %q %s: arg %q references $%s, which no `input` declares", action, where, arg.Name, ref)
 	}
 	return nil
 }
 
-// runCallAction runs the ordered call sequence, binding each response under `as`
-// for later $step.field data-flow. --dry-run prints the plan. See specverb-actions.md.
-func (rt *runtime) runCallAction(ctx context.Context, c *cli.Command, ad actionDescriptor, strVars map[string]string) error {
+// runCallAction runs the ordered call sequence: a mid-sequence failure rolls the
+// completed steps back and a canary guards the result. See specverb-rollback.md.
+func (rt *runtime) runCallAction(ctx context.Context, c *cli.Command, ad actionDescriptor, strVars map[string]string, jmesVars map[string]any) error {
+	if c.Bool(flagDryRun) {
+		return rt.renderCallActionPlan(ctx, c, ad, strVars)
+	}
 	bindings := map[string]any{}
-	dry := c.Bool(flagDryRun)
-	var plan []any
+	var executed []callStep
 	var lastRaw []byte
 	for i, step := range ad.Calls {
-		resolve := func(v string) (string, error) {
-			if dry {
-				return resolveCallArgDry(v, strVars), nil
-			}
-			return resolveCallArg(v, strVars, bindings)
-		}
-		method, url, body, contentType, err := rt.buildCallRequest(ctx, dry, step.Leaf, step.Args, resolve)
-		if err != nil {
-			return err
-		}
-		if dry {
-			plan = append(plan, rt.callPlanStep(step, method, url, body, contentType))
-			continue
-		}
-		decoded, raw, ferr := rt.fireCallAudited(ctx, step.Leaf, method, url, body, contentType, c)
+		resolve := func(v string) (string, error) { return resolveCallArg(v, strVars, bindings) }
+		decoded, raw, ferr := rt.stepRun.fireStep(ctx, c, step.Leaf, step.Args, resolve)
 		if ferr != nil {
-			return exitcode.New(exitcode.UpstreamFailed, "action_failed", fmt.Errorf("call %d (%s): %w", i+1, step.Leaf.Leaf, ferr), "a step in the action sequence failed; nothing after it ran")
+			compensated, rbErr := rt.rollback(ctx, c, executed, strVars, bindings)
+			return sequenceFailure(i, step, ferr, compensated, rbErr)
 		}
+		executed = append(executed, step)
 		lastRaw = raw
 		if step.As != "" {
 			bindings[step.As] = decoded
 		}
 	}
-	if dry {
-		return rt.renderCallPlan(ad, plan, c.String(flagOutput))
+	if ad.Canary != nil {
+		if err := rt.runCanary(ctx, c, ad, executed, strVars, jmesVars, bindings); err != nil {
+			return err
+		}
 	}
 	if err := rt.renderCallResult(ad, bindings, lastRaw, c.String(flagOutput)); err != nil {
 		return err
 	}
-	return rt.applyFailWhen(ad, lastRaw, bindings)
+	return rt.applyFailWhen(ad, lastRaw, condScope(jmesVars, bindings))
 }
 
 // renderCallResult prints a call action's output: a mount action (Combine) emits
@@ -249,17 +341,47 @@ func scalarToString(v any) string {
 	}
 }
 
-// callPlanStep renders one dry-run plan step: the resolved request with the auth
-// redacted, so the whole sequence can be inspected before it fires.
-func (rt *runtime) callPlanStep(step callStep, method, url string, body []byte, contentType string) map[string]any {
+// renderCallActionPlan prints the planned call sequence (--dry-run), each step's
+// resolved request with its compensation, plus the canary block. Fires nothing.
+func (rt *runtime) renderCallActionPlan(ctx context.Context, c *cli.Command, ad actionDescriptor, strVars map[string]string) error {
+	resolve := func(v string) (string, error) { return resolveCallArgDry(v, strVars), nil }
+	plan := make([]any, 0, len(ad.Calls))
+	for _, step := range ad.Calls {
+		stepPlan, err := rt.stepRun.planStep(ctx, step.Leaf, step.Args, resolve)
+		if err != nil {
+			return err
+		}
+		if step.As != "" {
+			stepPlan["as"] = step.As
+		}
+		if step.Compensate != nil {
+			compPlan, err := rt.stepRun.planStep(ctx, step.Compensate.Leaf, step.Compensate.Args, resolve)
+			if err != nil {
+				return err
+			}
+			stepPlan["compensate"] = compPlan
+		}
+		plan = append(plan, stepPlan)
+	}
+	out := map[string]any{"action": ad.Name, "calls": plan}
+	if ad.Canary != nil {
+		canPlan, err := rt.canaryPlan(ctx, ad.Canary, resolve)
+		if err != nil {
+			return err
+		}
+		out["canary"] = canPlan
+	}
+	return rt.renderPlanJSON(out, c.String(flagOutput))
+}
+
+// leafPlan renders one resolved leaf request for a --dry-run plan: the request
+// with its auth redacted, no `as`/compensate framing (the caller adds those).
+func (rt *runtime) leafPlan(leaf opDescriptor, method, url string, body []byte, contentType string) map[string]any {
 	s := map[string]any{
-		"leaf":    step.Leaf.Leaf,
+		"leaf":    leaf.Leaf,
 		"method":  method,
 		"url":     rt.previewURL(url),
 		"headers": rt.previewHeaders(body != nil, contentType),
-	}
-	if step.As != "" {
-		s["as"] = step.As
 	}
 	if body != nil {
 		var parsed any
@@ -270,9 +392,10 @@ func (rt *runtime) callPlanStep(step callStep, method, url string, body []byte, 
 	return s
 }
 
-// renderCallPlan prints the planned call sequence (--dry-run), firing nothing.
-func (rt *runtime) renderCallPlan(ad actionDescriptor, plan []any, output string) error {
-	raw, err := json.Marshal(map[string]any{"action": ad.Name, "calls": plan})
+// renderPlanJSON marshals a plan object and prints it through respfmt, honoring
+// --output so a dry-run reads the same as a live response.
+func (rt *runtime) renderPlanJSON(plan map[string]any, output string) error {
+	raw, err := json.Marshal(plan)
 	if err != nil {
 		return exitcode.New(exitcode.Internal, "internal", err, "")
 	}

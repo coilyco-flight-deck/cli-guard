@@ -73,6 +73,9 @@ type ActionInfo struct {
 
 	// Collect describes an auto-pagination action; nil for poll/call actions.
 	Collect *ActionCollectInfo `json:"collect,omitempty"`
+
+	// Canary describes a call action's health-window watch; nil when it declares none.
+	Canary *ActionCanaryInfo `json:"canary,omitempty"`
 }
 
 // ActionDefaultInfo is one input `default` pre-flight binding for the describe
@@ -88,6 +91,30 @@ type ActionCallInfo struct {
 	Path   string `json:"path"`
 	Grant  string `json:"grant"`
 	As     string `json:"as,omitempty"`
+
+	// Compensate is the step's rollback call, fired in reverse on a later
+	// failure; nil when the call declares no compensation.
+	Compensate *ActionCompensateInfo `json:"compensate,omitempty"`
+}
+
+// ActionCompensateInfo is one call's rollback step for the describe surface.
+type ActionCompensateInfo struct {
+	Method string `json:"method"`
+	Path   string `json:"path"`
+	Grant  string `json:"grant"`
+}
+
+// ActionCanaryInfo is a call action's health-window watch for the describe
+// surface: the sampled leaf, the bounds, and the verdict predicates.
+type ActionCanaryInfo struct {
+	Method       string `json:"method"`
+	Path         string `json:"path"`
+	Grant        string `json:"grant"`
+	Every        string `json:"every"`
+	Window       string `json:"window"`
+	DegradedWhen string `json:"degraded_when"`
+	HealthyWhen  string `json:"healthy_when,omitempty"`
+	As           string `json:"as"`
 }
 
 // ActionCollectInfo is the resolved auto-pagination leaf for the describe surface.
@@ -202,7 +229,18 @@ func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor,
 		switch {
 		case a.isCall():
 			for _, step := range a.Calls {
-				info.Calls = append(info.Calls, ActionCallInfo{Method: step.Leaf.Method, Path: step.Leaf.Path, Grant: step.Leaf.Grant, As: step.As})
+				ci := ActionCallInfo{Method: step.Leaf.Method, Path: step.Leaf.Path, Grant: step.Leaf.Grant, As: step.As}
+				if step.Compensate != nil {
+					ci.Compensate = &ActionCompensateInfo{Method: step.Compensate.Leaf.Method, Path: step.Compensate.Leaf.Path, Grant: step.Compensate.Leaf.Grant}
+				}
+				info.Calls = append(info.Calls, ci)
+			}
+			if a.Canary != nil {
+				info.Canary = &ActionCanaryInfo{
+					Method: a.Canary.Leaf.Method, Path: a.Canary.Leaf.Path, Grant: a.Canary.Leaf.Grant,
+					Every: a.Canary.Every.String(), Window: a.Canary.Window.String(),
+					DegradedWhen: a.Canary.DegradedWhen, HealthyWhen: a.Canary.HealthyWhen, As: a.Canary.As,
+				}
 			}
 		case a.isCollect():
 			info.Collect = &ActionCollectInfo{
@@ -398,8 +436,8 @@ func actionHeading(prefix string, a ActionInfo) string {
 	return fmt.Sprintf("## %s %s %s", prefix, actionGroup, a.Leaf)
 }
 
-// writeCallAction renders a multi-call action stanza: the ordered call sequence,
-// each step's method/path, the grant that authorizes it, and its `as` binding.
+// writeCallAction renders a multi-call action stanza: the ordered call sequence
+// with each step's `as` binding and compensation, then any canary watch.
 func writeCallAction(b *strings.Builder, a ActionInfo) {
 	fmt.Fprintf(b, "Complex action. Runs %d granted calls in order, threading $step.field data between them:\n\n", len(a.Calls))
 	for i, s := range a.Calls {
@@ -407,8 +445,32 @@ func writeCallAction(b *strings.Builder, a ActionInfo) {
 		if s.As != "" {
 			line += fmt.Sprintf(" - binds the response as `%s`", s.As)
 		}
+		if s.Compensate != nil {
+			line += fmt.Sprintf(" - rolls back via `%s %s`", s.Compensate.Method, s.Compensate.Path)
+		}
 		fmt.Fprintf(b, "%s\n", line)
 	}
+	if hasCompensation(a.Calls) {
+		b.WriteString("\nOn a mid-sequence failure the engine walks the completed steps in reverse and fires each compensation.\n")
+	}
+	if c := a.Canary; c != nil {
+		fmt.Fprintf(b, "\nCanary. After the forward steps, samples `%s %s` every %s for up to %s, rolling back on:\n\n", c.Method, c.Path, c.Every, c.Window)
+		fmt.Fprintf(b, "    %s\n", c.DegradedWhen)
+		if c.HealthyWhen != "" {
+			fmt.Fprintf(b, "\nEnds early as healthy when:\n\n    %s\n", c.HealthyWhen)
+		}
+		fmt.Fprintf(b, "\nAuthorized by grant: %s.\n", c.Grant)
+	}
+}
+
+// hasCompensation reports whether any call in the sequence declares a rollback.
+func hasCompensation(calls []ActionCallInfo) bool {
+	for _, c := range calls {
+		if c.Compensate != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // writeCollectAction renders an auto-pagination action stanza.

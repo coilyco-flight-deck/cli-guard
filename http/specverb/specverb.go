@@ -39,6 +39,10 @@ type Config struct {
 
 	// BaseURL overrides the Guardfile base-url. "" uses the Guardfile value.
 	BaseURL string
+
+	// stepRun overrides the transport firing an action's steps; nil uses the HTTP
+	// runtime. A test seam for a fake step runner. See specverb-rollback.md.
+	stepRun stepRunner
 }
 
 // opDescriptor is the tiny per-operation payload the generic action binds to,
@@ -100,22 +104,7 @@ func Build(cfg Config) (*cli.Command, error) {
 		baseURL = gf.BaseURL
 	}
 
-	rt := &runtime{
-		baseURL:      defaultScheme(strings.TrimRight(baseURL, "/")),
-		auth:         gf.Auth,
-		providers:    mergeProviders(cfg.Providers),
-		client:       cfg.HTTPClient,
-		wrap:         cfg.Wrap,
-		restrict:     gf.Restrict,
-		baseURLValue: gf.BaseURLValue,
-	}
-	if rt.client == nil {
-		rt.client = defaultHTTPClient()
-	}
-	if rt.wrap == nil {
-		// identity: bare action, no audit pipeline. Doc-render path only.
-		rt.wrap = func(s verb.Spec) cli.ActionFunc { return s.Action }
-	}
+	rt := newRuntime(cfg, gf, baseURL)
 
 	descs, err := resolveDescriptors(spec, gf)
 	if err != nil {
@@ -146,6 +135,32 @@ func Build(cfg Config) (*cli.Command, error) {
 		Commands: groupCmds,
 	}
 	return root, nil
+}
+
+// newRuntime assembles the per-tree request runtime, defaulting the HTTP client,
+// the step transport (the runtime itself), and the wrap pipeline.
+func newRuntime(cfg Config, gf *guardfile.Guardfile, baseURL string) *runtime {
+	rt := &runtime{
+		baseURL:      defaultScheme(strings.TrimRight(baseURL, "/")),
+		auth:         gf.Auth,
+		providers:    mergeProviders(cfg.Providers),
+		client:       cfg.HTTPClient,
+		wrap:         cfg.Wrap,
+		restrict:     gf.Restrict,
+		baseURLValue: gf.BaseURLValue,
+		stepRun:      cfg.stepRun,
+	}
+	if rt.client == nil {
+		rt.client = defaultHTTPClient()
+	}
+	if rt.stepRun == nil {
+		rt.stepRun = rt // the HTTP transport is the default step runner
+	}
+	if rt.wrap == nil {
+		// identity: bare action, no audit pipeline. Doc-render path only.
+		rt.wrap = func(s verb.Spec) cli.ActionFunc { return s.Action }
+	}
+	return rt
 }
 
 // splitMountActions partitions resolved actions into those that shadow a leaf

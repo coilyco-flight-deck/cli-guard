@@ -643,3 +643,111 @@ func TestParseValueChainFailsClosed(t *testing.T) {
 		})
 	}
 }
+
+// TestParseCallCompensate asserts a `compensate <verb> <resource> { args }`
+// child on a call round-trips onto Call.Compensate with its arg bindings.
+func TestParseCallCompensate(t *testing.T) {
+	gf, err := Parse([]byte(`wrap ward ops eco {
+		spec s
+		auth header-token { header H; value ssm S }
+		can create snapshot { op "snapCreate" }
+		can delete snapshot { op "snapDelete" }
+		can promote deploy { op "deployPromote" }
+		action promote {
+			input service { positional; required }
+			call create snapshot {
+				args { name $service }
+				as snap
+				compensate delete snapshot { args { id $snap.id } }
+			}
+			call promote deploy { args { name $service } }
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	calls := gf.Actions[0].Calls
+	if len(calls) != 2 {
+		t.Fatalf("Calls = %d, want 2", len(calls))
+	}
+	comp := calls[0].Compensate
+	if comp == nil {
+		t.Fatal("first call Compensate is nil")
+	}
+	if comp.Verb != "delete" || comp.Resource != "snapshot" {
+		t.Errorf("compensate target = %q %q, want delete snapshot", comp.Verb, comp.Resource)
+	}
+	want := []ArgBind{{Name: "id", Value: "$snap.id"}}
+	if !reflect.DeepEqual(comp.Args, want) {
+		t.Errorf("compensate args = %+v, want %+v", comp.Args, want)
+	}
+	if calls[1].Compensate != nil {
+		t.Error("second call should carry no compensation")
+	}
+}
+
+// TestParseCanary asserts a `canary <verb> <resource> { ... }` child round-trips
+// onto Action.Canary with its bounds and verdict predicates.
+func TestParseCanary(t *testing.T) {
+	gf, err := Parse([]byte(`wrap ward ops eco {
+		spec s
+		auth header-token { header H; value ssm S }
+		can promote deploy { op "deployPromote" }
+		can get health { op "healthGet" }
+		action promote {
+			input service { positional; required }
+			call promote deploy { args { name $service } }
+			canary get health {
+				args { service $service }
+				every "5s"
+				window "1m"
+				degraded-when "error_rate > ` + "`0.05`" + `"
+				healthy-when "stable == ` + "`true`" + `"
+				as health
+			}
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	can := gf.Actions[0].Canary
+	if can == nil {
+		t.Fatal("Canary is nil")
+	}
+	if can.Verb != "get" || can.Resource != "health" {
+		t.Errorf("canary target = %q %q, want get health", can.Verb, can.Resource)
+	}
+	if can.Every != "5s" || can.Window != "1m" || can.As != "health" {
+		t.Errorf("canary bounds = every %q window %q as %q", can.Every, can.Window, can.As)
+	}
+	if can.DegradedWhen != "error_rate > `0.05`" || can.HealthyWhen != "stable == `true`" {
+		t.Errorf("canary verdicts = degraded %q healthy %q", can.DegradedWhen, can.HealthyWhen)
+	}
+	if !reflect.DeepEqual(can.Args, []ArgBind{{Name: "service", Value: "$service"}}) {
+		t.Errorf("canary args = %+v", can.Args)
+	}
+}
+
+// TestParseRollbackFailsClosed asserts the compensate/canary grammar rejects the
+// malformed shapes: a canary without a call, and the missing mandatory fields.
+func TestParseRollbackFailsClosed(t *testing.T) {
+	base := "wrap ward ops eco {\n" +
+		"spec s\nauth header-token { header H; value ssm S }\n" +
+		"can promote deploy { op \"deployPromote\" }\ncan get health { op \"healthGet\" }\n"
+	cases := map[string]string{
+		"canary without a call":   base + `action a { canary get health { every "5s"; window "1m"; degraded-when "x"; as h } }` + "\n}",
+		"canary missing window":   base + `action a { call promote deploy {}; canary get health { every "5s"; degraded-when "x"; as h } }` + "\n}",
+		"canary missing degraded": base + `action a { call promote deploy {}; canary get health { every "5s"; window "1m"; as h } }` + "\n}",
+		"canary missing as":       base + `action a { call promote deploy {}; canary get health { every "5s"; window "1m"; degraded-when "x" } }` + "\n}",
+		"two canaries":            base + `action a { call promote deploy {}; canary get health { every "5s"; window "1m"; degraded-when "x"; as h }; canary get health { every "5s"; window "1m"; degraded-when "x"; as h } }` + "\n}",
+		"compensate no target":    base + `action a { call promote deploy { compensate {} } }` + "\n}",
+		"compensate unknown body": base + `action a { call promote deploy { compensate get health { until "x" } } }` + "\n}",
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Parse([]byte(src)); err == nil {
+				t.Errorf("expected an error for %s, got nil", name)
+			}
+		})
+	}
+}

@@ -2,8 +2,7 @@
 
 A **complex action** is a named composite verb authored inside a `wrap` block: it
 orchestrates a bounded sequence of already-granted leaves with control flow. It is
-sugar over the allowlist, never an escape from it. See [specverb.md](specverb.md)
-for the engine and cli-guard#140 for the design.
+sugar over the allowlist, never an escape from it. See [specverb.md](specverb.md).
 
 ## The five invariants
 
@@ -67,14 +66,13 @@ wrap ward ops forgejo {
   tells the shell a job failed.
 - An `input` may carry a `default <jmespath>` pre-flighting the poll leaf to bind it when absent: [specverb-action-defaults.md](specverb-action-defaults.md).
 
-## Collect and mount actions
+## Collect, mount, and guarded-rollback actions
 
 - **collect** auto-paginates a list leaf into one array, optional `cache "<ttl>"` — [specverb-action-collect.md](specverb-action-collect.md).
 - **mount** (`action <verb> <resource>`) shadows the leaf, keeps the chain — [specverb-action-mount.md](specverb-action-mount.md).
+- **guarded rollback** - `compensate` undoes completed steps in reverse, `canary` rolls back on health degradation — [specverb-rollback.md](specverb-rollback.md).
 
 ## Reserved for later (do not author in v1)
 
 The grammar reserves, and fails closed on, the forward-design keywords so log
-tailing is a later addition, not a rewrite: `emit`, `cursor`, `each`/`yield`, and
-`read`/`follow`/`stream`/`tail`. The leaf seam is kind-agnostic: a poll or call
-target may be a generated op now or a hand-written gated leaf later.
+tailing is a later addition: `emit`, `cursor`, `each`/`yield`, `read`/`follow`/`stream`/`tail`.

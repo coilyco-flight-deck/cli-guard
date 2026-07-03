@@ -55,6 +55,10 @@ type actionDescriptor struct {
 	// action, mutually exclusive with poll/call.
 	Collect *collectStep
 
+	// Canary is the resolved health-window watch fired after the call steps; on
+	// mid-window degradation it drives the rollback path. Call actions only.
+	Canary *canaryStep
+
 	// MountVerb/MountResource: the mount form shadows that leaf path instead of
 	// mounting under the `action` noun. Empty for a named action.
 	MountVerb     string
@@ -71,6 +75,29 @@ type callStep struct {
 	Leaf opDescriptor
 	Args []guardfile.ArgBind
 	As   string
+
+	// Compensate is the resolved rollback step fired to undo this call when a
+	// later step (or the canary) fails; nil when the call declares none.
+	Compensate *compensateStep
+}
+
+// compensateStep is a resolved compensation: the granted leaf and args fired in
+// reverse order to roll back an already-run callStep. See specverb-rollback.md.
+type compensateStep struct {
+	Leaf opDescriptor
+	Args []guardfile.ArgBind
+}
+
+// canaryStep is a resolved canary watch: a granted leaf re-sampled Every up to
+// Window, with the degraded/healthy verdicts that end it. See specverb-rollback.md.
+type canaryStep struct {
+	Leaf         opDescriptor
+	Args         []guardfile.ArgBind
+	Every        time.Duration
+	Window       time.Duration
+	DegradedWhen string
+	HealthyWhen  string
+	As           string
 }
 
 // isCall reports whether ad is a multi-call action (vs a poll).
@@ -385,7 +412,7 @@ func (rt *runtime) runAction(ad actionDescriptor, outcome *cacheOutcome) cli.Act
 			return err
 		}
 		if ad.isCall() {
-			return rt.runCallAction(ctx, c, ad, strVars)
+			return rt.runCallAction(ctx, c, ad, strVars, jmesVars)
 		}
 		if ad.isCollect() {
 			return rt.runCollectAction(ctx, c, ad, strVars, jmesVars, outcome)

@@ -38,6 +38,10 @@ type runtime struct {
 	wrap      func(verb.Spec) cli.ActionFunc
 	restrict  []guardfile.Restriction
 
+	// stepRun fires an action's steps; the runtime is the default HTTP
+	// implementation, a test may inject a fake. See docs/specverb-rollback.md.
+	stepRun stepRunner
+
 	// baseURLValue (zero = static baseURL) resolves the host through the first
 	// available source in its chain once, caching it. See specverb-policy.md.
 	baseURLValue guardfile.ValueChain

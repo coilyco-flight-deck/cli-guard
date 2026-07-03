@@ -1758,6 +1758,10 @@ type Action struct {
 	Collect  *Collect
 	FailWhen string // JMESPath over the bindings; truthy => non-zero exit
 
+	// Canary is the optional health-window watch fired after the `call` steps;
+	// call-only, it rolls them back on degradation. See specverb-rollback.md.
+	Canary *Canary
+
 	// MountVerb/MountResource: the two-arg `action <verb> <resource>` mount form
 	// shadows that leaf path. Empty for `action <name>`. See specverb-actions.md.
 	MountVerb     string
@@ -1796,9 +1800,26 @@ type Call struct {
 	Resource string
 	Args     []ArgBind
 	As       string // binding name for this call's response
+
+	// Compensate is the optional rollback step, fired to undo this call when a
+	// later step fails. See specverb-rollback.md.
+	Compensate *Compensation
 }
     Call is one step of a multi-call action: fires a granted leaf with Args,
     binds the response to As for `$As.field` data-flow. See specverb-actions.md.
+
+type Canary struct {
+	Verb         string
+	Resource     string
+	Args         []ArgBind
+	Every        string // sample interval, e.g. "5s" (quoted: KDL rejects bare 5s)
+	Window       string // watch window, e.g. "1m"; elapsing without degradation passes
+	DegradedWhen string // JMESPath; truthy mid-window triggers the rollback path
+	HealthyWhen  string // optional JMESPath; truthy ends the watch early as healthy
+	As           string // binding name for each sampled response
+}
+    Canary re-samples a granted leaf every Every up to Window after the forward
+    steps, rolling back on DegradedWhen mid-window. See specverb-rollback.md.
 
 type Collect struct {
 	Verb         string
@@ -1816,6 +1837,14 @@ type Collect struct {
     Collect walks a paginated granted leaf, incrementing PageParam and
     appending each array response until the page returns fewer than Limit
     (specverb-actions.md).
+
+type Compensation struct {
+	Verb     string
+	Resource string
+	Args     []ArgBind
+}
+    Compensation is a call's rollback step: a granted leaf fired (with Args) to
+    undo the call when a later step fails. See specverb-rollback.md.
 
 type DocLink struct {
 	Href string // link target: a relative path or URL
@@ -2190,8 +2219,25 @@ type ActionCallInfo struct {
 	Path   string `json:"path"`
 	Grant  string `json:"grant"`
 	As     string `json:"as,omitempty"`
+
+	// Compensate is the step's rollback call, fired in reverse on a later
+	// failure; nil when the call declares no compensation.
+	Compensate *ActionCompensateInfo `json:"compensate,omitempty"`
 }
     ActionCallInfo is one step of a multi-call action for the describe surface.
+
+type ActionCanaryInfo struct {
+	Method       string `json:"method"`
+	Path         string `json:"path"`
+	Grant        string `json:"grant"`
+	Every        string `json:"every"`
+	Window       string `json:"window"`
+	DegradedWhen string `json:"degraded_when"`
+	HealthyWhen  string `json:"healthy_when,omitempty"`
+	As           string `json:"as"`
+}
+    ActionCanaryInfo is a call action's health-window watch for the describe
+    surface: the sampled leaf, the bounds, and the verdict predicates.
 
 type ActionCollectInfo struct {
 	Method       string `json:"method"`
@@ -2207,6 +2253,13 @@ type ActionCollectInfo struct {
 }
     ActionCollectInfo is the resolved auto-pagination leaf for the describe
     surface.
+
+type ActionCompensateInfo struct {
+	Method string `json:"method"`
+	Path   string `json:"path"`
+	Grant  string `json:"grant"`
+}
+    ActionCompensateInfo is one call's rollback step for the describe surface.
 
 type ActionDefaultInfo struct {
 	Input    string `json:"input"`
@@ -2242,6 +2295,9 @@ type ActionInfo struct {
 
 	// Collect describes an auto-pagination action; nil for poll/call actions.
 	Collect *ActionCollectInfo `json:"collect,omitempty"`
+
+	// Canary describes a call action's health-window watch; nil when it declares none.
+	Canary *ActionCanaryInfo `json:"canary,omitempty"`
 }
     ActionInfo is one mounted complex action for the describe surface:
     its envelope name, the polled leaf, the bounds, and the conditions.
@@ -2275,6 +2331,8 @@ type Config struct {
 
 	// BaseURL overrides the Guardfile base-url. "" uses the Guardfile value.
 	BaseURL string
+
+	// Has unexported fields.
 }
     Config is everything the engine needs to build a command tree.
 

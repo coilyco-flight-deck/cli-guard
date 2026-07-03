@@ -96,8 +96,7 @@ func validateCollectArgs(action string, col guardfile.Collect, leaf opDescriptor
 			return err
 		}
 	}
-	call := guardfile.Call{Args: col.Args}
-	return validateCallArgs(action, 1, call, leaf, inputNames, nil)
+	return validateCallArgs(action, "collect", col.Args, leaf, inputNames, nil)
 }
 
 func validateCollectRef(action, field, value string, inputNames map[string]bool) error {
