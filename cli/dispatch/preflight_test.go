@@ -38,7 +38,7 @@ func TestPreflight_GoProceeds(t *testing.T) {
 	d := newPreflightDispatcher(t, func(context.Context, *IssueRef, *Issue) (PreflightResult, error) {
 		return PreflightResult{Verdict: VerdictGo}, nil
 	})
-	if _, _, err := d.resolveDispatchIssue(context.Background(), "example-org/example-repo#1"); err != nil {
+	if _, _, err := d.resolveDispatchIssue(context.Background(), "example-org/example-repo#1", levelConsult); err != nil {
 		t.Fatalf("GO verdict should resolve, got: %v", err)
 	}
 }
@@ -62,7 +62,7 @@ func TestPreflight_Refusals(t *testing.T) {
 			d := newPreflightDispatcher(t, func(context.Context, *IssueRef, *Issue) (PreflightResult, error) {
 				return PreflightResult{Verdict: tc.verdict, Reason: tc.reason}, nil
 			})
-			_, _, err := d.resolveDispatchIssue(context.Background(), "example-org/example-repo#1")
+			_, _, err := d.resolveDispatchIssue(context.Background(), "example-org/example-repo#1", levelConsult)
 			if err == nil {
 				t.Fatalf("%s verdict should refuse, got nil", tc.verdict)
 			}
@@ -81,7 +81,7 @@ func TestPreflight_ErrorAborts(t *testing.T) {
 	d := newPreflightDispatcher(t, func(context.Context, *IssueRef, *Issue) (PreflightResult, error) {
 		return PreflightResult{}, errors.New("verdict backend down")
 	})
-	_, _, err := d.resolveDispatchIssue(context.Background(), "example-org/example-repo#1")
+	_, _, err := d.resolveDispatchIssue(context.Background(), "example-org/example-repo#1", levelConsult)
 	if err == nil || !strings.Contains(err.Error(), "verdict backend down") {
 		t.Fatalf("error from Preflight should abort with its message, got: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestPreflight_SeesResolvedRefAndIssue(t *testing.T) {
 		gotRef, gotIssue = ref, issue
 		return PreflightResult{Verdict: VerdictGo}, nil
 	})
-	if _, _, err := d.resolveDispatchIssue(context.Background(), "example-org/example-repo#7"); err != nil {
+	if _, _, err := d.resolveDispatchIssue(context.Background(), "example-org/example-repo#7", levelConsult); err != nil {
 		t.Fatalf("resolveDispatchIssue: %v", err)
 	}
 	if gotRef == nil || gotRef.Owner != "example-org" || gotRef.Number != 7 {
@@ -115,7 +115,7 @@ func TestPreflight_NotReachedForForeignOwner(t *testing.T) {
 		called = true
 		return PreflightResult{Verdict: VerdictGo}, nil
 	})
-	if _, _, err := d.resolveDispatchIssue(context.Background(), "someoneelse/repo#1"); err == nil {
+	if _, _, err := d.resolveDispatchIssue(context.Background(), "someoneelse/repo#1", levelConsult); err == nil {
 		t.Fatal("foreign owner should be refused before pre-flight")
 	}
 	if called {

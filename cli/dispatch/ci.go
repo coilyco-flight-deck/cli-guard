@@ -91,7 +91,9 @@ func (d *Dispatcher) runCI(ctx context.Context, c *cli.Command) error {
 	if len(args) != 1 {
 		return fmt.Errorf("dispatch ci: pass exactly one issue reference (got %d args)", len(args))
 	}
-	ref, issue, err := d.resolveDispatchIssue(ctx, args[0])
+	// ci runs claude -p unattended, so it is autonomous and gates at the
+	// headless ceiling (agentic-os#246).
+	ref, issue, err := d.resolveDispatchIssue(ctx, args[0], levelHeadless)
 	if err != nil {
 		return err
 	}

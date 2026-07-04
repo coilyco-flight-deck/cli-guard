@@ -103,6 +103,9 @@ type interactiveSurfaceSpec struct {
 	// preamble leads the seeded prompt: "" for interactive (watch),
 	// consultPreamble for consult.
 	preamble string
+	// surface is the autonomy level the ceiling gate checks (levelInteractive
+	// for interactive, levelConsult for consult).
+	surface surfaceLevel
 }
 
 // interactiveCommand is the interactive surface: a live Warp tab in auto
@@ -143,6 +146,7 @@ fire-and-forget run, use 'dispatch headless'.
 
 Soft-fails to a copy-paste fallback if Warp / open are unavailable.`,
 		preamble: "",
+		surface:  levelInteractive,
 	})
 }
 
@@ -168,6 +172,7 @@ Use this when the operator wants a say mid-flight without a hard plan-mode
 gate. For a run that never consults, use 'dispatch interactive' (watch)
 or 'dispatch headless' (detached).`,
 		preamble: consultPreamble,
+		surface:  levelConsult,
 	})
 }
 
@@ -217,7 +222,7 @@ func (d *Dispatcher) interactiveSurfaceCommand(s interactiveSurfaceSpec) *cli.Co
 				}, c.Args().Slice()
 			},
 			Action: func(ctx context.Context, c *cli.Command) error {
-				return d.runInteractive(ctx, c, s.name, s.preamble)
+				return d.runInteractive(ctx, c, s.name, s.preamble, s.surface)
 			},
 		}),
 	}
@@ -257,12 +262,12 @@ func interactiveTitleLine(ref *issueRef, issue *ghIssue) string {
 
 // runInteractive is the shared body for the two live-tab surfaces. surfaceName
 // labels output and the audit Event; preamble leads the seeded prompt.
-func (d *Dispatcher) runInteractive(ctx context.Context, c *cli.Command, surfaceName, preamble string) error {
+func (d *Dispatcher) runInteractive(ctx context.Context, c *cli.Command, surfaceName, preamble string, surface surfaceLevel) error {
 	args := c.Args().Slice()
 	if len(args) != 1 {
 		return fmt.Errorf("dispatch %s: pass exactly one issue reference (got %d args)", surfaceName, len(args))
 	}
-	ref, issue, err := d.resolveDispatchIssue(ctx, args[0])
+	ref, issue, err := d.resolveDispatchIssue(ctx, args[0], surface)
 	if err != nil {
 		return err
 	}

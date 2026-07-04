@@ -88,7 +88,7 @@ func newBackendDispatcher(t *testing.T, b Backend) *Dispatcher {
 		SpawnHealthWindow: -1, // disable the startup-crash watch
 		ClaudeConfigPath:  func() (string, error) { return filepath.Join(t.TempDir(), ".claude.json"), nil },
 		IssueFetcher: func(_ context.Context, _, repo string, n int) (*Issue, error) {
-			return &Issue{Number: n, Title: "backend issue", State: "open", URL: "https://example/" + repo}, nil
+			return &Issue{Number: n, Title: "backend issue", State: "open", URL: "https://example/" + repo, Labels: []string{"headless"}}, nil
 		},
 	})
 	if err != nil {
@@ -137,7 +137,7 @@ func TestBackend_DetachedRunUsesBackend(t *testing.T) {
 	d := newBackendDispatcher(t, b)
 
 	c := parsedHeadlessCmd(t, d, "example-org/example-repo#42")
-	if err := d.runDetached(context.Background(), c, detachedSpec{mode: "headless", prompt: seedPrompt}); err != nil {
+	if err := d.runDetached(context.Background(), c, detachedSpec{mode: "headless", surface: levelHeadless, prompt: seedPrompt}); err != nil {
 		t.Fatalf("runDetached: %v", err)
 	}
 
@@ -179,7 +179,7 @@ func TestBackend_SpawnFailureReleasesReservation(t *testing.T) {
 	d := newBackendDispatcher(t, b)
 
 	c := parsedHeadlessCmd(t, d, "example-org/example-repo#42")
-	err := d.runDetached(context.Background(), c, detachedSpec{mode: "headless", prompt: seedPrompt})
+	err := d.runDetached(context.Background(), c, detachedSpec{mode: "headless", surface: levelHeadless, prompt: seedPrompt})
 	if err == nil {
 		t.Fatal("expected spawn failure, got nil")
 	}
@@ -195,7 +195,7 @@ func TestBackend_PrepareFailureReleasesReservation(t *testing.T) {
 	d := newBackendDispatcher(t, b)
 
 	c := parsedHeadlessCmd(t, d, "example-org/example-repo#42")
-	if err := d.runDetached(context.Background(), c, detachedSpec{mode: "headless", prompt: seedPrompt}); err == nil {
+	if err := d.runDetached(context.Background(), c, detachedSpec{mode: "headless", surface: levelHeadless, prompt: seedPrompt}); err == nil {
 		t.Fatal("expected prepare failure, got nil")
 	}
 	if !b.released {
@@ -213,7 +213,7 @@ func TestBackend_DryRunPreparesWithoutReserveOrSpawn(t *testing.T) {
 	d := newBackendDispatcher(t, b)
 
 	c := parsedHeadlessCmd(t, d, "--dry-run", "example-org/example-repo#42")
-	if err := d.runDetached(context.Background(), c, detachedSpec{mode: "headless", prompt: seedPrompt}); err != nil {
+	if err := d.runDetached(context.Background(), c, detachedSpec{mode: "headless", surface: levelHeadless, prompt: seedPrompt}); err != nil {
 		t.Fatalf("runDetached dry-run: %v", err)
 	}
 	if b.prepareDry == nil || !*b.prepareDry {

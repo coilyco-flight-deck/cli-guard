@@ -74,7 +74,7 @@ func TestRunCI_ForegroundSuccess(t *testing.T) {
 	d.cfg.Getwd = func() (string, error) { return checkout, nil }
 	d.cfg.ClaudeConfigPath = func() (string, error) { return filepath.Join(t.TempDir(), ".claude.json"), nil }
 	d.cfg.IssueFetcher = func(_ context.Context, _, _ string, n int) (*Issue, error) {
-		return &Issue{Number: n, Title: "t", State: "open", URL: "https://example/141"}, nil
+		return &Issue{Number: n, Title: "t", State: "open", URL: "https://example/141", Labels: []string{"headless"}}, nil
 	}
 	var gotCwd, gotBin string
 	var gotArgv []string
@@ -109,7 +109,7 @@ func TestRunCI_NonzeroExitFailsJob(t *testing.T) {
 	d.cfg.Getwd = func() (string, error) { return t.TempDir(), nil }
 	d.cfg.ClaudeConfigPath = func() (string, error) { return filepath.Join(t.TempDir(), ".claude.json"), nil }
 	d.cfg.IssueFetcher = func(_ context.Context, _, _ string, n int) (*Issue, error) {
-		return &Issue{Number: n, Title: "t", State: "open", URL: "https://example/141"}, nil
+		return &Issue{Number: n, Title: "t", State: "open", URL: "https://example/141", Labels: []string{"headless"}}, nil
 	}
 	d.cfg.SpawnForeground = func(_ context.Context, _, _ string, _, _ []string) (int, error) {
 		return 7, nil
@@ -133,7 +133,7 @@ func TestRunCI_DryRunDoesNotSpawn(t *testing.T) {
 	d := newTestDispatcher(t)
 	d.cfg.Getwd = func() (string, error) { return t.TempDir(), nil }
 	d.cfg.IssueFetcher = func(_ context.Context, _, _ string, n int) (*Issue, error) {
-		return &Issue{Number: n, Title: "t", State: "open", URL: "https://example/141"}, nil
+		return &Issue{Number: n, Title: "t", State: "open", URL: "https://example/141", Labels: []string{"headless"}}, nil
 	}
 	d.cfg.SpawnForeground = func(_ context.Context, _, _ string, _, _ []string) (int, error) {
 		t.Fatal("dry-run must not spawn claude")

@@ -249,7 +249,7 @@ func TestSpawnDetachedWorker_LiveChildSucceeds(t *testing.T) {
 // dispatch refuses any issue ref outside Config.AllowedOwner. The owner
 func TestResolveDispatchIssue_RejectsForeignOwner(t *testing.T) {
 	d := newTestDispatcher(t)
-	_, _, err := d.resolveDispatchIssue(context.Background(), "someoneelse/repo#1")
+	_, _, err := d.resolveDispatchIssue(context.Background(), "someoneelse/repo#1", levelConsult)
 	if err == nil {
 		t.Fatal("resolveDispatchIssue should refuse a foreign owner, got nil")
 	}
@@ -316,7 +316,7 @@ func TestResolveDispatchIssue_ForgejoFirstThenGitHub(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	_ = ghCalled
-	ref, issue, err := d.resolveDispatchIssue(context.Background(), "example-org/example-repo#99")
+	ref, issue, err := d.resolveDispatchIssue(context.Background(), "example-org/example-repo#99", levelConsult)
 	if err != nil {
 		t.Fatalf("resolveDispatchIssue: %v", err)
 	}
@@ -351,7 +351,7 @@ func TestIssueFetcher_OverridesGHDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	ref, issue, err := d.resolveDispatchIssue(context.Background(), "example-org/example-repo#77")
+	ref, issue, err := d.resolveDispatchIssue(context.Background(), "example-org/example-repo#77", levelConsult)
 	if err != nil {
 		t.Fatalf("resolveDispatchIssue: %v", err)
 	}
@@ -363,6 +363,72 @@ func TestIssueFetcher_OverridesGHDefault(t *testing.T) {
 	}
 	if ref.Platform != PlatformGitHub {
 		t.Errorf("ref.Platform = %q, want github", ref.Platform)
+	}
+}
+
+// modeGateDispatcher builds a Dispatcher whose fetcher returns an open
+// issue with the given labels, to exercise the ceiling gate without a forge.
+func modeGateDispatcher(t *testing.T, labels []string) *Dispatcher {
+	t.Helper()
+	d, err := New(Config{
+		Runner:       &shell.Runner{},
+		Wrap:         func(s verb.Spec) cli.ActionFunc { return s.Action },
+		AllowedOwner: "example-org",
+		RepoPath:     func(string) (string, error) { return "/tmp", nil },
+		WorktreeRoot: func() (string, error) { return "/tmp", nil },
+		LogRoot:      func() (string, error) { return "/tmp", nil },
+		IssueFetcher: func(_ context.Context, _, _ string, n int) (*Issue, error) {
+			return &Issue{Number: n, Title: "t", State: "open", URL: "https://example/issues", Labels: labels}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return d
+}
+
+// TestResolveDispatchIssue_ModeCeiling pins the surface <= mode gate on
+// headless > interactive > consult, unlabeled failing closed (agentic-os#246).
+func TestResolveDispatchIssue_ModeCeiling(t *testing.T) {
+	cases := []struct {
+		name    string
+		labels  []string
+		surface surfaceLevel
+		wantErr bool
+	}{
+		{"headless-surface-on-headless-issue", []string{"headless"}, levelHeadless, false},
+		{"headless-surface-on-interactive-issue", []string{"interactive"}, levelHeadless, true},
+		{"headless-surface-on-consult-issue", []string{"consult"}, levelHeadless, true},
+		{"headless-surface-on-unlabeled-issue", nil, levelHeadless, true},
+		{"interactive-surface-on-headless-issue", []string{"headless"}, levelInteractive, false},
+		{"interactive-surface-on-interactive-issue", []string{"interactive"}, levelInteractive, false},
+		{"interactive-surface-on-consult-issue", []string{"consult"}, levelInteractive, true},
+		{"interactive-surface-on-unlabeled-issue", nil, levelInteractive, true},
+		{"consult-surface-on-headless-issue", []string{"headless"}, levelConsult, false},
+		{"consult-surface-on-consult-issue", []string{"consult"}, levelConsult, false},
+		{"consult-surface-on-unlabeled-issue", nil, levelConsult, false},
+		// A stray extra label can only tighten the gate (most restrictive wins).
+		{"headless-surface-on-mixed-headless-consult", []string{"headless", "consult"}, levelHeadless, true},
+		// Non-mode labels are ignored; the mode label still governs.
+		{"headless-surface-on-headless-plus-P1", []string{"P1", "headless"}, levelHeadless, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := modeGateDispatcher(t, tc.labels)
+			_, _, err := d.resolveDispatchIssue(context.Background(), "example-org/example-repo#1", tc.surface)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("surface %s on labels %v: want refusal, got nil", tc.surface, tc.labels)
+				}
+				if !strings.Contains(err.Error(), "automation mode") {
+					t.Errorf("error = %q, want an automation-mode refusal", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("surface %s on labels %v: want allow, got %v", tc.surface, tc.labels, err)
+			}
+		})
 	}
 }
 
@@ -385,7 +451,7 @@ func TestIssueFetcher_UsedForGitHubURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if _, _, err := d.resolveDispatchIssue(context.Background(), "https://github.com/example-org/example-repo/issues/5"); err != nil {
+	if _, _, err := d.resolveDispatchIssue(context.Background(), "https://github.com/example-org/example-repo/issues/5", levelConsult); err != nil {
 		t.Fatalf("resolveDispatchIssue: %v", err)
 	}
 	if !called {

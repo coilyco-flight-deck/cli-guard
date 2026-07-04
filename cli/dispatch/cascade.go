@@ -136,7 +136,8 @@ func (d *Dispatcher) runCascade(ctx context.Context, c *cli.Command) error {
 		return err
 	}
 	return d.runDetached(ctx, c, detachedSpec{
-		mode: "cascade",
+		mode:    "cascade",
+		surface: levelHeadless,
 		prompt: func(ref *issueRef, issue *ghIssue, repoPath string) string {
 			return cascadeSeedPrompt(ref, issue, repoPath, budget)
 		},

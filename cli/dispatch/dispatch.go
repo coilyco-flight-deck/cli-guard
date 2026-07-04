@@ -429,6 +429,61 @@ type Issue struct {
 	Body   string `json:"body"`
 	State  string `json:"state"`
 	URL    string `json:"html_url"`
+	// Labels holds the issue's label names, populated by each fetcher (label
+	// JSON is objects, not strings, so json:"-"). Drives the ceiling gate.
+	Labels []string `json:"-"`
+}
+
+// surfaceLevel ranks a dispatch surface by autonomy on headless >
+// interactive > consult; the ceiling gate refuses surface > mode.
+type surfaceLevel int
+
+const (
+	levelConsult surfaceLevel = iota
+	levelInteractive
+	levelHeadless
+)
+
+// String renders the surface level as its label/surface name (the two
+// vocabularies are deliberately one, agentic-os#246).
+func (s surfaceLevel) String() string {
+	switch s {
+	case levelHeadless:
+		return "headless"
+	case levelInteractive:
+		return "interactive"
+	case levelConsult:
+		return "consult"
+	default:
+		return "consult"
+	}
+}
+
+// modeLabels maps the automation-mode label vocabulary to its ceiling
+// level. Label names match the surface names one-for-one.
+var modeLabels = map[string]surfaceLevel{
+	"consult":     levelConsult,
+	"interactive": levelInteractive,
+	"headless":    levelHeadless,
+}
+
+// issueModeLevel returns the mode ceiling and a name for the message. No
+// recognized label fails closed to consult; multiple take the most restrictive.
+func issueModeLevel(issue *Issue) (surfaceLevel, string) {
+	level := levelConsult
+	name := "consult (unlabeled default)"
+	found := false
+	for _, raw := range issue.Labels {
+		lv, ok := modeLabels[strings.ToLower(strings.TrimSpace(raw))]
+		if !ok {
+			continue
+		}
+		if !found || lv < level {
+			level, name = lv, lv.String()
+		}
+		found = true
+	}
+	return level, name
 }
 
 // ghIssue keeps the internal name for older call sites.
@@ -460,7 +515,7 @@ func (c Config) allowedOwnersLabel() string {
 
 // resolveDispatchIssue parses the ref, refuses non-allowed-owner and
 // non-open issues, and returns both the ref and the fetched issue. Shared
-func (d *Dispatcher) resolveDispatchIssue(ctx context.Context, raw string) (*issueRef, *ghIssue, error) {
+func (d *Dispatcher) resolveDispatchIssue(ctx context.Context, raw string, surface surfaceLevel) (*issueRef, *ghIssue, error) {
 	ref, err := d.parseIssueRef(raw)
 	if err != nil {
 		return nil, nil, err
@@ -474,6 +529,13 @@ func (d *Dispatcher) resolveDispatchIssue(ctx context.Context, raw string) (*iss
 	}
 	if !strings.EqualFold(issue.State, "OPEN") {
 		return nil, nil, fmt.Errorf("dispatch: refusing to dispatch against non-open issue %s (state=%s)", ref, issue.State)
+	}
+	// Automation-mode ceiling: run a surface only when surface <= mode on
+	// headless > interactive > consult; unlabeled fails closed (agentic-os#246).
+	if mode, modeName := issueModeLevel(issue); surface > mode {
+		return nil, nil, fmt.Errorf(
+			"dispatch: refusing %s surface on %s: issue automation mode is %q, ceiling %s (rule: surface <= mode on headless > interactive > consult) - relabel the issue to raise the ceiling",
+			surface, ref, modeName, mode)
 	}
 	if err := d.runPreflight(ctx, ref, issue); err != nil {
 		return nil, nil, err
@@ -525,6 +587,7 @@ func isNotFound(err error) bool {
 func (d *Dispatcher) runHeadless(ctx context.Context, c *cli.Command) error {
 	return d.runDetached(ctx, c, detachedSpec{
 		mode:     "headless",
+		surface:  levelHeadless,
 		prompt:   seedPrompt,
 		extraEnv: []string{fmt.Sprintf("%s=0", envCascadeDepth())},
 	})
@@ -535,6 +598,9 @@ func (d *Dispatcher) runHeadless(ctx context.Context, c *cli.Command) error {
 type detachedSpec struct {
 	// mode labels output and the audit Event ("headless" | "cascade").
 	mode string
+	// surface is the autonomy level the ceiling gate checks; both detached
+	// surfaces (headless, cascade) are autonomous, so both are levelHeadless.
+	surface surfaceLevel
 	// prompt builds the seeded prompt fed to the detached claude -p.
 	// repoPath is the canonical checkout the worker merges its branch into.
 	prompt func(ref *issueRef, issue *ghIssue, repoPath string) string
@@ -550,7 +616,7 @@ func (d *Dispatcher) runDetached(ctx context.Context, c *cli.Command, spec detac
 	if len(args) != 1 {
 		return fmt.Errorf("dispatch %s: pass exactly one issue reference (got %d args)", spec.mode, len(args))
 	}
-	ref, issue, err := d.resolveDispatchIssue(ctx, args[0])
+	ref, issue, err := d.resolveDispatchIssue(ctx, args[0], spec.surface)
 	if err != nil {
 		return err
 	}
