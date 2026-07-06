@@ -26,9 +26,8 @@ const (
 	flagOutput = "output"
 )
 
-// execStepRunner implements stepflow.Runner over captured exec invocations:
-// each step fires a granted leaf's pinned command and parses its output into
-// the structured step response JMESPath predicates read.
+// execStepRunner implements stepflow.Runner over captured exec invocations: each
+// step fires a granted leaf's pinned command and parses its structured response.
 type execStepRunner struct {
 	gf        *Guardfile
 	wrap      func(verb.Spec) cli.ActionFunc
@@ -148,9 +147,8 @@ func resolveStepArgs(args []guardfile.ArgBind, resolve stepflow.Resolve) ([]stri
 	return tokens, nil
 }
 
-// execStepResponse builds the structured object a step's predicates and
-// data-flow read: exit_code, ok, both streams, the final stdout line (script
-// handback convention), and every `key=val` stdout token under kv.
+// execStepResponse builds the structured object a step's predicates and data-flow
+// read: exit_code, ok, both streams, the final stdout line, and `key=val` kv tokens.
 func execStepResponse(stdout, stderr []byte, code int) map[string]any {
 	out := string(stdout)
 	kv := map[string]any{}

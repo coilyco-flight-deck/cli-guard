@@ -496,9 +496,8 @@ func Mount(root *cli.Command, cfg Config) error
 TYPES
 
 type CaptureRunner func(ctx context.Context, bin string, argv, env []string) (stdout, stderr []byte, exitCode int, err error)
-    CaptureRunner fires a step command and captures its output, unlike Runner
-    which streams to the operator's stdio. Injected for tests; nil execs for
-    real. err is reserved for a spawn failure; a non-zero exit returns exitCode.
+    CaptureRunner fires a step command and captures its output (unlike Runner,
+    which streams). err is a spawn failure; a non-zero exit returns exitCode.
 
 type Config struct {
 	// Guardfile is the parsed exec-dialect policy.
@@ -3640,10 +3639,9 @@ func ResolveArgDry(value string, inputs map[string]string) string
 func Run(ctx context.Context, c *cli.Command, name string, steps []Step, can *Canary,
 	strVars map[string]string, jmesVars map[string]any, r Runner,
 ) (bindings map[string]any, lastRaw []byte, err error)
-    Run executes the ordered steps, then the optional canary. A step failure
-    compensates the completed steps in reverse; the canary drives the same
-    path on degradation or a blind (unobservable) sample. Bindings and the last
-    response come back for the caller's rendering and fail-when.
+    Run executes the ordered steps then the optional canary, compensating
+    completed steps in reverse on failure. See docs/specverb-rollback.md for the
+    full contract.
 
 func ScalarToString(v any) string
     ScalarToString renders a JMESPath scalar result for use as an argv or URL
