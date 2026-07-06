@@ -9,9 +9,8 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// ecoGuardfile is the promote shape the eco pipeline uses: an ssh wrap whose
-// steps run pinned scripts, an scp apply via `bin` override, a compensating
-// rollback threading the snapshot id back, and a canary over the health leaf.
+// ecoGuardfile is the eco promote shape: an ssh wrap of pinned-script steps, an
+// scp apply via `bin` override, a snapshot-id rollback, and a health canary.
 const ecoGuardfile = `wrap ward-kdl ops eco server {
 	exec ssh {
 		argv-prefix "kai@kai-server"
@@ -108,9 +107,8 @@ func runAction(t *testing.T, src string, capture CaptureRunner, argv ...string) 
 	return root.Run(context.Background(), append([]string{"ward", "server"}, argv...))
 }
 
-// TestExecActionGreenPath proves the full sequence fires in order over the
-// pinned transport, the scp step drops the ssh argv-prefix, and a healthy
-// canary ends clean.
+// TestExecActionGreenPath proves the sequence fires in order over the pinned
+// transport, the scp step drops the ssh argv-prefix, and the canary ends clean.
 func TestExecActionGreenPath(t *testing.T) {
 	rec := &scriptedCapture{}
 	if err := runAction(t, ecoGuardfile, rec.run, "promote", "EcoTelemetry"); err != nil {
@@ -193,10 +191,8 @@ func TestExecActionDryRunFiresNothing(t *testing.T) {
 	}
 }
 
-// TestExecActionMetacharInputRefused proves the step-layer policy gate refuses
-// a resolved arg carrying a shell metacharacter before it can spawn, and the
-// engine rolls the completed steps back. (Under ward's real wrap the envelope
-// gate refuses even earlier, before any step.)
+// TestExecActionMetacharInputRefused proves the step-layer gate refuses a
+// metacharacter arg before spawn, and the engine rolls completed steps back.
 func TestExecActionMetacharInputRefused(t *testing.T) {
 	rec := &scriptedCapture{}
 	err := runAction(t, ecoGuardfile, rec.run, "promote", "Eco;rm -rf /")

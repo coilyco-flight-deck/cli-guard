@@ -14,14 +14,17 @@ dispatch path through the daemon socket, holding nothing itself.
 The package is deliberately self-contained. It carries **no git, docker, or
 ward-kdl knowledge**, so it is importable by ward without a dependency cycle:
 
-- **Protocol** (`protocol.go`) - `ProtocolVersion`, the four write-tier `Op`s
-  (file / edit / comment issue, dispatch), and the `Request` / `Response` /
-  `Target` / `Result` wire types. The wire format is newline-delimited JSON:
-  one request in, one response out, then the connection closes.
+- **Protocol** (`protocol.go`) - `ProtocolVersion`, the five write-tier `Op`s
+  (file / edit / comment / label issue, dispatch), and the `Request` /
+  `Response` / `Target` / `Result` wire types. The label op carries a
+  `LabelMode` (`add` / `set` / `remove`) and a `Labels` list (names or ids).
+  The wire format is newline-delimited JSON: one request in, one response out,
+  then the connection closes.
 - **Authorizer** (`authz.go`) - the write-tier authorization check, run on
   every request before execution. `Policy` is the default: an owner allowlist
   crossed with the op allowlist, plus the structural invariants every op needs
-  (known op, owner+repo present, positive number where required).
+  (known op, owner+repo present, positive number where required, and a known
+  label mode with at least one label for the label op).
 - **Executor** (`executor.go`) - the injected privileged side. The server holds
   no token; it authorizes a request and delegates execution to the consumer's
   `Executor`, which holds the credential and talks to the forge / dispatch

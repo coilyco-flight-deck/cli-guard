@@ -1,8 +1,8 @@
 // Package broker is the policy core for a root credential broker: a small
 // request/response protocol over a unix socket through which an unprivileged
-// client (e.g. an explore agent) asks a privileged Server to file, edit, and
-// comment on issues, and to dispatch work - without ever holding the
-// credential itself.
+// client (e.g. an explore agent) asks a privileged Server to file, edit,
+// comment on, and label issues, and to dispatch work - without ever holding
+// the credential itself.
 //
 // The package is deliberately self-contained. It carries no git, docker, or
 // ward-kdl knowledge: the privileged side is injected as an [Executor], and
@@ -20,7 +20,7 @@ package broker
 // change to [Request]/[Response]. The Server refuses an unrecognized Version.
 const ProtocolVersion = 1
 
-// Op names a broker operation. The four below are the complete write-tier
+// Op names a broker operation. The five below are the complete write-tier
 // surface; the Server authorizes and executes each and rejects any other.
 type Op string
 
@@ -32,8 +32,23 @@ const (
 	OpEditIssue Op = "edit_issue"
 	// OpCommentIssue posts a comment on an existing issue.
 	OpCommentIssue Op = "comment_issue"
+	// OpLabelIssue mutates an existing issue's label membership. LabelMode
+	// selects add / set / remove; Labels names the labels (names or ids).
+	OpLabelIssue Op = "label_issue"
 	// OpDispatch dispatches work for an existing issue.
 	OpDispatch Op = "dispatch"
+)
+
+// Label-membership modes for [OpLabelIssue]. Add appends labels, Set replaces
+// the full set, Remove drops the named labels; any other mode is refused.
+const (
+	// LabelAdd appends Labels to the issue's existing set (POST). This is the
+	// director relabel path - e.g. adding "headless" to raise a dispatch ceiling.
+	LabelAdd = "add"
+	// LabelSet replaces the issue's whole label set with Labels (PUT).
+	LabelSet = "set"
+	// LabelRemove drops each of Labels from the issue (DELETE per label).
+	LabelRemove = "remove"
 )
 
 // WriteOps is the fixed set of write-tier operations the broker serves: the
@@ -42,6 +57,7 @@ var WriteOps = map[Op]bool{
 	OpFileIssue:    true,
 	OpEditIssue:    true,
 	OpCommentIssue: true,
+	OpLabelIssue:   true,
 	OpDispatch:     true,
 }
 
@@ -68,6 +84,12 @@ type Request struct {
 	Body string `json:"body,omitempty"`
 	// State is the desired issue state for edit; empty leaves it unchanged.
 	State string `json:"state,omitempty"`
+	// LabelMode selects the [OpLabelIssue] membership mode ([LabelAdd] /
+	// [LabelSet] / [LabelRemove]); ignored by the other ops.
+	LabelMode string `json:"label_mode,omitempty"`
+	// Labels names the labels an [OpLabelIssue] acts on, by name or id (the
+	// forgejo labels body accepts either); ignored by the other ops.
+	Labels []string `json:"labels,omitempty"`
 }
 
 // Result is the success payload of a [Response]; which fields are populated

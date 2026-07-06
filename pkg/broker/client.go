@@ -60,6 +60,12 @@ func (c *Client) CommentIssue(ctx context.Context, target Target, body string) (
 	return c.Do(ctx, Request{Op: OpCommentIssue, Target: target, Body: body})
 }
 
+// LabelIssue is a convenience wrapper for an [OpLabelIssue] request. mode is
+// [LabelAdd], [LabelSet], or [LabelRemove]; labels names the labels to act on.
+func (c *Client) LabelIssue(ctx context.Context, target Target, mode string, labels []string) (Response, error) {
+	return c.Do(ctx, Request{Op: OpLabelIssue, Target: target, LabelMode: mode, Labels: labels})
+}
+
 // Dispatch is a convenience wrapper for an [OpDispatch] request.
 func (c *Client) Dispatch(ctx context.Context, target Target) (Response, error) {
 	return c.Do(ctx, Request{Op: OpDispatch, Target: target})

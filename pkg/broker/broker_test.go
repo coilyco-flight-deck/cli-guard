@@ -16,6 +16,8 @@ type fakeExecutor struct {
 	lastTitle  string
 	lastBody   string
 	lastState  string
+	lastMode   string
+	lastLabels []string
 	result     Result
 	err        error
 }
@@ -32,6 +34,11 @@ func (f *fakeExecutor) EditIssue(_ context.Context, t Target, title, body, state
 
 func (f *fakeExecutor) CommentIssue(_ context.Context, t Target, body string) (Result, error) {
 	f.lastOp, f.lastTarget, f.lastBody = OpCommentIssue, t, body
+	return f.result, f.err
+}
+
+func (f *fakeExecutor) LabelIssue(_ context.Context, t Target, mode string, labels []string) (Result, error) {
+	f.lastOp, f.lastTarget, f.lastMode, f.lastLabels = OpLabelIssue, t, mode, labels
 	return f.result, f.err
 }
 
@@ -95,6 +102,9 @@ func TestServerAllWriteOpsReachExecutor(t *testing.T) {
 		{"comment", func(c *Client) (Response, error) {
 			return c.CommentIssue(context.Background(), target, "hi")
 		}, OpCommentIssue},
+		{"label", func(c *Client) (Response, error) {
+			return c.LabelIssue(context.Background(), target, LabelAdd, []string{"headless"})
+		}, OpLabelIssue},
 		{"dispatch", func(c *Client) (Response, error) {
 			return c.Dispatch(context.Background(), target)
 		}, OpDispatch},
@@ -114,6 +124,26 @@ func TestServerAllWriteOpsReachExecutor(t *testing.T) {
 				t.Fatalf("want op %s, executor saw %s", tc.want, ex.lastOp)
 			}
 		})
+	}
+}
+
+func TestServerLabelIssueFoldsModeAndLabels(t *testing.T) {
+	ex := &fakeExecutor{result: Result{Number: 7, URL: "https://example/issues/7"}}
+	c := newTestServer(t, ex, Policy{})
+
+	target := Target{Owner: "acme", Repo: "widget", Number: 7}
+	resp, err := c.LabelIssue(context.Background(), target, LabelAdd, []string{"headless", "42"})
+	if err != nil {
+		t.Fatalf("LabelIssue transport: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("want OK, got %q", resp.Error)
+	}
+	if ex.lastOp != OpLabelIssue || ex.lastMode != LabelAdd {
+		t.Fatalf("executor saw wrong call: op=%s mode=%q", ex.lastOp, ex.lastMode)
+	}
+	if len(ex.lastLabels) != 2 || ex.lastLabels[0] != "headless" || ex.lastLabels[1] != "42" {
+		t.Fatalf("labels not folded through: %+v", ex.lastLabels)
 	}
 }
 

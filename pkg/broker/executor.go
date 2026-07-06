@@ -13,6 +13,9 @@ type Executor interface {
 	EditIssue(ctx context.Context, target Target, title, body, state string) (Result, error)
 	// CommentIssue posts body as a comment on target's issue.
 	CommentIssue(ctx context.Context, target Target, body string) (Result, error)
+	// LabelIssue mutates target issue's label membership by mode ([LabelAdd]
+	// append / [LabelSet] replace / [LabelRemove] drop); labels names them.
+	LabelIssue(ctx context.Context, target Target, mode string, labels []string) (Result, error)
 	// Dispatch dispatches work for target's issue.
 	Dispatch(ctx context.Context, target Target) (Result, error)
 }
@@ -27,6 +30,8 @@ func execute(ctx context.Context, ex Executor, req Request) (Result, error) {
 		return ex.EditIssue(ctx, req.Target, req.Title, req.Body, req.State)
 	case OpCommentIssue:
 		return ex.CommentIssue(ctx, req.Target, req.Body)
+	case OpLabelIssue:
+		return ex.LabelIssue(ctx, req.Target, req.LabelMode, req.Labels)
 	case OpDispatch:
 		return ex.Dispatch(ctx, req.Target)
 	default:

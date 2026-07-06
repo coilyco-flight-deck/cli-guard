@@ -66,6 +66,48 @@ func TestPolicyAuthorize(t *testing.T) {
 			req:    Request{Op: Op("delete_everything"), Target: Target{Owner: "acme", Repo: "r", Number: 1}},
 			wantOK: false,
 		},
+		{
+			name:   "label add with number and labels allowed",
+			policy: Policy{},
+			req:    Request{Op: OpLabelIssue, Target: Target{Owner: "acme", Repo: "r", Number: 5}, LabelMode: LabelAdd, Labels: []string{"headless"}},
+			wantOK: true,
+		},
+		{
+			name:   "label set with labels allowed",
+			policy: Policy{},
+			req:    Request{Op: OpLabelIssue, Target: Target{Owner: "acme", Repo: "r", Number: 5}, LabelMode: LabelSet, Labels: []string{"a", "b"}},
+			wantOK: true,
+		},
+		{
+			name:   "label remove with labels allowed",
+			policy: Policy{},
+			req:    Request{Op: OpLabelIssue, Target: Target{Owner: "acme", Repo: "r", Number: 5}, LabelMode: LabelRemove, Labels: []string{"stale"}},
+			wantOK: true,
+		},
+		{
+			name:   "label without number refused",
+			policy: Policy{},
+			req:    Request{Op: OpLabelIssue, Target: Target{Owner: "acme", Repo: "r"}, LabelMode: LabelAdd, Labels: []string{"headless"}},
+			wantOK: false,
+		},
+		{
+			name:   "label without labels refused",
+			policy: Policy{},
+			req:    Request{Op: OpLabelIssue, Target: Target{Owner: "acme", Repo: "r", Number: 5}, LabelMode: LabelAdd},
+			wantOK: false,
+		},
+		{
+			name:   "label with unknown mode refused",
+			policy: Policy{},
+			req:    Request{Op: OpLabelIssue, Target: Target{Owner: "acme", Repo: "r", Number: 5}, LabelMode: "toggle", Labels: []string{"headless"}},
+			wantOK: false,
+		},
+		{
+			name:   "label with empty mode refused",
+			policy: Policy{},
+			req:    Request{Op: OpLabelIssue, Target: Target{Owner: "acme", Repo: "r", Number: 5}, Labels: []string{"headless"}},
+			wantOK: false,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

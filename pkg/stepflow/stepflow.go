@@ -74,10 +74,8 @@ type Runner interface {
 		resolve Resolve) (map[string]any, error)
 }
 
-// Run executes the ordered steps, then the optional canary. A step failure
-// compensates the completed steps in reverse; the canary drives the same path
-// on degradation or a blind (unobservable) sample. Bindings and the last
-// response come back for the caller's rendering and fail-when.
+// Run executes the ordered steps then the optional canary, compensating
+// completed steps in reverse on a step failure or a degraded/blind canary.
 func Run(ctx context.Context, c *cli.Command, name string, steps []Step, can *Canary,
 	strVars map[string]string, jmesVars map[string]any, r Runner,
 ) (bindings map[string]any, lastRaw []byte, err error) {
@@ -145,10 +143,8 @@ func sequenceFailure(i int, step Step, stepErr error, compensated int, rbErr err
 	}
 }
 
-// runCanary re-samples the canary leaf over its window: degraded-when rolls
-// back, healthy-when passes early, an elapsed window passes. A sample the
-// runner cannot take at all (blind) also rolls back: an unobservable target is
-// never left promoted. See docs/specverb-rollback.md.
+// runCanary re-samples the canary leaf: degraded or blind rolls back, healthy
+// passes early, an elapsed window passes. See docs/specverb-rollback.md.
 func runCanary(ctx context.Context, c *cli.Command, name string, can *Canary,
 	executed []Step, strVars map[string]string, jmesVars, bindings map[string]any, r Runner,
 ) error {
@@ -221,9 +217,8 @@ func canaryVerdict(can *Canary, decoded any, vars map[string]any) (canaryOutcome
 	return canaryWatching, nil
 }
 
-// canaryFailure fires the executed steps' compensations after a degraded or
-// blind canary, then exits non-zero naming the rollback outcome. code is the
-// exit tag (canary_degraded, canary_blind); reason names the trigger.
+// canaryFailure compensates the executed steps after a degraded/blind canary,
+// then exits non-zero. code is the exit tag; reason names the trigger.
 func canaryFailure(ctx context.Context, c *cli.Command, name, code, reason string,
 	executed []Step, strVars map[string]string, bindings map[string]any, r Runner,
 ) error {

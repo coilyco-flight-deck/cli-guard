@@ -51,6 +51,25 @@ func (p Policy) Authorize(_ context.Context, req Request) error {
 	if req.Op == OpFileIssue && req.Title == "" {
 		return fmt.Errorf("broker: %s requires a title", req.Op)
 	}
+	if req.Op == OpLabelIssue {
+		if err := labelInvariants(req); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// labelInvariants enforces the [OpLabelIssue] rules fail-closed: a known mode
+// ([LabelAdd]/[LabelSet]/[LabelRemove]) and at least one label to act on.
+func labelInvariants(req Request) error {
+	switch req.LabelMode {
+	case LabelAdd, LabelSet, LabelRemove:
+	default:
+		return fmt.Errorf("broker: %s has unknown mode %q", req.Op, req.LabelMode)
+	}
+	if len(req.Labels) == 0 {
+		return fmt.Errorf("broker: %s %s requires at least one label", req.Op, req.LabelMode)
+	}
 	return nil
 }
 

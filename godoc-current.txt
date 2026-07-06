@@ -496,9 +496,9 @@ func Mount(root *cli.Command, cfg Config) error
 TYPES
 
 type CaptureRunner func(ctx context.Context, bin string, argv, env []string) (stdout, stderr []byte, exitCode int, err error)
-    CaptureRunner fires a step command and captures its output, unlike Runner
-    which streams to the operator's stdio. Injected for tests; nil execs for
-    real. err is reserved for a spawn failure; a non-zero exit returns exitCode.
+    CaptureRunner fires a step command, capturing output (unlike Runner,
+    which streams to stdio). Injected for tests; err is a spawn failure,
+    not a bad exit.
 
 type Config struct {
 	// Guardfile is the parsed exec-dialect policy.
@@ -2772,8 +2772,8 @@ package broker // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pk
 
 Package broker is the policy core for a root credential broker: a small
 request/response protocol over a unix socket through which an unprivileged
-client (e.g. an explore agent) asks a privileged Server to file, edit, and
-comment on issues, and to dispatch work - without ever holding the credential
+client (e.g. an explore agent) asks a privileged Server to file, edit, comment
+on, and label issues, and to dispatch work - without ever holding the credential
 itself.
 
 The package is deliberately self-contained. It carries no git, docker,
@@ -2788,6 +2788,18 @@ the Server rejects a mismatch rather than guessing. See docs/broker.md.
 
 CONSTANTS
 
+const (
+	// LabelAdd appends Labels to the issue's existing set (POST). This is the
+	// director relabel path - e.g. adding "headless" to raise a dispatch ceiling.
+	LabelAdd = "add"
+	// LabelSet replaces the issue's whole label set with Labels (PUT).
+	LabelSet = "set"
+	// LabelRemove drops each of Labels from the issue (DELETE per label).
+	LabelRemove = "remove"
+)
+    Label-membership modes for OpLabelIssue. Add appends labels, Set replaces
+    the full set, Remove drops the named labels; any other mode is refused.
+
 const ProtocolVersion = 1
     ProtocolVersion is the broker wire-protocol version, bumped on any breaking
     change to Request/Response. The Server refuses an unrecognized Version.
@@ -2799,6 +2811,7 @@ var WriteOps = map[Op]bool{
 	OpFileIssue:    true,
 	OpEditIssue:    true,
 	OpCommentIssue: true,
+	OpLabelIssue:   true,
 	OpDispatch:     true,
 }
     WriteOps is the fixed set of write-tier operations the broker serves:
@@ -2845,6 +2858,10 @@ func (c *Client) EditIssue(ctx context.Context, target Target, title, body, stat
 func (c *Client) FileIssue(ctx context.Context, target Target, title, body string) (Response, error)
     FileIssue is a convenience wrapper for an OpFileIssue request.
 
+func (c *Client) LabelIssue(ctx context.Context, target Target, mode string, labels []string) (Response, error)
+    LabelIssue is a convenience wrapper for an OpLabelIssue request. mode is
+    LabelAdd, LabelSet, or LabelRemove; labels names the labels to act on.
+
 type Executor interface {
 	// FileIssue files a new issue under target with title+body, returning its
 	// created number and URL.
@@ -2854,6 +2871,9 @@ type Executor interface {
 	EditIssue(ctx context.Context, target Target, title, body, state string) (Result, error)
 	// CommentIssue posts body as a comment on target's issue.
 	CommentIssue(ctx context.Context, target Target, body string) (Result, error)
+	// LabelIssue mutates target issue's label membership by mode ([LabelAdd]
+	// append / [LabelSet] replace / [LabelRemove] drop); labels names them.
+	LabelIssue(ctx context.Context, target Target, mode string, labels []string) (Result, error)
 	// Dispatch dispatches work for target's issue.
 	Dispatch(ctx context.Context, target Target) (Result, error)
 }
@@ -2861,7 +2881,7 @@ type Executor interface {
     to the forge/dispatch backend. Lives in the consumer; see docs/broker.md.
 
 type Op string
-    Op names a broker operation. The four below are the complete write-tier
+    Op names a broker operation. The five below are the complete write-tier
     surface; the Server authorizes and executes each and rejects any other.
 
 const (
@@ -2872,6 +2892,9 @@ const (
 	OpEditIssue Op = "edit_issue"
 	// OpCommentIssue posts a comment on an existing issue.
 	OpCommentIssue Op = "comment_issue"
+	// OpLabelIssue mutates an existing issue's label membership. LabelMode
+	// selects add / set / remove; Labels names the labels (names or ids).
+	OpLabelIssue Op = "label_issue"
 	// OpDispatch dispatches work for an existing issue.
 	OpDispatch Op = "dispatch"
 )
@@ -2902,6 +2925,12 @@ type Request struct {
 	Body string `json:"body,omitempty"`
 	// State is the desired issue state for edit; empty leaves it unchanged.
 	State string `json:"state,omitempty"`
+	// LabelMode selects the [OpLabelIssue] membership mode ([LabelAdd] /
+	// [LabelSet] / [LabelRemove]); ignored by the other ops.
+	LabelMode string `json:"label_mode,omitempty"`
+	// Labels names the labels an [OpLabelIssue] acts on, by name or id (the
+	// forgejo labels body accepts either); ignored by the other ops.
+	Labels []string `json:"labels,omitempty"`
 }
     Request is one broker call: Op selects the operation, Target names the
     issue, and Title/Body/State carry the op-specific payload.
@@ -3640,10 +3669,8 @@ func ResolveArgDry(value string, inputs map[string]string) string
 func Run(ctx context.Context, c *cli.Command, name string, steps []Step, can *Canary,
 	strVars map[string]string, jmesVars map[string]any, r Runner,
 ) (bindings map[string]any, lastRaw []byte, err error)
-    Run executes the ordered steps, then the optional canary. A step failure
-    compensates the completed steps in reverse; the canary drives the same
-    path on degradation or a blind (unobservable) sample. Bindings and the last
-    response come back for the caller's rendering and fail-when.
+    Run executes the ordered steps then the optional canary, compensating
+    completed steps in reverse on a step failure or a degraded/blind canary.
 
 func ScalarToString(v any) string
     ScalarToString renders a JMESPath scalar result for use as an argv or URL
