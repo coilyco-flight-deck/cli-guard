@@ -102,7 +102,7 @@ func TestStatus_List_WindowFiltersOld(t *testing.T) {
 	d.cfg.LogRoot = func() (string, error) { return root, nil }
 
 	writeFakeDispatch(t, root, "example-repo", 7, "20260101-101010", "ancient\n", &dispatchMeta{
-		PID: 1, StartedAt: time.Date(2026, 1, 1, 10, 10, 10, 0, time.UTC), Ref: "example-org/example-repo#7",
+		PID: deadPID, StartedAt: time.Date(2026, 1, 1, 10, 10, 10, 0, time.UTC), Ref: "example-org/example-repo#7",
 	})
 
 	out, err := runStatusCmd(t, d, nil)

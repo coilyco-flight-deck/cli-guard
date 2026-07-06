@@ -12,6 +12,10 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+// deadPID stands in for a gone process: far above any real pid, so it
+// always reads dead. Never pid 1 - it is init, alive in a container.
+const deadPID = 2_000_000_000
+
 // runRegistryCmd parses argv against a registry command bound to a
 // captured writer, mirroring runStatusCmd in status_test.go.
 func runRegistryCmd(t *testing.T, d *Dispatcher, argv []string) (string, error) {
@@ -101,15 +105,10 @@ func TestRegistryListEmpty(t *testing.T) {
 func TestRegistryListFiltersDeadPIDs(t *testing.T) {
 	d := newTestDispatcher(t)
 	root, _ := d.cfg.LogRoot()
-	writeFakeDispatch(t, root, "example-repo", 99, "20260527-130000", "", &dispatchMeta{
-		PID:           1, // init - alive but not ours; harmless. Use a definitely-dead pid instead.
-		StartedAt:     time.Now().UTC(),
-		Ref:           "example-org/example-repo#99",
-		ParentSession: "parent-abcd",
-	})
-	// Overwrite with a clearly-dead pid: pick a huge value unlikely to exist.
+	// A clearly-dead pid: a huge value no live process will hold. pid 1 is
+	// wrong here - it is init, alive in a container, so the filter keeps it.
 	writeFakeDispatch(t, root, "example-repo", 99, "20260527-130001", "", &dispatchMeta{
-		PID:       2_000_000_000,
+		PID:       deadPID,
 		StartedAt: time.Now().UTC(),
 		Ref:       "example-org/example-repo#99",
 	})
