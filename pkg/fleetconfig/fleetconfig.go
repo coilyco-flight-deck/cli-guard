@@ -59,11 +59,24 @@ type Agent struct {
 	Argv            Argv   // the three launch argvs (preflight/headless/interactive)
 }
 
-// Role is one entry in the per-role capability roster (ward#578): a role name and
-// the descriptive guardfile set it holds (the guardfile's own body is the grant).
+// Role is one entry in the per-role capability roster (ward#578): a name, the
+// guardfile set it holds, and an optional per-agent overlay (cli-guard#192).
 type Role struct {
 	Name       string     // block name, e.g. `role advisor` -> "advisor"
 	Guardfiles Guardfiles // the guardfile set this role holds (list or prefix)
+
+	// AgentConfig is the sparse per-agent override overlay, keyed by agent name;
+	// nil when the role sets none. See docs/fleetconfig.md (cli-guard#192).
+	AgentConfig map[string]RoleAgentOverride
+}
+
+// RoleAgentOverride is a role's sparse overlay on a top-level `agent` node: only
+// the launch knobs a role may retune. See docs/fleetconfig.md (cli-guard#192).
+type RoleAgentOverride struct {
+	Model           string // model id override
+	Endpoint        string // API endpoint override
+	ReasoningEffort string // reasoning-effort override
+	Verbosity       string // verbosity override
 }
 
 // Guardfiles is a role's guardfile set: EITHER a flat List of names OR a single
@@ -301,8 +314,8 @@ func parseRoles(n *kdl.Node) ([]Role, error) {
 	return out, nil
 }
 
-// parseRole reads one `role <name> { guardfiles ... }` entry. A role with no
-// `guardfiles` child holds the empty set (no capability), which is legal.
+// parseRole reads one `role <name> { guardfiles ...; agent <name> { ... } }` entry.
+// A role may hold an empty guardfile set and/or no agent overlay; both are legal.
 func parseRole(n *kdl.Node) (Role, error) {
 	name, err := singleStringArg(n, "role")
 	if err != nil {
@@ -322,11 +335,55 @@ func parseRole(n *kdl.Node) (Role, error) {
 				return Role{}, gerr
 			}
 			role.Guardfiles = gf
+		case "agent":
+			an, ov, aerr := parseRoleAgent(c, name)
+			if aerr != nil {
+				return Role{}, aerr
+			}
+			if _, dup := role.AgentConfig[an]; dup {
+				return Role{}, fmt.Errorf("fleetconfig: role %q has a duplicate `agent %s` override (fail-closed)", name, an)
+			}
+			if role.AgentConfig == nil {
+				role.AgentConfig = map[string]RoleAgentOverride{}
+			}
+			role.AgentConfig[an] = ov
 		default:
-			return Role{}, unknownNode(fmt.Sprintf("role %q body", name), c.Name(), "guardfiles")
+			return Role{}, unknownNode(fmt.Sprintf("role %q body", name), c.Name(), "guardfiles | agent")
 		}
 	}
 	return role, nil
+}
+
+// parseRoleAgent reads a role's `agent <name> { ... }` block: a sparse overlay of
+// the overridable launch knobs, reusing the agent grammar's names (cli-guard#192).
+func parseRoleAgent(n *kdl.Node, role string) (string, RoleAgentOverride, error) {
+	name, err := singleStringArg(n, fmt.Sprintf("role %q > agent", role))
+	if err != nil {
+		return "", RoleAgentOverride{}, fmt.Errorf("fleetconfig: role %q `agent` needs a single name, e.g. `agent claude`: %w", role, err)
+	}
+	var o RoleAgentOverride
+	// The overridable subset of the agent grammar's string knobs; a role may not
+	// retune structural fields (binary, argv, context-level), only launch tuning.
+	fields := map[string]*string{
+		"model":            &o.Model,
+		"endpoint":         &o.Endpoint,
+		"reasoning-effort": &o.ReasoningEffort,
+		"verbosity":        &o.Verbosity,
+	}
+	for _, c := range n.Children().Nodes {
+		dst, ok := fields[c.Name()]
+		if !ok {
+			return "", RoleAgentOverride{}, unknownNode(
+				fmt.Sprintf("role %q agent %q body", role, name), c.Name(),
+				"model | endpoint | reasoning-effort | verbosity")
+		}
+		v, verr := singleStringArg(c, fmt.Sprintf("role %q agent %q > %s", role, name, c.Name()))
+		if verr != nil {
+			return "", RoleAgentOverride{}, verr
+		}
+		*dst = v
+	}
+	return name, o, nil
 }
 
 // parseGuardfiles reads a role's `guardfiles` set: EITHER positional names (a

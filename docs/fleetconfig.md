@@ -6,8 +6,7 @@ is **core data-typing, not a guarded surface** (see [below](#why-core)).
 
 ## Schema
 
-One KDL document. The embedded form carries a `fleet` block and an optional
-`director` seed:
+One KDL document. The embedded form carries a `fleet` block and an optional `director` seed:
 
 ```kdl
 fleet {
@@ -25,19 +24,16 @@ fleet {
     }
     // ... claude, opencode, goose per the design
     roles {
-        role engineer { }
-        role advisor { guardfiles "ward-kdl.aws.guardfile.kdl" "ward-kdl.tailscale.guardfile.kdl" }
+        role engineer { agent claude { model "claude-opus-4-8"; reasoning-effort "high" } }
+        role advisor { guardfiles "ward-kdl.aws.guardfile.kdl"; agent claude { model "claude-sonnet-5"; reasoning-effort "low" } }
     }
 }
 director { default-scope "team" }
 ```
 
-- **`fleet`** - the embed-only roster block. Exactly one, required in an
-  embedded source.
-  - **`schema-version`** - integer, must equal `2` (the current dialect); a
-    mismatch fails closed.
-  - **`defaults`** - `agent` (default when a caller names none) and
-    `attribution name=… email=…` (both required).
+- **`fleet`** - the embed-only roster block. Exactly one, required in an embedded source.
+  - **`schema-version`** - integer, must equal `2` (the current dialect); a mismatch fails closed.
+  - **`defaults`** - `agent` (default when a caller names none) and `attribution name=… email=…` (both required).
   - **`agent <name>`** - one roster entry, repeated, at least one required. All
     fields are descriptive, never a permission: `binary` (required),
     `context-level` (integer; unset is `-1`, distinct from an explicit `0`),
@@ -46,9 +42,13 @@ director { default-scope "team" }
     token list, binary first).
   - **`roles`** - optional per-role capability roster (ward#578): each
     `role <name>` names the guardfile set it holds (a flat list, or a single
-    `prefix="..."`). Entries are descriptive names, never grants (see [below](#why-core)).
-- **`director`** - per-host settings; `default-scope` seeds the coordinate
-  scope. Accepted by both sources.
+    `prefix="..."`) and, optionally, per-agent launch-knob overlays (cli-guard#192).
+    Entries are descriptive names, never grants (see [below](#why-core)).
+    - **`agent <name>`** - a sparse overlay retuning one top-level agent's launch
+      knobs for this role, reusing the agent grammar's property names (`model`,
+      `endpoint`, `reasoning-effort`, `verbosity`); only changed keys are listed,
+      and structural fields (`binary`, `argv`, `context-level`) are not overridable.
+- **`director`** - per-host settings; `default-scope` seeds the coordinate scope. Accepted by both sources.
 
 ## One parser, two sources
 

@@ -3341,10 +3341,23 @@ type Guardfiles struct {
 type Role struct {
 	Name       string     // block name, e.g. `role advisor` -> "advisor"
 	Guardfiles Guardfiles // the guardfile set this role holds (list or prefix)
+
+	// AgentConfig is the sparse per-agent override overlay, keyed by agent name;
+	// nil when the role sets none. See docs/fleetconfig.md (cli-guard#192).
+	AgentConfig map[string]RoleAgentOverride
 }
-    Role is one entry in the per-role capability roster (ward#578): a role name
-    and the descriptive guardfile set it holds (the guardfile's own body is the
-    grant).
+    Role is one entry in the per-role capability roster (ward#578): a name, the
+    guardfile set it holds, and an optional per-agent overlay (cli-guard#192).
+
+type RoleAgentOverride struct {
+	Model           string // model id override
+	Endpoint        string // API endpoint override
+	ReasoningEffort string // reasoning-effort override
+	Verbosity       string // verbosity override
+}
+    RoleAgentOverride is a role's sparse overlay on a top-level `agent` node:
+    only the launch knobs a role may retune. See docs/fleetconfig.md
+    (cli-guard#192).
 
 type Source int
     Source selects which subset of the one grammar a parse accepts. One parser,
