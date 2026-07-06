@@ -74,8 +74,8 @@ type Runner interface {
 		resolve Resolve) (map[string]any, error)
 }
 
-// Run executes the ordered steps then the optional canary, compensating
-// completed steps in reverse on a step failure or a degraded/blind canary.
+// Run executes the ordered steps then the optional canary, compensating completed
+// steps in reverse on failure. See docs/specverb-rollback.md for the full contract.
 func Run(ctx context.Context, c *cli.Command, name string, steps []Step, can *Canary,
 	strVars map[string]string, jmesVars map[string]any, r Runner,
 ) (bindings map[string]any, lastRaw []byte, err error) {
@@ -143,8 +143,8 @@ func sequenceFailure(i int, step Step, stepErr error, compensated int, rbErr err
 	}
 }
 
-// runCanary re-samples the canary leaf: degraded or blind rolls back, healthy
-// passes early, an elapsed window passes. See docs/specverb-rollback.md.
+// runCanary re-samples the canary leaf over its window: degraded or blind rolls
+// back, healthy or an elapsed window passes. See docs/specverb-rollback.md.
 func runCanary(ctx context.Context, c *cli.Command, name string, can *Canary,
 	executed []Step, strVars map[string]string, jmesVars, bindings map[string]any, r Runner,
 ) error {
@@ -217,7 +217,7 @@ func canaryVerdict(can *Canary, decoded any, vars map[string]any) (canaryOutcome
 	return canaryWatching, nil
 }
 
-// canaryFailure compensates the executed steps after a degraded/blind canary,
+// canaryFailure compensates the executed steps after a degraded or blind canary,
 // then exits non-zero. code is the exit tag; reason names the trigger.
 func canaryFailure(ctx context.Context, c *cli.Command, name, code, reason string,
 	executed []Step, strVars map[string]string, bindings map[string]any, r Runner,

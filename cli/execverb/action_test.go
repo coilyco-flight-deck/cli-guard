@@ -9,8 +9,8 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// ecoGuardfile is the eco promote shape: an ssh wrap of pinned-script steps, an
-// scp apply via `bin` override, a snapshot-id rollback, and a health canary.
+// ecoGuardfile is the promote shape the eco pipeline uses: an ssh wrap with pinned
+// steps, an scp apply, a snapshot-threading rollback, and a canary on the health leaf.
 const ecoGuardfile = `wrap ward-kdl ops eco server {
 	exec ssh {
 		argv-prefix "kai@kai-server"
@@ -107,8 +107,8 @@ func runAction(t *testing.T, src string, capture CaptureRunner, argv ...string) 
 	return root.Run(context.Background(), append([]string{"ward", "server"}, argv...))
 }
 
-// TestExecActionGreenPath proves the sequence fires in order over the pinned
-// transport, the scp step drops the ssh argv-prefix, and the canary ends clean.
+// TestExecActionGreenPath proves the full sequence fires in order over the pinned
+// transport, the scp step drops the ssh argv-prefix, and a healthy canary ends clean.
 func TestExecActionGreenPath(t *testing.T) {
 	rec := &scriptedCapture{}
 	if err := runAction(t, ecoGuardfile, rec.run, "promote", "EcoTelemetry"); err != nil {
@@ -191,8 +191,8 @@ func TestExecActionDryRunFiresNothing(t *testing.T) {
 	}
 }
 
-// TestExecActionMetacharInputRefused proves the step-layer gate refuses a
-// metacharacter arg before spawn, and the engine rolls completed steps back.
+// TestExecActionMetacharInputRefused proves the step-layer policy gate refuses a
+// metacharacter-carrying arg before spawn, and the engine rolls completed steps back.
 func TestExecActionMetacharInputRefused(t *testing.T) {
 	rec := &scriptedCapture{}
 	err := runAction(t, ecoGuardfile, rec.run, "promote", "Eco;rm -rf /")

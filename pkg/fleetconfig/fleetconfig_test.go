@@ -153,6 +153,73 @@ fleet {
 	}
 }
 
+// TestParseRoleAgentOverrides exercises the per-agent override overlay
+// (cli-guard#192): guardfiles-only, agent-only, and a role carrying both.
+func TestParseRoleAgentOverrides(t *testing.T) {
+	src := `
+fleet {
+    schema-version 2
+    agent claude { binary claude }
+    roles {
+        role plain {
+            guardfiles "ward-kdl.aws.guardfile.kdl"
+        }
+        role engineer {
+            agent claude {
+                model "claude-opus-4-8"
+                reasoning-effort "high"
+            }
+        }
+        role advisor {
+            guardfiles "ward-kdl.tailscale.guardfile.kdl"
+            agent claude {
+                model "claude-sonnet-5"
+                reasoning-effort "low"
+            }
+            agent codex {
+                endpoint "https://api.example.com"
+                verbosity "low"
+            }
+        }
+    }
+}
+`
+	f, err := fleetconfig.Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byName := map[string]fleetconfig.Role{}
+	for _, r := range f.Roles {
+		byName[r.Name] = r
+	}
+	if r := byName["plain"]; r.AgentConfig != nil {
+		t.Errorf("plain carried an overlay: %+v", r.AgentConfig)
+	}
+	eng := byName["engineer"].AgentConfig
+	if len(eng) != 1 {
+		t.Fatalf("engineer overlay size = %d, want 1", len(eng))
+	}
+	if eng["claude"].Model != "claude-opus-4-8" || eng["claude"].ReasoningEffort != "high" {
+		t.Errorf("engineer claude override = %+v", eng["claude"])
+	}
+	if eng["claude"].Endpoint != "" || eng["claude"].Verbosity != "" {
+		t.Errorf("engineer claude override leaked unset knobs: %+v", eng["claude"])
+	}
+	adv := byName["advisor"]
+	if len(adv.Guardfiles.List) != 1 || adv.Guardfiles.List[0] != "ward-kdl.tailscale.guardfile.kdl" {
+		t.Errorf("advisor guardfiles = %+v", adv.Guardfiles)
+	}
+	if len(adv.AgentConfig) != 2 {
+		t.Fatalf("advisor overlay size = %d, want 2", len(adv.AgentConfig))
+	}
+	if adv.AgentConfig["claude"].Model != "claude-sonnet-5" || adv.AgentConfig["claude"].ReasoningEffort != "low" {
+		t.Errorf("advisor claude override = %+v", adv.AgentConfig["claude"])
+	}
+	if adv.AgentConfig["codex"].Endpoint != "https://api.example.com" || adv.AgentConfig["codex"].Verbosity != "low" {
+		t.Errorf("advisor codex override = %+v", adv.AgentConfig["codex"])
+	}
+}
+
 func TestParseRejects(t *testing.T) {
 	cases := []struct {
 		name string
@@ -277,6 +344,36 @@ func TestParseRejects(t *testing.T) {
 		{
 			name: "permission token in roles",
 			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { mount "/x" } } }`,
+			want: "permission token",
+		},
+		{
+			name: "duplicate role agent override",
+			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { agent a { model "x" }; agent a { model "y" } } } }`,
+			want: "duplicate `agent a` override",
+		},
+		{
+			name: "role agent unknown property",
+			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { agent a { temperature "0.7" } } } }`,
+			want: "unknown node",
+		},
+		{
+			name: "role agent structural knob rejected",
+			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { agent a { binary b } } } }`,
+			want: "unknown node",
+		},
+		{
+			name: "role agent missing name",
+			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { agent { model "x" } } } }`,
+			want: "needs a single name",
+		},
+		{
+			name: "role agent non-string knob",
+			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { agent a { model 5 } } } }`,
+			want: "must be a string",
+		},
+		{
+			name: "permission token in role agent",
+			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { agent a { exec "sh" } } } }`,
 			want: "permission token",
 		},
 		{

@@ -496,9 +496,8 @@ func Mount(root *cli.Command, cfg Config) error
 TYPES
 
 type CaptureRunner func(ctx context.Context, bin string, argv, env []string) (stdout, stderr []byte, exitCode int, err error)
-    CaptureRunner fires a step command, capturing output (unlike Runner,
-    which streams to stdio). Injected for tests; err is a spawn failure,
-    not a bad exit.
+    CaptureRunner fires a step command and captures its output (unlike Runner,
+    which streams). err is a spawn failure; a non-zero exit returns exitCode.
 
 type Config struct {
 	// Guardfile is the parsed exec-dialect policy.
@@ -3371,10 +3370,23 @@ type Guardfiles struct {
 type Role struct {
 	Name       string     // block name, e.g. `role advisor` -> "advisor"
 	Guardfiles Guardfiles // the guardfile set this role holds (list or prefix)
+
+	// AgentConfig is the sparse per-agent override overlay, keyed by agent name;
+	// nil when the role sets none. See docs/fleetconfig.md (cli-guard#192).
+	AgentConfig map[string]RoleAgentOverride
 }
-    Role is one entry in the per-role capability roster (ward#578): a role name
-    and the descriptive guardfile set it holds (the guardfile's own body is the
-    grant).
+    Role is one entry in the per-role capability roster (ward#578): a name, the
+    guardfile set it holds, and an optional per-agent overlay (cli-guard#192).
+
+type RoleAgentOverride struct {
+	Model           string // model id override
+	Endpoint        string // API endpoint override
+	ReasoningEffort string // reasoning-effort override
+	Verbosity       string // verbosity override
+}
+    RoleAgentOverride is a role's sparse overlay on a top-level `agent` node:
+    only the launch knobs a role may retune. See docs/fleetconfig.md
+    (cli-guard#192).
 
 type Source int
     Source selects which subset of the one grammar a parse accepts. One parser,
@@ -3670,7 +3682,8 @@ func Run(ctx context.Context, c *cli.Command, name string, steps []Step, can *Ca
 	strVars map[string]string, jmesVars map[string]any, r Runner,
 ) (bindings map[string]any, lastRaw []byte, err error)
     Run executes the ordered steps then the optional canary, compensating
-    completed steps in reverse on a step failure or a degraded/blind canary.
+    completed steps in reverse on failure. See docs/specverb-rollback.md for the
+    full contract.
 
 func ScalarToString(v any) string
     ScalarToString renders a JMESPath scalar result for use as an argv or URL

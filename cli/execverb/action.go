@@ -17,8 +17,8 @@ import (
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/stepflow"
 )
 
-// CaptureRunner fires a step command, capturing output (unlike Runner, which
-// streams to stdio). Injected for tests; err is a spawn failure, not a bad exit.
+// CaptureRunner fires a step command and captures its output (unlike Runner,
+// which streams). err is a spawn failure; a non-zero exit returns exitCode.
 type CaptureRunner func(ctx context.Context, bin string, argv, env []string) (stdout, stderr []byte, exitCode int, err error)
 
 // realCapture is the production CaptureRunner: it execs the command and
