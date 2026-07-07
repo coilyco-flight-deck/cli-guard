@@ -148,6 +148,64 @@ func TestResolveOpOperationIDFallback(t *testing.T) {
 	}
 }
 
+// TestResolveOpOperationIDExactBeatsSuperset asserts the skillsmp shape (/search,
+// /ai-search): exact word-set beats superset and a multi-word verb resolves, no `op`.
+func TestResolveOpOperationIDExactBeatsSuperset(t *testing.T) {
+	spec := &spec{ops: map[string]map[string]operation{
+		"/search":    {"get": {operationID: "searchSkills"}},
+		"/ai-search": {"get": {operationID: "aiSearchSkills"}},
+	}}
+	cases := []struct{ verb, want string }{
+		{"search", "searchSkills"},      // exact {search,skill} beats superset {ai,search,skill}
+		{"ai-search", "aiSearchSkills"}, // multi-word verb, exact match
+	}
+	for _, c := range cases {
+		got, err := resolveOp(spec, guardfile.Grant{Modal: "can", Verb: c.verb, Resource: "skills"})
+		if err != nil {
+			t.Fatalf("resolveOp(%s skills) errored: %v", c.verb, err)
+		}
+		if got != c.want {
+			t.Errorf("resolveOp(%s skills) = %q, want %q", c.verb, got, c.want)
+		}
+	}
+}
+
+// TestResolveOpOperationIDTwoSupersetsFailClosed asserts that with no exact match,
+// two equal-distance supersets remain a genuine tie and still fail closed.
+func TestResolveOpOperationIDTwoSupersetsFailClosed(t *testing.T) {
+	spec := &spec{ops: map[string]map[string]operation{
+		"/ai-search":   {"get": {operationID: "aiSearchSkills"}},
+		"/beta-search": {"get": {operationID: "betaSearchSkills"}},
+	}}
+	_, err := resolveOp(spec, guardfile.Grant{Modal: "can", Verb: "search", Resource: "skills"})
+	if err == nil {
+		t.Fatal("two-superset resolveOp succeeded, want error")
+	}
+	for _, want := range []string{"aiSearchSkills", "betaSearchSkills", "operations match"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("ambiguity error %q missing %q", err.Error(), want)
+		}
+	}
+}
+
+// TestResolveOpOperationIDTwoExactFailClosed asserts two operationIds with the same
+// word set (searchSkill vs skillSearch, order aside) are a genuine tie, fail closed.
+func TestResolveOpOperationIDTwoExactFailClosed(t *testing.T) {
+	spec := &spec{ops: map[string]map[string]operation{
+		"/search":      {"get": {operationID: "searchSkill"}},
+		"/find-skills": {"get": {operationID: "skillSearch"}},
+	}}
+	_, err := resolveOp(spec, guardfile.Grant{Modal: "can", Verb: "search", Resource: "skills"})
+	if err == nil {
+		t.Fatal("two-exact resolveOp succeeded, want error")
+	}
+	for _, want := range []string{"searchSkill", "skillSearch", "operations match"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("ambiguity error %q missing %q", err.Error(), want)
+		}
+	}
+}
+
 // TestResolveOpFailsClosed asserts resolution is deny-by-default: a verb+resource
 // with no matching operation is an error, never a silent guess.
 func TestResolveOpFailsClosed(t *testing.T) {

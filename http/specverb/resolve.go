@@ -58,6 +58,7 @@ type candidate struct {
 	op     string
 	depth  int  // path segment count; the least-nested path is the canonical one
 	plural bool // resource segment is a true (plural) collection, not a singleton
+	exact  bool // operationId words set-equal the grant's verb+resource (fallback only)
 }
 
 // resolvePlan is the lowered form of a verb+resource: the method set, path shape,
@@ -78,18 +79,23 @@ func resolveOp(spec *spec, g guardfile.Grant) (string, error) {
 	}
 	plan := classify(g.Verb, g.Resource)
 	if plan.search {
-		op, ok, amb := pick(searchCandidates(spec, plan))
-		return resolveResult(g, op, ok, amb)
-	}
-	// Try each method in order; the first method with any candidate decides, so a
-	// unique PATCH wins over a PUT and a method's ambiguity does not fall through.
-	for _, method := range plan.methods {
-		cands := gather(spec, method, plan)
-		if len(cands) == 0 {
-			continue
+		// A structural `<resource>/search` match decides; only a total miss (a spec
+		// whose search endpoint carries no resource segment) drops to the fallback.
+		if cands := searchCandidates(spec, plan); len(cands) > 0 {
+			op, ok, amb := pick(cands)
+			return resolveResult(g, op, ok, amb)
 		}
-		op, ok, amb := pick(cands)
-		return resolveResult(g, op, ok, amb)
+	} else {
+		// Try each method in order; the first method with any candidate decides, so a
+		// unique PATCH wins over a PUT and a method's ambiguity does not fall through.
+		for _, method := range plan.methods {
+			cands := gather(spec, method, plan)
+			if len(cands) == 0 {
+				continue
+			}
+			op, ok, amb := pick(cands)
+			return resolveResult(g, op, ok, amb)
+		}
 	}
 	// Fallback: when no path-structure candidate matches, match verb+resource
 	// against the words of each operationId (e.g. getPolicyFile for `get policy`).
@@ -108,10 +114,12 @@ func idTokens(id string) []string {
 	return strings.Fields(strings.ToLower(idTokenRe.ReplaceAllString(s, "$1 $2")))
 }
 
-// operationIDCandidates returns operations whose operationId words contain the
-// verb and the singularized resource (the fallback). See docs/specverb-resolution.md.
+// operationIDCandidates returns ops whose operationId words contain every verb word
+// (`ai-search` -> [ai search]) and the resource; exact beats superset (keepExact).
 func operationIDCandidates(spec *spec, verb, resource string) []candidate {
+	verbWords := idTokens(verb)
 	want := singularize(resource)
+	grant := wordSet(append(singularizeAll(verbWords), want)...)
 	var out []candidate
 	for path, methods := range spec.ops {
 		for _, op := range methods {
@@ -119,9 +127,78 @@ func operationIDCandidates(spec *spec, verb, resource string) []candidate {
 				continue
 			}
 			toks := idTokens(op.operationID)
-			if tokensHave(toks, verb) && tokensHaveSingular(toks, want) {
-				out = append(out, candidate{op: op.operationID, depth: len(splitPath(path)), plural: true})
+			if tokensHaveAll(toks, verbWords) && tokensHaveSingular(toks, want) {
+				out = append(out, candidate{
+					op:     op.operationID,
+					depth:  len(splitPath(path)),
+					plural: true,
+					exact:  sameSet(singularTokenSet(toks), grant),
+				})
 			}
+		}
+	}
+	return keepExact(out)
+}
+
+// wordSet builds a set from singular words, for exact grant/operationId comparison.
+func wordSet(words ...string) map[string]struct{} {
+	set := make(map[string]struct{}, len(words))
+	for _, w := range words {
+		set[w] = struct{}{}
+	}
+	return set
+}
+
+// tokensHaveAll reports whether every word appears verbatim among toks.
+func tokensHaveAll(toks, words []string) bool {
+	for _, w := range words {
+		if !tokensHave(toks, w) {
+			return false
+		}
+	}
+	return true
+}
+
+// singularTokenSet is the set of an operationId's singularized tokens, so an
+// exact word-set match ignores plural/singular and word-order differences.
+func singularTokenSet(toks []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(toks))
+	for _, t := range toks {
+		set[singularize(t)] = struct{}{}
+	}
+	return set
+}
+
+// sameSet reports whether two word sets hold the same members.
+func sameSet(a, b map[string]struct{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if _, ok := b[k]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// keepExact drops superset matches when any operationId is set-equal to the grant;
+// a remaining tie among exact matches still falls through to pick's fail-closed rule.
+func keepExact(cands []candidate) []candidate {
+	hasExact := false
+	for _, c := range cands {
+		if c.exact {
+			hasExact = true
+			break
+		}
+	}
+	if !hasExact {
+		return cands
+	}
+	out := cands[:0:0]
+	for _, c := range cands {
+		if c.exact {
+			out = append(out, c)
 		}
 	}
 	return out

@@ -20,16 +20,18 @@ A resource may also be the wildcard sentinel `"*"`: `can <verb> "*"` / `never <v
 
 ## Path matching and disambiguation
 
-For the lowered (method, shape, leaf, ancestors), the resource segment is the static segment naming the collection - the trailing static segment (collection) or the last static segment before the trailing `{param}` run (item). Among matches, the winner is chosen by: prefer a true **plural collection** segment over a singular singleton, then the **least-nested** path (the canonical resource lives at the shallowest depth; deeper paths are nested views).
+For the lowered (method, shape, leaf, ancestors), the resource segment is the static segment naming the collection - the trailing static segment (collection) or the last static segment before the trailing `{param}` run (item). Among matches, the winner is chosen by: prefer a true **plural collection** segment over a singular singleton, then the **least-nested** path (the canonical resource lives at the shallowest depth).
 
 ## operationId fallback
 
-When no path-structure candidate matches, the resolver matches the grant's verb and resource against the **words of each operationId** (camelCase / kebab / snake split). This reaches endpoints whose path does not name the resource: Tailscale's `get policy` resolves to `getPolicyFile` (path `/tailnet/{tailnet}/acl`) because the operationId words are `[get, policy, file]`. The same plural/least-nested disambiguation and fail-closed rule apply.
+When no path-structure candidate matches, the resolver matches the grant's verb and resource against the **words of each operationId** (camelCase / kebab / snake split). This reaches endpoints whose path does not name the resource: `get policy` -> `getPolicyFile` (path `/tailnet/{tailnet}/acl`, words `[get, policy, file]`). The verb is split into words too, so `ai-search` matches `aiSearchSkills`, and `search` falls through here when the spec's search endpoint has no `<resource>/search` segment (skillsmp `GET /search` -> `searchSkills`).
+
+**Exact word-set beats superset.** When one operationId's words are set-equal to the grant (`search skills` -> `searchSkills`) and others only contain them as a superset (`aiSearchSkills`), the exact match wins and supersets drop out - no `op` pin needed. A genuine tie (two exact, or two equal supersets) still fails closed.
 
 ## Fail-closed
 
-Resolution is deny-by-default. A unique winner resolves; **zero candidates or a remaining tie is a fail-closed error** that names the candidates and tells the author to pin one with `op`. The engine never silently guesses. Because disambiguation prefers shallow/plural paths rather than failing on every collision, a spec re-vendor that introduces a shallower colliding path can change a resolved op - the `lock` diff and skew check surface that for review.
+Resolution is deny-by-default. A unique winner resolves; **zero candidates or a remaining tie is a fail-closed error** that names the candidates and tells the author to pin one with `op`. The engine never silently guesses. Because disambiguation prefers shallow/plural paths, a re-vendor that adds a shallower colliding path can change a resolved op - the `lock` diff and skew check surface that for review.
 
 ## When to pin `op`
 
-With the structural conventions plus the operationId fallback, `op` is rarely needed. Pin it only when resolution is genuinely ambiguous (the error names the colliding candidates) or when neither the path nor the operationId names the verb+resource.
+With the structural conventions plus the operationId fallback, `op` is rarely needed. Pin it only when resolution is genuinely ambiguous (the error names the candidates) or neither the path nor operationId names the verb+resource.
