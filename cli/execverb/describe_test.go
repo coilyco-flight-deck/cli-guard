@@ -38,6 +38,35 @@ func TestDescribeBuildsSurface(t *testing.T) {
 	}
 }
 
+// TestDescriptionParsesAndSurfaces checks the top-level `description` node parses
+// into Guardfile.Description and renders as prose under the reference-doc header.
+func TestDescriptionParsesAndSurfaces(t *testing.T) {
+	src := `description "AWS ops launcher: read-mostly, tfstate reads denied."` + "\n" + describeFixture
+	gf, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if gf.Description != "AWS ops launcher: read-mostly, tfstate reads denied." {
+		t.Errorf("Description = %q", gf.Description)
+	}
+	md := Describe(gf).Markdown()
+	// The description prose lands between the H1 and the exec-dialect sentence.
+	hdr := strings.Index(md, "# ward-kdl ops aws")
+	desc := strings.Index(md, "AWS ops launcher")
+	dialect := strings.Index(md, "Exec-dialect CLI")
+	if hdr >= desc || desc >= dialect {
+		t.Errorf("description prose misplaced: hdr=%d desc=%d dialect=%d\n%s", hdr, desc, dialect, md)
+	}
+}
+
+// TestDescriptionEmptyFailsClosed checks a bare `description ""` is rejected.
+func TestDescriptionEmptyFailsClosed(t *testing.T) {
+	src := `description ""` + "\n" + describeFixture
+	if _, err := Parse([]byte(src)); err == nil || !strings.Contains(err.Error(), "non-empty") {
+		t.Fatalf("want non-empty error, got %v", err)
+	}
+}
+
 func TestDescribeMarkdown(t *testing.T) {
 	gf, err := Parse([]byte(describeFixture))
 	if err != nil {

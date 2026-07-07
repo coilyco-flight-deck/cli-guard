@@ -13,6 +13,10 @@ import (
 
 // Guardfile is the parsed form of one exec-dialect wrap block.
 type Guardfile struct {
+	// Description is the optional top-level `description "..."` prose (sibling of
+	// `wrap`): standing context in describe + the ref doc. See docs/kdl-description.md.
+	Description string
+
 	Group      []string     // command path, e.g. ["<cli>", "git"]
 	Bin        string       // the real binary, fixed at parse
 	ArgvPrefix []string     // unoverridable leading argv (remote-exec transport)
@@ -162,6 +166,9 @@ func Parse(src []byte) (*Guardfile, error) {
 		return nil, fmt.Errorf("execverb: missing top-level `wrap` node")
 	}
 	gf := &Guardfile{}
+	if err := gf.applyDescription(doc); err != nil {
+		return nil, err
+	}
 	for _, a := range wrap.Arguments() {
 		gf.Group = append(gf.Group, a.String())
 	}
@@ -177,6 +184,25 @@ func Parse(src []byte) (*Guardfile, error) {
 		return nil, err
 	}
 	return gf, nil
+}
+
+// applyDescription reads the optional top-level `description "..."` node (a
+// sibling of `wrap`), fail-closing on a bad shape or an empty string.
+func (gf *Guardfile) applyDescription(doc *kdl.Document) error {
+	n := doc.GetNode("description")
+	if n == nil {
+		return nil
+	}
+	args := n.Arguments()
+	if len(args) != 1 {
+		return fmt.Errorf("execverb: `description` expects exactly one string, got %d (fail-closed)", len(args))
+	}
+	v := args[0].String()
+	if v == "" {
+		return fmt.Errorf("execverb: `description` must be a non-empty string (fail-closed)")
+	}
+	gf.Description = v
+	return nil
 }
 
 // validate enforces the cross-node invariants after every wrap child is applied:

@@ -11,14 +11,15 @@ import (
 // Surface is the in-engine model of a mounted exec surface: the wrapped binary,
 // the fixed argv prefix, and every granted subcommand leaf.
 type Surface struct {
-	Group      []string    `json:"group"`                 // command path, e.g. ["<cli>","ops","aws"]
-	Bin        string      `json:"bin"`                   // the wrapped binary, fixed at parse; empty for an inspect list
-	ArgvPrefix []string    `json:"argv_prefix,omitempty"` // unoverridable leading argv
-	Env        []string    `json:"env,omitempty"`         // env injections as "NAME = provider address" (source, never the resolved value)
-	Inspect    bool        `json:"inspect,omitempty"`     // the `allow` inspect-list shape: each grant funnels its own binary, no single Bin
-	Guards     []string    `json:"guards,omitempty"`      // wrap-level guards (the passthrough host gate), applied to every leaf
-	Grants     []GrantInfo `json:"grants"`                // every mounted leaf, in mount order
-	DocLinks   []DocLink   `json:"doc_links,omitempty"`   // `doc-link` footer pointers back to companion docs
+	Group       []string    `json:"group"`                 // command path, e.g. ["<cli>","ops","aws"]
+	Description string      `json:"description,omitempty"` // the guardfile's top-level `description` prose, "" when none
+	Bin         string      `json:"bin"`                   // the wrapped binary, fixed at parse; empty for an inspect list
+	ArgvPrefix  []string    `json:"argv_prefix,omitempty"` // unoverridable leading argv
+	Env         []string    `json:"env,omitempty"`         // env injections as "NAME = provider address" (source, never the resolved value)
+	Inspect     bool        `json:"inspect,omitempty"`     // the `allow` inspect-list shape: each grant funnels its own binary, no single Bin
+	Guards      []string    `json:"guards,omitempty"`      // wrap-level guards (the passthrough host gate), applied to every leaf
+	Grants      []GrantInfo `json:"grants"`                // every mounted leaf, in mount order
+	DocLinks    []DocLink   `json:"doc_links,omitempty"`   // `doc-link` footer pointers back to companion docs
 }
 
 // GrantInfo is one mounted grant: its CLI placement, the real invocation it
@@ -46,7 +47,7 @@ func Describe(gf *Guardfile) *Surface {
 	if len(gf.Allow) > 0 {
 		return describeAllow(gf)
 	}
-	s := &Surface{Group: gf.Group, Bin: gf.Bin, ArgvPrefix: gf.ArgvPrefix, DocLinks: gf.DocLinks}
+	s := &Surface{Group: gf.Group, Description: gf.Description, Bin: gf.Bin, ArgvPrefix: gf.ArgvPrefix, DocLinks: gf.DocLinks}
 	for _, e := range gf.Env {
 		s.Env = append(s.Env, e.Name+" = "+strings.TrimSpace(e.Provider+" "+e.Address))
 	}
@@ -62,7 +63,7 @@ func Describe(gf *Guardfile) *Surface {
 // describeAllow renders the `allow` inspect-list surface: one open-passthrough
 // leaf per binary (each its own Bin), carrying the wrap-level guards.
 func describeAllow(gf *Guardfile) *Surface {
-	s := &Surface{Group: gf.Group, Inspect: true, DocLinks: gf.DocLinks}
+	s := &Surface{Group: gf.Group, Description: gf.Description, Inspect: true, DocLinks: gf.DocLinks}
 	for _, bin := range gf.Allow {
 		member := allowMember(gf, bin)
 		gi := grantInfo(member, member.Grants[0])
@@ -128,6 +129,9 @@ func (s *Surface) Markdown() string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n", strings.Join(s.Group, " "))
+	if s.Description != "" {
+		fmt.Fprintf(&b, "%s\n\n", s.Description)
+	}
 	invocation := strings.TrimSpace(s.Bin + " " + strings.Join(s.ArgvPrefix, " "))
 	fmt.Fprintf(&b, "Exec-dialect CLI. Every verb runs `%s` with the granted subcommand (or its `argv` override) appended; the binary and its prefix are fixed and the caller can never substitute them.\n", invocation)
 	if len(s.Env) > 0 {
@@ -167,6 +171,9 @@ func (s *Surface) Markdown() string {
 func (s *Surface) markdownInspect() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n", strings.Join(s.Group, " "))
+	if s.Description != "" {
+		fmt.Fprintf(&b, "%s\n\n", s.Description)
+	}
 	fmt.Fprintf(&b, "Inspect-list CLI: %d read-only binaries, each an independent open passthrough. Every leaf runs its named binary verbatim with the caller's args; the binary set is fixed at parse and the caller can never reach one not listed.\n", len(s.Grants))
 	prefix := strings.Join(s.Group, " ")
 	for _, g := range s.Grants {

@@ -7,6 +7,38 @@ import (
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
 )
 
+// TestDescriptionSurfaces proves the guardfile's top-level `description` node
+// flows through the describe surface into the reference-doc prose under the H1.
+func TestDescriptionSurfaces(t *testing.T) {
+	_, spec := loadFixtures(t)
+	gf, err := guardfile.Parse([]byte(`description "Forgejo ops surface: scoped read/write over the coily* orgs."
+wrap ward ops forgejo {
+		spec forgejo.swagger.v1.json
+		auth header-token { header Authorization; prefix "token "; value ssm "/forgejo/api-token" }
+		can get repo { op "repoGet" }
+	}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if gf.Description == "" {
+		t.Fatal("guardfile Description was not parsed")
+	}
+	surface, err := Describe(Config{Guardfile: gf, Spec: spec})
+	if err != nil {
+		t.Fatalf("Describe: %v", err)
+	}
+	if surface.Description != gf.Description {
+		t.Errorf("Surface.Description = %q, want %q", surface.Description, gf.Description)
+	}
+	md := surface.Markdown()
+	hdr := strings.Index(md, "# ward ops forgejo")
+	desc := strings.Index(md, "Forgejo ops surface")
+	driven := strings.Index(md, "Spec-driven CLI")
+	if hdr >= desc || desc >= driven {
+		t.Errorf("description prose misplaced: hdr=%d desc=%d driven=%d\n%s", hdr, desc, driven, md)
+	}
+}
+
 // TestDocLinkDescribed proves the spec-dialect describe surface renders a
 // `## See also` footer from the guardfile's `doc-link` nodes. See docs/doc-link.md.
 func TestDocLinkDescribed(t *testing.T) {

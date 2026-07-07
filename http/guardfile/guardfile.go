@@ -207,6 +207,10 @@ func (a Action) IsMount() bool { return a.MountResource != "" }
 
 // Guardfile is the parsed form of one wrap block.
 type Guardfile struct {
+	// Description is the optional top-level `description "..."` prose (sibling of
+	// `wrap`): standing context in describe + the ref doc. See docs/kdl-description.md.
+	Description string
+
 	Group   []string // command path, e.g. ["ward", "ops", "forgejo"]
 	Spec    string
 	BaseURL string
@@ -250,6 +254,9 @@ func Parse(src []byte) (*Guardfile, error) {
 		return nil, fmt.Errorf("guardfile: missing top-level `wrap` node")
 	}
 	gf := &Guardfile{}
+	if err := gf.applyDescription(doc); err != nil {
+		return nil, err
+	}
 	for _, a := range wrap.Arguments() {
 		gf.Group = append(gf.Group, a.String())
 	}
@@ -267,6 +274,24 @@ func Parse(src []byte) (*Guardfile, error) {
 		}
 	}
 	return gf, gf.validate()
+}
+
+// applyDescription reads the optional top-level `description "..."` node (a
+// sibling of `wrap`), fail-closing on a bad shape or an empty string.
+func (gf *Guardfile) applyDescription(doc *kdl.Document) error {
+	n := doc.GetNode("description")
+	if n == nil {
+		return nil
+	}
+	v, err := singleArg(n)
+	if err != nil {
+		return fmt.Errorf("guardfile: `description`: %w", err)
+	}
+	if v == "" {
+		return fmt.Errorf("guardfile: `description` must be a non-empty string (fail-closed)")
+	}
+	gf.Description = v
+	return nil
 }
 
 // applyNode dispatches one child of the wrap block onto gf.

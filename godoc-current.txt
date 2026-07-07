@@ -599,6 +599,10 @@ type GrantInfo struct {
     authorizes, its flag policy, and any gates/guards that can still refuse it.
 
 type Guardfile struct {
+	// Description is the optional top-level `description "..."` prose (sibling of
+	// `wrap`): standing context in describe + the ref doc. See docs/kdl-description.md.
+	Description string
+
 	Group      []string     // command path, e.g. ["<cli>", "git"]
 	Bin        string       // the real binary, fixed at parse
 	ArgvPrefix []string     // unoverridable leading argv (remote-exec transport)
@@ -642,14 +646,15 @@ type Runner func(ctx context.Context, bin string, argv, env []string) error
     real.
 
 type Surface struct {
-	Group      []string    `json:"group"`                 // command path, e.g. ["<cli>","ops","aws"]
-	Bin        string      `json:"bin"`                   // the wrapped binary, fixed at parse; empty for an inspect list
-	ArgvPrefix []string    `json:"argv_prefix,omitempty"` // unoverridable leading argv
-	Env        []string    `json:"env,omitempty"`         // env injections as "NAME = provider address" (source, never the resolved value)
-	Inspect    bool        `json:"inspect,omitempty"`     // the `allow` inspect-list shape: each grant funnels its own binary, no single Bin
-	Guards     []string    `json:"guards,omitempty"`      // wrap-level guards (the passthrough host gate), applied to every leaf
-	Grants     []GrantInfo `json:"grants"`                // every mounted leaf, in mount order
-	DocLinks   []DocLink   `json:"doc_links,omitempty"`   // `doc-link` footer pointers back to companion docs
+	Group       []string    `json:"group"`                 // command path, e.g. ["<cli>","ops","aws"]
+	Description string      `json:"description,omitempty"` // the guardfile's top-level `description` prose, "" when none
+	Bin         string      `json:"bin"`                   // the wrapped binary, fixed at parse; empty for an inspect list
+	ArgvPrefix  []string    `json:"argv_prefix,omitempty"` // unoverridable leading argv
+	Env         []string    `json:"env,omitempty"`         // env injections as "NAME = provider address" (source, never the resolved value)
+	Inspect     bool        `json:"inspect,omitempty"`     // the `allow` inspect-list shape: each grant funnels its own binary, no single Bin
+	Guards      []string    `json:"guards,omitempty"`      // wrap-level guards (the passthrough host gate), applied to every leaf
+	Grants      []GrantInfo `json:"grants"`                // every mounted leaf, in mount order
+	DocLinks    []DocLink   `json:"doc_links,omitempty"`   // `doc-link` footer pointers back to companion docs
 }
     Surface is the in-engine model of a mounted exec surface: the wrapped
     binary, the fixed argv prefix, and every granted subcommand leaf.
@@ -1925,6 +1930,10 @@ type Grant struct {
     operationId. See docs/specverb.md.
 
 type Guardfile struct {
+	// Description is the optional top-level `description "..."` prose (sibling of
+	// `wrap`): standing context in describe + the ref doc. See docs/kdl-description.md.
+	Description string
+
 	Group   []string // command path, e.g. ["ward", "ops", "forgejo"]
 	Spec    string
 	BaseURL string
@@ -2658,14 +2667,15 @@ type RestrictionInfo struct {
     the path param it gates and the globs an argument must match.
 
 type Surface struct {
-	Group    []string            `json:"group"`               // command path, e.g. ["ward","ops","forgejo"]
-	BaseURL  string              `json:"base_url"`            // resolved request base, scheme defaulted
-	Auth     AuthInfo            `json:"auth"`                // how the engine authenticates
-	Verbs    []VerbInfo          `json:"verbs"`               // every mounted leaf, in mount order
-	Actions  []ActionInfo        `json:"actions,omitempty"`   // complex actions, in declaration order
-	Denied   []DenyInfo          `json:"denied,omitempty"`    // blocked classes, in declaration order
-	Restrict []RestrictionInfo   `json:"restrict,omitempty"`  // wrap-level scope allowlists
-	DocLinks []guardfile.DocLink `json:"doc_links,omitempty"` // `doc-link` footer pointers back to companion docs
+	Group       []string            `json:"group"`                 // command path, e.g. ["ward","ops","forgejo"]
+	Description string              `json:"description,omitempty"` // the guardfile's top-level `description` prose, "" when none
+	BaseURL     string              `json:"base_url"`              // resolved request base, scheme defaulted
+	Auth        AuthInfo            `json:"auth"`                  // how the engine authenticates
+	Verbs       []VerbInfo          `json:"verbs"`                 // every mounted leaf, in mount order
+	Actions     []ActionInfo        `json:"actions,omitempty"`     // complex actions, in declaration order
+	Denied      []DenyInfo          `json:"denied,omitempty"`      // blocked classes, in declaration order
+	Restrict    []RestrictionInfo   `json:"restrict,omitempty"`    // wrap-level scope allowlists
+	DocLinks    []guardfile.DocLink `json:"doc_links,omitempty"`   // `doc-link` footer pointers back to companion docs
 }
     Surface is the in-engine model of a mounted command surface: the structural
     truth shared by help, the describe verb, and (later) completions and the
@@ -3652,6 +3662,10 @@ type Director struct {
     operator-local source may set (the embedded fleet may seed a default).
 
 type Fleet struct {
+	// Description is the optional top-level `description "..."` prose: standing
+	// "what/why" context as queryable data, "" when none. See docs/kdl-description.md.
+	Description string
+
 	// SchemaVersion is the declared dialect version (== SchemaVersion). Zero in
 	// an operator-local source, which carries no `fleet` block.
 	SchemaVersion int

@@ -43,6 +43,51 @@ func TestParseFixture(t *testing.T) {
 	}
 }
 
+// TestParseDescription checks the top-level `description` node parses into
+// Guardfile.Description, is optional, and fails closed on an empty/malformed value.
+func TestParseDescription(t *testing.T) {
+	base := `wrap ward ops forgejo {
+    spec forgejo.swagger.v1.json
+    auth header-token { header Authorization; value ssm "/forgejo/api-token" }
+    can get repos
+}`
+
+	t.Run("top-level description parses", func(t *testing.T) {
+		src := `description "Forgejo ops surface: scoped read/write over the coily* orgs."` + "\n" + base
+		gf, err := Parse([]byte(src))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if gf.Description != "Forgejo ops surface: scoped read/write over the coily* orgs." {
+			t.Errorf("Description = %q", gf.Description)
+		}
+	})
+
+	t.Run("absent description is empty", func(t *testing.T) {
+		gf, err := Parse([]byte(base))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if gf.Description != "" {
+			t.Errorf("Description = %q, want empty", gf.Description)
+		}
+	})
+
+	t.Run("empty description fails closed", func(t *testing.T) {
+		src := `description ""` + "\n" + base
+		if _, err := Parse([]byte(src)); err == nil || !strings.Contains(err.Error(), "non-empty") {
+			t.Fatalf("want non-empty error, got %v", err)
+		}
+	})
+
+	t.Run("two-arg description fails closed", func(t *testing.T) {
+		src := `description "a" "b"` + "\n" + base
+		if _, err := Parse([]byte(src)); err == nil || !strings.Contains(err.Error(), "description") {
+			t.Fatalf("want description arity error, got %v", err)
+		}
+	})
+}
+
 // TestBareTokensAreStrings asserts the flat policy body and the dotted spec
 // filename parse as bare identifiers, so authors never quote outside the header.
 func TestBareTokensAreStrings(t *testing.T) {

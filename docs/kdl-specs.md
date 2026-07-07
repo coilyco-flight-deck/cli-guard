@@ -1,6 +1,6 @@
 # the no-code driver (kdl-specs / cmd/kdl-specs)
 
-`ward-kdl` is a **no-code** CLI: the consumer authors only policy plus its committed locks, never Go or build glue. `kdl-specs` is the uv-style driver that makes that real - the `uv run` / `uv lock` model, not make targets. See [specverb.md](specverb.md) for the engine the driver wraps.
+`ward-kdl` is a **no-code** CLI: the consumer authors only policy plus its committed locks, never Go or build glue. `kdl-specs` is the uv-style driver. See [specverb.md](specverb.md). Every spec may carry a top-level [`description`](kdl-description.md) node: standing context, not a comment header.
 
 ## Discovery and merging
 

@@ -23,6 +23,10 @@ const SchemaVersion = 2
 // Fleet is the parsed form of one fleet config: the agent roster plus the
 // fleet-wide defaults, and optionally the per-host director settings.
 type Fleet struct {
+	// Description is the optional top-level `description "..."` prose: standing
+	// "what/why" context as queryable data, "" when none. See docs/kdl-description.md.
+	Description string
+
 	// SchemaVersion is the declared dialect version (== SchemaVersion). Zero in
 	// an operator-local source, which carries no `fleet` block.
 	SchemaVersion int
@@ -168,32 +172,58 @@ func ParseSource(src []byte, source Source) (Fleet, error) {
 	f := Fleet{}
 	seenFleet := false
 	for _, n := range doc.Nodes {
-		switch n.Name() {
-		case "fleet":
-			if source == OperatorLocal {
-				return Fleet{}, fmt.Errorf("fleetconfig: `fleet` is an embed-only block, rejected in an %s source (fail-closed)", source)
-			}
-			if seenFleet {
-				return Fleet{}, fmt.Errorf("fleetconfig: duplicate top-level `fleet` block (fail-closed)")
-			}
-			seenFleet = true
-			if err := parseFleetBlock(n, &f); err != nil {
-				return Fleet{}, err
-			}
-		case "director":
-			d, err := parseDirector(n)
-			if err != nil {
-				return Fleet{}, err
-			}
-			f.Director = &d
-		default:
-			return Fleet{}, unknownNode("top-level", n.Name(), "fleet | director")
+		if err := applyTopLevel(n, &f, source, &seenFleet); err != nil {
+			return Fleet{}, err
 		}
 	}
 	if source == Embedded && !seenFleet {
 		return Fleet{}, fmt.Errorf("fleetconfig: embedded source needs a top-level `fleet` block (fail-closed)")
 	}
 	return f, nil
+}
+
+// applyTopLevel dispatches one top-level node (`fleet` | `director` |
+// `description`) onto f, enforcing the source subset and the once-only rules.
+func applyTopLevel(n *kdl.Node, f *Fleet, source Source, seenFleet *bool) error {
+	switch n.Name() {
+	case "fleet":
+		if source == OperatorLocal {
+			return fmt.Errorf("fleetconfig: `fleet` is an embed-only block, rejected in an %s source (fail-closed)", source)
+		}
+		if *seenFleet {
+			return fmt.Errorf("fleetconfig: duplicate top-level `fleet` block (fail-closed)")
+		}
+		*seenFleet = true
+		return parseFleetBlock(n, f)
+	case "director":
+		d, err := parseDirector(n)
+		if err != nil {
+			return err
+		}
+		f.Director = &d
+		return nil
+	case "description":
+		return applyTopLevelDescription(n, f)
+	default:
+		return unknownNode("top-level", n.Name(), "fleet | director | description")
+	}
+}
+
+// applyTopLevelDescription reads the optional top-level `description "..."` node
+// into f.Description, rejecting a duplicate or an empty string (fail-closed).
+func applyTopLevelDescription(n *kdl.Node, f *Fleet) error {
+	if f.Description != "" {
+		return fmt.Errorf("fleetconfig: duplicate top-level `description` (fail-closed)")
+	}
+	d, err := singleStringArg(n, "description")
+	if err != nil {
+		return err
+	}
+	if d == "" {
+		return fmt.Errorf("fleetconfig: `description` must be a non-empty string (fail-closed)")
+	}
+	f.Description = d
+	return nil
 }
 
 // fleetState tracks the once-only fields seen while walking a fleet block body.

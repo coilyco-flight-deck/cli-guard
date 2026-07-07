@@ -220,6 +220,56 @@ fleet {
 	}
 }
 
+// TestParseDescription checks the first-class top-level `description` node: it
+// parses into Fleet.Description, is optional, and is accepted in both sources.
+func TestParseDescription(t *testing.T) {
+	t.Run("embedded carries description", func(t *testing.T) {
+		src := `
+description "Fleet config for ward: the agent roster and per-agent launch shape."
+fleet { schema-version 2; agent a { binary a } }
+`
+		f, err := fleetconfig.Parse([]byte(src))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if f.Description != "Fleet config for ward: the agent roster and per-agent launch shape." {
+			t.Errorf("Description = %q", f.Description)
+		}
+	})
+
+	t.Run("absent description is empty, not an error", func(t *testing.T) {
+		f, err := fleetconfig.Parse([]byte(`fleet { schema-version 2; agent a { binary a } }`))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if f.Description != "" {
+			t.Errorf("Description = %q, want empty", f.Description)
+		}
+	})
+
+	t.Run("operator-local carries description", func(t *testing.T) {
+		src := `description "Per-host director settings."` + "\n" + `director { default-scope "host" }`
+		f, err := fleetconfig.ParseSource([]byte(src), fleetconfig.OperatorLocal)
+		if err != nil {
+			t.Fatalf("ParseSource: %v", err)
+		}
+		if f.Description != "Per-host director settings." {
+			t.Errorf("Description = %q", f.Description)
+		}
+	})
+
+	t.Run("multi-paragraph description via escaped newlines", func(t *testing.T) {
+		src := `description "line one\n\nline two"` + "\n" + `fleet { schema-version 2; agent a { binary a } }`
+		f, err := fleetconfig.Parse([]byte(src))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if !strings.Contains(f.Description, "line one") || !strings.Contains(f.Description, "line two") {
+			t.Errorf("multi-paragraph Description = %q", f.Description)
+		}
+	})
+}
+
 func TestParseRejects(t *testing.T) {
 	cases := []struct {
 		name string
@@ -375,6 +425,21 @@ func TestParseRejects(t *testing.T) {
 			name: "permission token in role agent",
 			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { agent a { exec "sh" } } } }`,
 			want: "permission token",
+		},
+		{
+			name: "duplicate description",
+			src:  `description "a"; description "b"; fleet { schema-version 2; agent a { binary a } }`,
+			want: "duplicate top-level `description`",
+		},
+		{
+			name: "empty description",
+			src:  `description ""; fleet { schema-version 2; agent a { binary a } }`,
+			want: "must be a non-empty string",
+		},
+		{
+			name: "description non-string",
+			src:  `description 5; fleet { schema-version 2; agent a { binary a } }`,
+			want: "must be a string",
 		},
 		{
 			name: "invalid KDL",

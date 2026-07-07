@@ -20,14 +20,15 @@ import (
 // Surface is the in-engine model of a mounted command surface: the structural
 // truth shared by help, the describe verb, and (later) completions and the skill.
 type Surface struct {
-	Group    []string            `json:"group"`               // command path, e.g. ["ward","ops","forgejo"]
-	BaseURL  string              `json:"base_url"`            // resolved request base, scheme defaulted
-	Auth     AuthInfo            `json:"auth"`                // how the engine authenticates
-	Verbs    []VerbInfo          `json:"verbs"`               // every mounted leaf, in mount order
-	Actions  []ActionInfo        `json:"actions,omitempty"`   // complex actions, in declaration order
-	Denied   []DenyInfo          `json:"denied,omitempty"`    // blocked classes, in declaration order
-	Restrict []RestrictionInfo   `json:"restrict,omitempty"`  // wrap-level scope allowlists
-	DocLinks []guardfile.DocLink `json:"doc_links,omitempty"` // `doc-link` footer pointers back to companion docs
+	Group       []string            `json:"group"`                 // command path, e.g. ["ward","ops","forgejo"]
+	Description string              `json:"description,omitempty"` // the guardfile's top-level `description` prose, "" when none
+	BaseURL     string              `json:"base_url"`              // resolved request base, scheme defaulted
+	Auth        AuthInfo            `json:"auth"`                  // how the engine authenticates
+	Verbs       []VerbInfo          `json:"verbs"`                 // every mounted leaf, in mount order
+	Actions     []ActionInfo        `json:"actions,omitempty"`     // complex actions, in declaration order
+	Denied      []DenyInfo          `json:"denied,omitempty"`      // blocked classes, in declaration order
+	Restrict    []RestrictionInfo   `json:"restrict,omitempty"`    // wrap-level scope allowlists
+	DocLinks    []guardfile.DocLink `json:"doc_links,omitempty"`   // `doc-link` footer pointers back to companion docs
 }
 
 // RestrictionInfo is one wrap-level restrict clause for the describe surface: the
@@ -207,9 +208,10 @@ func Describe(cfg Config) (*Surface, error) {
 // description can never name a verb the runtime did not mount.
 func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor, actions []actionDescriptor) *Surface {
 	s := &Surface{
-		Group:   gf.Group,
-		BaseURL: baseURL,
-		Auth:    AuthInfo{Scheme: gf.Auth.Scheme, Header: gf.Auth.Header, Source: authSourceDisplay(gf.Auth)},
+		Group:       gf.Group,
+		Description: gf.Description,
+		BaseURL:     baseURL,
+		Auth:        AuthInfo{Scheme: gf.Auth.Scheme, Header: gf.Auth.Header, Source: authSourceDisplay(gf.Auth)},
 	}
 	for _, d := range descs {
 		s.Verbs = append(s.Verbs, VerbInfo{
@@ -323,6 +325,9 @@ func (s *Surface) Markdown() string {
 func renderProse(s *Surface) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n", strings.Join(s.Group, " "))
+	if s.Description != "" {
+		fmt.Fprintf(&b, "%s\n\n", s.Description)
+	}
 	fmt.Fprintf(&b, "Spec-driven CLI. Every verb issues an HTTP request against the API base %s.\n\n", s.BaseURL)
 	fmt.Fprintf(&b, "%s\n", authSentence(s.Auth))
 

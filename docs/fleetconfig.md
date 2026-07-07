@@ -34,12 +34,11 @@ director { default-scope "team" }
 - **`fleet`** - the embed-only roster block. Exactly one, required in an embedded source.
   - **`schema-version`** - integer, must equal `2` (the current dialect); a mismatch fails closed.
   - **`defaults`** - `agent` (default when a caller names none) and `attribution name=… email=…` (both required).
-  - **`agent <name>`** - one roster entry, repeated, at least one required. All
-    fields are descriptive, never a permission: `binary` (required),
-    `context-level` (integer; unset is `-1`, distinct from an explicit `0`),
-    `stream`, `auth`, `model`, `endpoint`, `provider`, `reasoning-effort`,
-    `verbosity`, and `argv { preflight; headless; interactive }` (each a full
-    token list, binary first).
+  - **`agent <name>`** - one roster entry, repeated, at least one required. Fields
+    are descriptive, never a permission: `binary` (required), `context-level`
+    (integer; unset `-1`, not an explicit `0`), `stream`, `auth`, `model`,
+    `endpoint`, `provider`, `reasoning-effort`, `verbosity`, and `argv { preflight;
+    headless; interactive }` (each a full token list, binary first).
   - **`roles`** - optional per-role capability roster (ward#578): each
     `role <name>` names the guardfile set it holds (a flat list, or a single
     `prefix="..."`) and, optionally, per-agent launch-knob overlays (cli-guard#192).
@@ -48,7 +47,8 @@ director { default-scope "team" }
       knobs for this role, reusing the agent grammar's property names (`model`,
       `endpoint`, `reasoning-effort`, `verbosity`); only changed keys are listed,
       and structural fields (`binary`, `argv`, `context-level`) are not overridable.
-- **`director`** - per-host settings; `default-scope` seeds the coordinate scope. Accepted by both sources.
+- **`director`** - per-host settings; `default-scope` seeds the coordinate scope.
+- **`description`** - optional `description` → `Fleet.Description`; both sources, empty fails. See [kdl-description.md](kdl-description.md).
 
 ## One parser, two sources
 
