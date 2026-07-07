@@ -2197,6 +2197,14 @@ still fully gated. See docs/specverb.md and cli-guard#196.
 
 CONSTANTS
 
+const (
+	LocationPath  = "path"
+	LocationQuery = "query"
+	LocationBody  = "body"
+	LocationForm  = "form"
+)
+    Location constants label where a Property lowers onto the outgoing request.
+
 const OwnerRepoArg = "owner-repo"
     OwnerRepoArg is the documented `args` sugar: a single `owner/name` value
     split across the leaf's `owner` and `repo` path params.
@@ -2295,6 +2303,11 @@ type Descriptor struct {
     Descriptor is the tiny per-operation payload the generic action binds to,
     isolated from the static request machinery.
 
+func (d Descriptor) InputSchema() Schema
+    InputSchema projects a Descriptor onto its neutral input surface: path
+    params as required strings, query/body/form as fieldFlagsToCLI reads them,
+    no FixedBody.
+
 func (d Descriptor) Label() string
     Label names the leaf in operator-facing errors, satisfying stepflow.Leaf so
     a resolved Descriptor can drive a complex-action step. See pkg/stepflow.
@@ -2328,6 +2341,15 @@ func (o Operation) Preview(a Args) (Request, error)
     Preview resolves the request without firing it (same gate/restrict/assembly
     as Execute) for a dry-run; a value-resolved base-url stays an offline
     placeholder.
+
+type Property struct {
+	Type        string // string|boolean|integer|number|array
+	Items       string // element type when Type==array
+	Location    string // path|query|body|form (neutral hint)
+	Description string
+}
+    Property is one input in a Schema: its type (or array element type),
+    the neutral where-it-goes hint, and its help text.
 
 type Provider = valuesource.Provider
     Provider resolves the value at address for one named value source:
@@ -2398,6 +2420,17 @@ type RuntimeConfig struct {
 }
     RuntimeConfig is the input to NewRuntime: BaseURL is raw (scheme + trim
     applied), a nil Client defaults to the redirect-guarding client.
+
+type Schema struct {
+	Properties map[string]Property // keyed by field name
+	Required   []string            // names that must be supplied, in a stable order
+}
+    Schema is the transport-neutral input surface of one Descriptor: every input
+    it accepts, keyed by name, plus the subset that must be supplied. See docs.
+
+func (s Schema) JSONSchema() []byte
+    JSONSchema emits the Schema as a generic draft-07 object, never an MCP tool
+    type (that wrapper lives in ward-mcp). The neutral Location hint is omitted.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt
