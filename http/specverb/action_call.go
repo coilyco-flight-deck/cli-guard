@@ -255,7 +255,7 @@ func (rt *runtime) fireCallAudited(ctx context.Context, leaf opDescriptor, metho
 		SkipPolicy: true, // the action envelope already gated the operator's argv
 		Action: func(ictx context.Context, _ *cli.Command) error {
 			var e error
-			decoded, raw, _, e = rt.fireCapture(ictx, method, url, body, contentType)
+			decoded, raw, _, e = rt.FireCapture(ictx, method, url, body, contentType)
 			return e
 		},
 	}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/opcore"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/config"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode"
@@ -224,31 +225,31 @@ func (rt *runtime) finishCollect(ad actionDescriptor, all []any, raw []byte, jme
 // collectCacheKey derives the key from the resolved request shape: method +
 // base + path + sorted non-pagination query (page/limit/auth excluded; offline).
 func (rt *runtime) collectCacheKey(ctx context.Context, col *collectStep, strVars map[string]string) (string, error) {
-	b := newArgBinder(col.Leaf)
+	b := opcore.NewArgBinder(col.Leaf)
 	for _, arg := range col.Args {
 		val, ok := resolveCollectArgValue(arg.Value, strVars)
 		if !ok {
 			continue
 		}
-		if berr := b.bind(arg.Name, val); berr != nil {
+		if berr := b.Bind(arg.Name, val); berr != nil {
 			return "", berr
 		}
 	}
-	if berr := b.requireAllPaths(); berr != nil {
+	if berr := b.RequireAllPaths(); berr != nil {
 		return "", berr
 	}
-	if rerr := rt.checkRestrictions(col.Leaf.PathParams, b.pathVals); rerr != nil {
+	if rerr := rt.CheckRestrictions(col.Leaf.PathParams, b.PathVals); rerr != nil {
 		return "", rerr
 	}
 	qs := ""
-	if len(b.query) > 0 {
-		qs = "?" + b.query.Encode()
+	if len(b.Query) > 0 {
+		qs = "?" + b.Query.Encode()
 	}
-	base, berr := rt.baseForRequest(ctx, true)
+	base, berr := rt.BaseForRequest(ctx, true)
 	if berr != nil {
 		return "", berr
 	}
-	return col.Leaf.Method + " " + base + fillPath(col.Leaf.Path, b.pathVals) + qs, nil
+	return col.Leaf.Method + " " + base + opcore.FillPath(col.Leaf.Path, b.PathVals) + qs, nil
 }
 
 func collectLimit(ad actionDescriptor, strVars map[string]string) (int, error) {
@@ -268,37 +269,37 @@ func collectLimit(ad actionDescriptor, strVars map[string]string) (int, error) {
 }
 
 func (rt *runtime) buildCollectRequest(ctx context.Context, dry bool, col *collectStep, strVars map[string]string, page, limit int) (method, url, contentType string, err error) {
-	b := newArgBinder(col.Leaf)
+	b := opcore.NewArgBinder(col.Leaf)
 	for _, arg := range col.Args {
 		val, ok := resolveCollectArgValue(arg.Value, strVars)
 		if !ok {
 			continue
 		}
-		if berr := b.bind(arg.Name, val); berr != nil {
+		if berr := b.Bind(arg.Name, val); berr != nil {
 			return "", "", "", berr
 		}
 	}
-	if berr := b.bind(col.PageParam, strconv.Itoa(page)); berr != nil {
+	if berr := b.Bind(col.PageParam, strconv.Itoa(page)); berr != nil {
 		return "", "", "", berr
 	}
-	if berr := b.bind(col.LimitParam, strconv.Itoa(limit)); berr != nil {
+	if berr := b.Bind(col.LimitParam, strconv.Itoa(limit)); berr != nil {
 		return "", "", "", berr
 	}
-	if berr := b.requireAllPaths(); berr != nil {
+	if berr := b.RequireAllPaths(); berr != nil {
 		return "", "", "", berr
 	}
-	if rerr := rt.checkRestrictions(col.Leaf.PathParams, b.pathVals); rerr != nil {
+	if rerr := rt.CheckRestrictions(col.Leaf.PathParams, b.PathVals); rerr != nil {
 		return "", "", "", rerr
 	}
 	qs := ""
-	if len(b.query) > 0 {
-		qs = "?" + b.query.Encode()
+	if len(b.Query) > 0 {
+		qs = "?" + b.Query.Encode()
 	}
-	base, berr := rt.baseForRequest(ctx, dry)
+	base, berr := rt.BaseForRequest(ctx, dry)
 	if berr != nil {
 		return "", "", "", berr
 	}
-	url = base + fillPath(col.Leaf.Path, b.pathVals) + qs
+	url = base + opcore.FillPath(col.Leaf.Path, b.PathVals) + qs
 	return col.Leaf.Method, url, contentTypeJSON, nil
 }
 

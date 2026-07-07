@@ -6,18 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/opcore"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/stepflow"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/urfave/cli/v3"
 )
-
-// defaultHTTPTimeout bounds a single live request made through the engine's
-// default client (Config.HTTPClient nil).
-const defaultHTTPTimeout = 30 * time.Second
 
 // Config is everything the engine needs to build a command tree.
 type Config struct {
@@ -46,41 +42,13 @@ type Config struct {
 	stepRun stepflow.Runner
 }
 
-// opDescriptor is the tiny per-operation payload the generic action binds to,
-// isolated from the static request machinery.
-type opDescriptor struct {
-	VerbName    string         // dotted audit name, e.g. ward.ops.forgejo.repo.create
-	Group       string         // CLI group noun, e.g. repo
-	Leaf        string         // CLI leaf verb, e.g. create
-	Method      string         // HTTP method
-	Path        string         // path template, e.g. /repos/{owner}/{repo}
-	PathParams  []string       // ordered positional args drawn from the path
-	BodyFlags   []fieldFlag    // request-body fields promoted to flags
-	QueryFlags  []fieldFlag    // scalar query params promoted to flags
-	FormFlags   []fieldFlag    // formData params; "file" types take a path
-	FixedBody   map[string]any // exact body for state-toggle leaves; no body flags mount
-	Destructive bool           // leaf mutates irreversibly (delete)
-	Grant       string         // the authorizing grant sentence, e.g. "can delete repos"
-	Describe    string         // optional Guardfile describe "..." note, "" if none
-}
+// opDescriptor is the per-operation payload; it now lives urfave/cli-free in
+// opcore, aliased here so every reference stays mechanical. See cli-guard#196.
+type opDescriptor = opcore.Descriptor
 
-// fieldFlag is one spec input promoted to a typed CLI flag: a request-body
-// field (scalar or array-of-scalar) or a scalar query parameter.
-type fieldFlag struct {
-	Name     string // json field / query param name, doubling as the flag name
-	Type     string // swagger type: string|boolean|integer|number|array
-	Items    string // scalar element type when Type is "array"
-	Required bool   // required in the schema; enforced at request assembly
-	Desc     string
-}
-
-// typeLabel renders the flag's type for help and the reference doc.
-func (f fieldFlag) typeLabel() string {
-	if f.Type == "array" {
-		return "[]" + f.Items
-	}
-	return f.Type
-}
+// fieldFlag is one spec input promoted to a typed CLI flag; moved to opcore
+// alongside the descriptor and aliased here.
+type fieldFlag = opcore.Field
 
 // Build assembles the guarded command tree and returns the Guardfile group's
 // leaf command (e.g. `forgejo`). Fails closed: an unresolvable grant is an error.
@@ -128,7 +96,7 @@ func Build(cfg Config) (*cli.Command, error) {
 	if ag := rt.buildActionGroup(namedActions); ag != nil {
 		groupCmds = append(groupCmds, ag)
 	}
-	surface := buildSurface(gf, baseURLDisplay(gf, rt.baseURL), descs, actionDescs)
+	surface := buildSurface(gf, baseURLDisplay(gf, rt.BaseURL), descs, actionDescs)
 	groupCmds = append(groupCmds, rt.buildDescribeLeaf(gf, surface))
 	root := &cli.Command{
 		Name:     gf.Group[len(gf.Group)-1],
@@ -138,21 +106,20 @@ func Build(cfg Config) (*cli.Command, error) {
 	return root, nil
 }
 
-// newRuntime assembles the per-tree request runtime, defaulting the HTTP client,
-// the step transport (the runtime itself), and the wrap pipeline.
+// newRuntime assembles the per-tree runtime: the urfave/cli-free opcore core
+// plus the CLI-layer wrap pipeline and step transport (the runtime itself).
 func newRuntime(cfg Config, gf *guardfile.Guardfile, baseURL string) *runtime {
 	rt := &runtime{
-		baseURL:      defaultScheme(strings.TrimRight(baseURL, "/")),
-		auth:         gf.Auth,
-		providers:    mergeProviders(cfg.Providers),
-		client:       cfg.HTTPClient,
-		wrap:         cfg.Wrap,
-		restrict:     gf.Restrict,
-		baseURLValue: gf.BaseURLValue,
-		stepRun:      cfg.stepRun,
-	}
-	if rt.client == nil {
-		rt.client = defaultHTTPClient()
+		Runtime: opcore.NewRuntime(opcore.RuntimeConfig{
+			BaseURL:      baseURL,
+			Auth:         gf.Auth,
+			Providers:    mergeProviders(cfg.Providers),
+			Client:       cfg.HTTPClient,
+			Restrict:     gf.Restrict,
+			BaseURLValue: gf.BaseURLValue,
+		}),
+		wrap:    cfg.Wrap,
+		stepRun: cfg.stepRun,
 	}
 	if rt.stepRun == nil {
 		rt.stepRun = rt // the HTTP transport is the default step runner
@@ -266,33 +233,6 @@ func baseURLDisplay(gf *guardfile.Guardfile, static string) string {
 		return "(resolved from " + gf.BaseURLValue.String() + ")"
 	}
 	return static
-}
-
-// defaultScheme prepends https:// to a base-url that carries no scheme, so a
-// Guardfile may write `base-url "host/api/v1"` and rely on TLS by default.
-func defaultScheme(baseURL string) string {
-	if baseURL == "" || strings.Contains(baseURL, "://") {
-		return baseURL
-	}
-	return "https://" + baseURL
-}
-
-// defaultHTTPClient (used when Config.HTTPClient is nil) follows GET/HEAD
-// redirects but refuses them for mutating methods. See docs/specverb.md.
-func defaultHTTPClient() *http.Client {
-	return &http.Client{
-		Timeout: defaultHTTPTimeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) == 0 {
-				return nil
-			}
-			switch via[0].Method {
-			case http.MethodGet, http.MethodHead:
-				return nil
-			}
-			return fmt.Errorf("specverb: refusing to follow a %s redirect to %s; a mutating verb must not be silently downgraded", via[0].Method, req.URL)
-		},
-	}
 }
 
 // grantKey is the (verb-class, resource) pair an authored grant names: the CLI

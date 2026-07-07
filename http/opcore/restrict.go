@@ -1,7 +1,4 @@
-// Restrict gate: a wrap-level `restrict <param> matches "<glob>"...` allowlist.
-// Every leaf whose path carries {param} must match a glob, or fail closed.
-
-package specverb
+package opcore
 
 import (
 	"fmt"
@@ -10,10 +7,10 @@ import (
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode"
 )
 
-// checkRestrictions enforces every wrap-level restriction against a leaf's bound
+// CheckRestrictions enforces every wrap-level restriction against a leaf's bound
 // path values, failing closed on an out-of-scope value. See docs/specverb.md.
-func (rt *runtime) checkRestrictions(pathParams, values []string) error {
-	for _, r := range rt.restrict {
+func (rt *Runtime) CheckRestrictions(pathParams, values []string) error {
+	for _, r := range rt.Restrict {
 		for i, p := range pathParams {
 			if p != r.Param || i >= len(values) {
 				continue

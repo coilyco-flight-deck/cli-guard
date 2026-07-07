@@ -7,13 +7,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	neturl "net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/opcore"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/audit"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode"
@@ -29,9 +29,9 @@ type cacheOutcome struct{ hit bool }
 // `forgejo action ci-watch`, mirroring the audit name `<path>.action.<name>`.
 const actionGroup = "action"
 
-// ownerRepoArg is the documented `args` sugar: a single `owner/name` value
-// split across the leaf's `owner` and `repo` path params.
-const ownerRepoArg = "owner-repo"
+// ownerRepoArg is the `args` sugar (a single `owner/name` value split across the
+// `owner`/`repo` path params); the binder consuming it moved to opcore.
+const ownerRepoArg = opcore.OwnerRepoArg
 
 // actionDescriptor is one resolved complex action: its envelope identity, the
 // inputs, the granted poll leaf, and the bounds. All validated at Build time.
@@ -515,34 +515,34 @@ func (rt *runtime) buildLeafRequest(ctx context.Context, dry bool, ad actionDesc
 // buildCallRequest assembles one leaf's HTTP request from arg bindings, resolving
 // each arg through resolve. ctx and dry feed base-url resolution (dry stays offline).
 func (rt *runtime) buildCallRequest(ctx context.Context, dry bool, leaf opDescriptor, args []guardfile.ArgBind, resolve func(string) (string, error)) (method, url string, body []byte, contentType string, err error) {
-	b := newArgBinder(leaf)
+	b := opcore.NewArgBinder(leaf)
 	for _, arg := range args {
 		val, rerr := resolve(arg.Value)
 		if rerr != nil {
 			return "", "", nil, "", exitcode.New(exitcode.UserError, "user_error",
 				fmt.Errorf("action arg %q: %w", arg.Name, rerr), "supply the input this arg references")
 		}
-		if berr := b.bind(arg.Name, val); berr != nil {
+		if berr := b.Bind(arg.Name, val); berr != nil {
 			return "", "", nil, "", berr
 		}
 	}
-	if berr := b.requireAllPaths(); berr != nil {
+	if berr := b.RequireAllPaths(); berr != nil {
 		return "", "", nil, "", berr
 	}
-	if rerr := rt.checkRestrictions(leaf.PathParams, b.pathVals); rerr != nil {
+	if rerr := rt.CheckRestrictions(leaf.PathParams, b.PathVals); rerr != nil {
 		return "", "", nil, "", rerr
 	}
-	pathVals, query, bodyObj := b.pathVals, b.query, b.bodyObj
+	pathVals, query, bodyObj := b.PathVals, b.Query, b.BodyObj
 
 	qs := ""
 	if len(query) > 0 {
 		qs = "?" + query.Encode()
 	}
-	base, berr := rt.baseForRequest(ctx, dry)
+	base, berr := rt.BaseForRequest(ctx, dry)
 	if berr != nil {
 		return "", "", nil, "", berr
 	}
-	url = base + fillPath(leaf.Path, pathVals) + qs
+	url = base + opcore.FillPath(leaf.Path, pathVals) + qs
 	contentType = contentTypeJSON
 	switch {
 	case len(leaf.FixedBody) > 0:
@@ -554,72 +554,6 @@ func (rt *runtime) buildCallRequest(ctx context.Context, dry bool, leaf opDescri
 		return "", "", nil, "", exitcode.New(exitcode.Internal, "internal", err, "")
 	}
 	return leaf.Method, url, body, contentType, nil
-}
-
-// argBinder routes one poll arg onto a path param (by name or owner-repo
-// sugar), a query param, or a body field, keeping buildLeafRequest flat.
-type argBinder struct {
-	pathIdx    map[string]int
-	pathVals   []string
-	queryNames map[string]bool
-	flagNames  map[string]bool
-	query      neturl.Values
-	bodyObj    map[string]any
-}
-
-func newArgBinder(leaf opDescriptor) *argBinder {
-	b := &argBinder{
-		pathIdx:    map[string]int{},
-		pathVals:   make([]string, len(leaf.PathParams)),
-		queryNames: map[string]bool{},
-		flagNames:  map[string]bool{},
-		query:      neturl.Values{},
-		bodyObj:    map[string]any{},
-	}
-	for i, p := range leaf.PathParams {
-		b.pathIdx[p] = i
-	}
-	for _, f := range leaf.QueryFlags {
-		b.queryNames[f.Name] = true
-	}
-	for _, f := range append(append([]fieldFlag{}, leaf.QueryFlags...), append(leaf.BodyFlags, leaf.FormFlags...)...) {
-		b.flagNames[f.Name] = true
-	}
-	return b
-}
-
-// bind routes one resolved arg value; validateArgs already proved every arg
-// targets something, so an unmatched name here is a no-op, not an error.
-func (b *argBinder) bind(name, val string) error {
-	switch {
-	case name == ownerRepoArg:
-		owner, repo, ok := splitOwnerRepo(val)
-		if !ok {
-			return exitcode.New(exitcode.UserError, "user_error",
-				fmt.Errorf("arg %q value %q is not owner/name", ownerRepoArg, val), "pass it as owner/name")
-		}
-		b.pathVals[b.pathIdx["owner"]] = owner
-		b.pathVals[b.pathIdx["repo"]] = repo
-	case hasKey(b.pathIdx, name):
-		b.pathVals[b.pathIdx[name]] = val
-	case b.queryNames[name]:
-		b.query.Set(name, val)
-	case b.flagNames[name]:
-		b.bodyObj[name] = val
-	}
-	return nil
-}
-
-// requireAllPaths fails closed if any path param went unbound, so a poll tick
-// never fires an under-bound URL.
-func (b *argBinder) requireAllPaths() error {
-	for p, i := range b.pathIdx {
-		if b.pathVals[i] == "" {
-			return exitcode.New(exitcode.UserError, "user_error",
-				fmt.Errorf("path param %q was not bound by any arg", p), "add an `args { ... }` binding for it")
-		}
-	}
-	return nil
 }
 
 // resolveArgValue resolves a `$ref` against the bound input strings, or returns
@@ -634,16 +568,6 @@ func resolveArgValue(value string, strVars map[string]string) (string, error) {
 		return "", fmt.Errorf("$%s is not set (it is an optional input that was not supplied)", ref)
 	}
 	return v, nil
-}
-
-// splitOwnerRepo splits an `owner/name` value into its two halves; ok=false
-// unless there are exactly two non-empty parts.
-func splitOwnerRepo(v string) (owner, repo string, ok bool) {
-	parts := strings.Split(v, "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", false
-	}
-	return parts[0], parts[1], true
 }
 
 // runPoll runs the bounded loop: each tick fires the leaf, binds the response
@@ -693,7 +617,7 @@ func (rt *runtime) fireLeafAudited(ctx context.Context, ad actionDescriptor, met
 		SkipPolicy: true, // the action envelope already gated the operator's argv
 		Action: func(ictx context.Context, _ *cli.Command) error {
 			var e error
-			decoded, raw, _, e = rt.fireCapture(ictx, method, url, body, contentType)
+			decoded, raw, _, e = rt.FireCapture(ictx, method, url, body, contentType)
 			return e
 		},
 	}
@@ -858,10 +782,4 @@ func inputNamesOf(inputs []guardfile.Input) []string {
 		names[i] = in.Name
 	}
 	return names
-}
-
-// hasKey reports whether m contains key.
-func hasKey(m map[string]int, key string) bool {
-	_, ok := m[key]
-	return ok
 }

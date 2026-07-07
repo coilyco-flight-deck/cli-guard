@@ -10,19 +10,16 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
-	"net/http"
 	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/opcore"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/stepflow"
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/valuesource"
 	"github.com/urfave/cli/v3"
 )
 
@@ -30,48 +27,18 @@ import (
 // the resolved request can be inspected without leaking the token.
 const redacted = "<redacted>"
 
-// runtime carries the per-tree request dependencies shared by every leaf.
+// runtime is the CLI projection of the engine: it embeds the urfave/cli-free
+// opcore.Runtime and layers on the CLI-only wrap pipeline and step transport.
 type runtime struct {
-	baseURL   string
-	auth      guardfile.Auth
-	providers map[string]Provider
-	client    *http.Client
-	wrap      func(verb.Spec) cli.ActionFunc
-	restrict  []guardfile.Restriction
+	*opcore.Runtime
+
+	// wrap adapts a verb.Spec into a guarded cli.ActionFunc (the audit + argv
+	// pipeline). Identity mounts the bare action, for doc rendering only.
+	wrap func(verb.Spec) cli.ActionFunc
 
 	// stepRun fires an action's steps; the runtime is the default HTTP
 	// implementation, a test may inject a fake. See docs/specverb-rollback.md.
 	stepRun stepflow.Runner
-
-	// baseURLValue (zero = static baseURL) resolves the host through the first
-	// available source in its chain once, caching it. See specverb-policy.md.
-	baseURLValue guardfile.ValueChain
-	baseURLOnce  sync.Once
-	baseURLVal   string
-	baseURLErr   error
-}
-
-// baseForRequest returns the request base-url: the static base, or (for a
-// `base-url { value }` host) a once-resolved provider value. Dry-run stays offline.
-func (rt *runtime) baseForRequest(ctx context.Context, dry bool) (string, error) {
-	if rt.baseURLValue.IsZero() {
-		return rt.baseURL, nil
-	}
-	if dry {
-		return "{base-url:" + rt.baseURLValue.String() + "}", nil
-	}
-	rt.baseURLOnce.Do(func() {
-		v, err := rt.resolveChain(ctx, rt.baseURLValue)
-		if err != nil {
-			rt.baseURLErr = err
-			return
-		}
-		rt.baseURLVal = defaultScheme(strings.TrimRight(v, "/"))
-	})
-	if rt.baseURLErr != nil {
-		return "", rt.baseURLErr
-	}
-	return rt.baseURLVal, nil
 }
 
 // universal flag names every mounted leaf carries.
@@ -181,14 +148,14 @@ func (rt *runtime) actionFor(desc opDescriptor) cli.ActionFunc {
 				fmt.Errorf("%s takes %d positional arg(s) %v, got %d", desc.Leaf, len(desc.PathParams), desc.PathParams, len(positional)),
 				"supply exactly the path parameters this verb names")
 		}
-		if err := rt.checkRestrictions(desc.PathParams, positional); err != nil {
+		if err := rt.CheckRestrictions(desc.PathParams, positional); err != nil {
 			return err
 		}
-		base, err := rt.baseForRequest(ctx, c.Bool(flagDryRun))
+		base, err := rt.BaseForRequest(ctx, c.Bool(flagDryRun))
 		if err != nil {
 			return err
 		}
-		url := base + fillPath(desc.Path, positional) + assembleQuery(c, desc.QueryFlags)
+		url := base + opcore.FillPath(desc.Path, positional) + assembleQuery(c, desc.QueryFlags)
 		var body []byte
 		contentType := contentTypeJSON
 		var preview any
@@ -296,20 +263,6 @@ func assembleQuery(c *cli.Command, flags []fieldFlag) string {
 		return ""
 	}
 	return "?" + vals.Encode()
-}
-
-// fillPath substitutes the i-th positional value into the i-th `{...}` slot.
-// The caller has already enforced len(values) == number of slots.
-func fillPath(template string, values []string) string {
-	i := 0
-	return pathParamRe.ReplaceAllStringFunc(template, func(string) string {
-		if i >= len(values) {
-			return ""
-		}
-		v := values[i]
-		i++
-		return v
-	})
 }
 
 // assembleBody builds the body JSON from --body-file or the body flags; unset
@@ -420,8 +373,8 @@ func (rt *runtime) renderDryRun(method, url string, body []byte, contentType str
 // query-param scheme carries no auth header (it rides the URL); see previewURL.
 func (rt *runtime) previewHeaders(hasBody bool, contentType string) map[string]string {
 	h := map[string]string{}
-	if rt.auth.Header != "" {
-		h[rt.auth.Header] = rt.auth.Prefix + redacted
+	if rt.Auth.Header != "" {
+		h[rt.Auth.Header] = rt.Auth.Prefix + redacted
 	}
 	if hasBody {
 		h["Content-Type"] = contentType
@@ -432,68 +385,24 @@ func (rt *runtime) previewHeaders(hasBody bool, contentType string) map[string]s
 // previewURL returns the URL a dry-run shows: for the query-param scheme it
 // appends each auth parameter with a redacted value; other schemes pass through.
 func (rt *runtime) previewURL(url string) string {
-	if rt.auth.Scheme != "query-param" || len(rt.auth.Params) == 0 {
+	if rt.Auth.Scheme != "query-param" || len(rt.Auth.Params) == 0 {
 		return url
 	}
 	sep := "?"
 	if strings.Contains(url, "?") {
 		sep = "&"
 	}
-	parts := make([]string, len(rt.auth.Params))
-	for i, p := range rt.auth.Params {
+	parts := make([]string, len(rt.Auth.Params))
+	for i, p := range rt.Auth.Params {
 		parts[i] = p.Name + "=" + redacted
 	}
 	return url + sep + strings.Join(parts, "&")
 }
 
-// authorize resolves the scheme's secret(s) and applies them to req: a header
-// for header-token/bearer, or query parameters for query-param.
-func (rt *runtime) authorize(ctx context.Context, req *http.Request) error {
-	if rt.auth.Scheme == "query-param" {
-		q := req.URL.Query()
-		for _, p := range rt.auth.Params {
-			secret, err := rt.resolveChain(ctx, p.Value)
-			if err != nil {
-				return err
-			}
-			q.Set(p.Name, secret)
-		}
-		req.URL.RawQuery = q.Encode()
-		return nil
-	}
-	secret, err := rt.resolveChain(ctx, rt.auth.Value)
-	if err != nil {
-		return err
-	}
-	req.Header.Set(rt.auth.Header, rt.auth.Prefix+secret)
-	return nil
-}
-
-// resolveChain resolves a value chain to its first available source, wrapping an
-// all-failed chain as a coded Internal error - never a value, never a silent empty.
-func (rt *runtime) resolveChain(ctx context.Context, chain guardfile.ValueChain) (string, error) {
-	v, err := valuesource.ResolveFirst(ctx, rt.providers, chainSources(chain))
-	if err != nil {
-		return "", exitcode.New(exitcode.Internal, "internal", err,
-			"check the value provider address and credentials, or register the provider via specverb.Config.Providers")
-	}
-	return v, nil
-}
-
-// chainSources lowers a guardfile.ValueChain to the []valuesource.Source the
-// shared resolver walks, keeping guardfile free of the resolution layer.
-func chainSources(chain guardfile.ValueChain) []valuesource.Source {
-	out := make([]valuesource.Source, len(chain))
-	for i, vs := range chain {
-		out[i] = valuesource.Source{Provider: vs.Provider, Address: vs.Address}
-	}
-	return out
-}
-
-// fire resolves the secret, sends the request, and renders the response.
+// fire captures the response through the engine core and renders it.
 // Non-2xx becomes an UpstreamFailed coded error carrying the response body.
 func (rt *runtime) fire(ctx context.Context, method, url string, body []byte, contentType, query, output string) error {
-	_, respBody, status, err := rt.fireCapture(ctx, method, url, body, contentType)
+	_, respBody, status, err := rt.FireCapture(ctx, method, url, body, contentType)
 	if err != nil {
 		return err
 	}
@@ -508,46 +417,6 @@ func (rt *runtime) fire(ctx context.Context, method, url string, body []byte, co
 	}
 	fmt.Print(string(rendered))
 	return nil
-}
-
-// fireCapture sends one request and returns the decoded JSON value plus raw
-// body, rendering nothing: the "fire and capture" path complex actions feed on.
-func (rt *runtime) fireCapture(ctx context.Context, method, url string, body []byte, contentType string) (decoded any, raw []byte, status string, err error) {
-	var reqBody io.Reader
-	if body != nil {
-		reqBody = bytes.NewReader(body)
-	}
-	req, rerr := http.NewRequestWithContext(ctx, method, url, reqBody)
-	if rerr != nil {
-		return nil, nil, "", exitcode.New(exitcode.Internal, "internal", rerr, "")
-	}
-	if aerr := rt.authorize(ctx, req); aerr != nil {
-		return nil, nil, "", aerr
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", contentType)
-	}
-
-	resp, derr := rt.client.Do(req)
-	if derr != nil {
-		return nil, nil, "", exitcode.New(exitcode.UpstreamFailed, "upstream_failed", derr, "the API was unreachable")
-	}
-	defer func() { _ = resp.Body.Close() }()
-	respBody, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode >= 400 {
-		return nil, nil, resp.Status, exitcode.New(exitcode.UpstreamFailed, "upstream_failed",
-			fmt.Errorf("%s %s -> %s: %s", method, url, resp.Status, strings.TrimSpace(string(respBody))),
-			"the API rejected the request")
-	}
-
-	if len(bytes.TrimSpace(respBody)) == 0 {
-		return nil, respBody, resp.Status, nil
-	}
-	if jerr := json.Unmarshal(respBody, &decoded); jerr != nil {
-		return nil, respBody, resp.Status, exitcode.New(exitcode.Internal, "internal", jerr, "the response was not valid JSON")
-	}
-	return decoded, respBody, resp.Status, nil
 }
 
 // stringifyFlag renders a set flag's value as a string for the policy gate

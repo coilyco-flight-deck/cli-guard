@@ -12,9 +12,6 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// Label names the leaf in engine errors, satisfying stepflow.Leaf.
-func (o opDescriptor) Label() string { return o.Leaf }
-
 // Fire is the HTTP implementation of stepflow.Runner: it assembles the leaf
 // request and fires it through the audited verb pipeline.
 func (rt *runtime) Fire(ctx context.Context, c *cli.Command, leaf stepflow.Leaf, args []guardfile.ArgBind, resolve stepflow.Resolve) (any, []byte, error) {

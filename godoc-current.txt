@@ -2172,6 +2172,193 @@ func PlanSet(gfs []*guardfile.Guardfile, names []string) (SetParams, error)
     merge).
 
 
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/opcore
+
+package opcore // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/opcore"
+
+Package opcore is the urfave/cli-free engine core of the spec-driven verb
+design: the per-operation descriptor, the request runtime, and the self-guarding
+Operation.Execute entrypoint. specverb projects this core onto a urfave/cli
+tree; a non-CLI consumer (ward-mcp) drives Operation.Execute directly and is
+still fully gated. See docs/specverb.md and cli-guard#196.
+
+CONSTANTS
+
+const OwnerRepoArg = "owner-repo"
+    OwnerRepoArg is the documented `args` sugar: a single `owner/name` value
+    split across the leaf's `owner` and `repo` path params.
+
+
+FUNCTIONS
+
+func DefaultScheme(baseURL string) string
+    DefaultScheme prepends https:// to a base-url that carries no scheme, so a
+    Guardfile may write `base-url "host/api/v1"` and rely on TLS by default.
+
+func FillPath(template string, values []string) string
+    FillPath substitutes the i-th positional value into the i-th `{...}` slot.
+    The caller has already enforced len(values) == number of slots.
+
+func MethodForVerb(verb string) (string, bool)
+    MethodForVerb returns the HTTP method a verb maps to by convention;
+    ok is false only for the bare-unknown-verb POST default. See
+    specverb-resolution.md.
+
+
+TYPES
+
+type ArgBinder struct {
+	PathVals []string
+
+	Query   neturl.Values
+	BodyObj map[string]any
+	// Has unexported fields.
+}
+    ArgBinder routes one poll arg onto a path param (by name or owner-repo
+    sugar), a query param, or a body field, keeping leaf-request assembly flat.
+
+func NewArgBinder(leaf Descriptor) *ArgBinder
+    NewArgBinder builds a binder over one leaf's path/query/body flag surface.
+
+func (b *ArgBinder) Bind(name, val string) error
+    Bind routes one resolved arg value; the caller has already proved every arg
+    targets something, so an unmatched name here is a no-op, not an error.
+
+func (b *ArgBinder) RequireAllPaths() error
+    RequireAllPaths fails closed if any path param went unbound, so a poll tick
+    never fires an under-bound URL.
+
+type Args struct {
+	Path  map[string]string
+	Query map[string]string
+	Body  map[string]any
+}
+    Args is the operator input to one Operation, split by URL location: Path and
+    Query values reach the URL (the injection surface); Body does not. See #136.
+
+type Descriptor struct {
+	VerbName    string         // dotted audit name, e.g. ward.ops.forgejo.repo.create
+	Group       string         // CLI group noun, e.g. repo
+	Leaf        string         // CLI leaf verb, e.g. create
+	Method      string         // HTTP method
+	Path        string         // path template, e.g. /repos/{owner}/{repo}
+	PathParams  []string       // ordered positional args drawn from the path
+	BodyFlags   []Field        // request-body fields promoted to flags
+	QueryFlags  []Field        // scalar query params promoted to flags
+	FormFlags   []Field        // formData params; "file" types take a path
+	FixedBody   map[string]any // exact body for state-toggle leaves; no body flags mount
+	Destructive bool           // leaf mutates irreversibly (delete)
+	Grant       string         // the authorizing grant sentence, e.g. "can delete repos"
+	Describe    string         // optional Guardfile describe "..." note, "" if none
+}
+    Descriptor is the tiny per-operation payload the generic action binds to,
+    isolated from the static request machinery.
+
+func (d Descriptor) Label() string
+    Label names the leaf in operator-facing errors, satisfying stepflow.Leaf so
+    a resolved Descriptor can drive a complex-action step. See pkg/stepflow.
+
+type Field struct {
+	Name     string // json field / query param name, doubling as the flag name
+	Type     string // swagger type: string|boolean|integer|number|array
+	Items    string // scalar element type when Type is "array"
+	Required bool   // required in the schema; enforced at request assembly
+	Desc     string
+}
+    Field is one spec input promoted to a typed CLI flag: a request-body field
+    (scalar or array-of-scalar) or a scalar query parameter.
+
+func (f Field) TypeLabel() string
+    TypeLabel renders the flag's type for help and the reference doc.
+
+type Operation struct {
+	Desc Descriptor
+	RT   *Runtime
+}
+    Operation is one resolved leaf plus the runtime that fires it: the unit a
+    non-CLI consumer (ward-mcp) drives via the self-guarding Execute. See #196.
+
+func (o Operation) Execute(ctx context.Context, a Args) (Response, error)
+    Execute runs the leaf under the full security floor (gate, restrict,
+    assemble, base-url, auth, fire) and returns the decoded response, rendering
+    nothing.
+
+func (o Operation) Preview(a Args) (Request, error)
+    Preview resolves the request without firing it (same gate/restrict/assembly
+    as Execute) for a dry-run; a value-resolved base-url stays an offline
+    placeholder.
+
+type Provider = valuesource.Provider
+    Provider resolves the value at address for one named value source:
+    the shared valuesource.Provider, so the consumer's one registry drives both
+    engines.
+
+type Request struct {
+	Method      string
+	URL         string
+	Body        []byte
+	ContentType string
+}
+    Request is a resolved-but-unfired call: the exact method, URL, and body the
+    runtime would send. Preview returns one for a consumer's dry-run.
+
+type Response struct {
+	Decoded any
+	Raw     []byte
+	Status  string
+}
+    Response is a fired call's outcome: the decoded JSON value, the raw bytes
+    (for a consumer's own rendering), and the HTTP status line.
+
+type Runtime struct {
+	BaseURL   string
+	Auth      guardfile.Auth
+	Providers map[string]Provider
+	Client    *http.Client
+	Restrict  []guardfile.Restriction
+
+	// BaseURLValue (zero = static BaseURL) resolves the host through the first
+	// available source in its chain once, caching it. See specverb-policy.md.
+	BaseURLValue guardfile.ValueChain
+
+	// Has unexported fields.
+}
+    Runtime carries the per-tree request dependencies shared by every leaf,
+    urfave/cli-free: specverb embeds it and a non-CLI consumer drives it
+    directly.
+
+func NewRuntime(c RuntimeConfig) *Runtime
+    NewRuntime assembles a Runtime, defaulting the base-url scheme and the HTTP
+    client; the wrap pipeline and step runner are CLI-layer concerns layered on
+    top.
+
+func (rt *Runtime) BaseForRequest(ctx context.Context, dry bool) (string, error)
+    BaseForRequest returns the request base-url: the static base, or (for a
+    `base-url { value }` host) a once-resolved provider value. Dry-run stays
+    offline.
+
+func (rt *Runtime) CheckRestrictions(pathParams, values []string) error
+    CheckRestrictions enforces every wrap-level restriction against a
+    leaf's bound path values, failing closed on an out-of-scope value.
+    See docs/specverb.md.
+
+func (rt *Runtime) FireCapture(ctx context.Context, method, url string, body []byte, contentType string) (decoded any, raw []byte, status string, err error)
+    FireCapture sends one request and returns the decoded JSON value plus raw
+    body, rendering nothing: the "fire and capture" path complex actions feed
+    on.
+
+type RuntimeConfig struct {
+	BaseURL      string
+	Auth         guardfile.Auth
+	Providers    map[string]Provider
+	Client       *http.Client
+	Restrict     []guardfile.Restriction
+	BaseURLValue guardfile.ValueChain
+}
+    RuntimeConfig is the input to NewRuntime: BaseURL is raw (scheme + trim
+    applied), a nil Client defaults to the redirect-guarding client.
+
+
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt
 
 package respfmt // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt"

@@ -364,20 +364,6 @@ func TestMountReusesExistingPath(t *testing.T) {
 	}
 }
 
-func TestDefaultScheme(t *testing.T) {
-	cases := map[string]string{
-		"forgejo.coilysiren.me/api/v1":         "https://forgejo.coilysiren.me/api/v1",
-		"https://forgejo.coilysiren.me/api/v1": "https://forgejo.coilysiren.me/api/v1",
-		"http://127.0.0.1:8080":                "http://127.0.0.1:8080",
-		"":                                     "",
-	}
-	for in, want := range cases {
-		if got := defaultScheme(in); got != want {
-			t.Errorf("defaultScheme(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 // TestDescribeModel proves the surface model mirrors the mounted verbs: one
 // VerbInfo per grant, with auth scope as the token path (never the secret).
 func TestDescribeModel(t *testing.T) {

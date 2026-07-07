@@ -19,19 +19,19 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 - **hook** / **hookcfg** - PreToolUse engine expanding `repocfg.Security` into the guard registry + installer.
 - **shim** - PATH shim per protected binary. See [deny-by-structure.md](deny-by-structure.md).
 - **doctor** - Verify the deny-by-structure floor.
-- **sudo** - Policy-free interactive sudo plumbing over any stdin transport.
+- **sudo** - Policy-free sudo plumbing over any stdin transport.
 - **dispatch** - Fire `claude` at an open issue; swap resolver, backend, verdict.
 - **profiles** / **profile** / **decision** - Profile registry, axes, per-call evaluator.
 - **cmd/cli-guard-hook** - PreToolUse binary for shell-only consumers.
 
 ### HTTP request surface (`http/`)
 
-- **egress** - Per-invocation CONNECT proxy with consumer allowlist.
-- **guardfile** / **specverb** / **kdl-specs** / **codegen** - Spec-driven verbs from a Guardfile (Swagger 2/OpenAPI 3). See [specverb.md](specverb.md).
+- **egress** - Per-run CONNECT proxy with consumer allowlist.
+- **guardfile** / **specverb** / **opcore** / **kdl-specs** / **codegen** - Spec-driven verbs from a Guardfile (Swagger 2/OpenAPI 3); opcore is the cli-free engine core. See [specverb.md](specverb.md).
 - **complex actions** - `wrap`-block `poll`/`call`/`collect` verbs; the mount form shadows its leaf. See [specverb-actions.md](specverb-actions.md).
 - **guarded rollback** - `compensate` + `canary` health-window rollback. See [specverb-rollback.md](specverb-rollback.md).
-- **respfmt** - JSON renderer, JMESPath + five output formats.
-- **ghcache** / **ghidcache** / **ghratelimit** / **stscache** - Forgejo/GitHub response, id, rate-limit, STS caches.
+- **respfmt** - JSON renderer + JMESPath, five formats.
+- **ghcache** / **ghidcache** / **ghratelimit** / **stscache** - Response, id, rate-limit, STS caches.
 
 ### MCP surface (`mcp/`)
 
@@ -41,7 +41,7 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 
 - **audit** - Append-only rotated JSONL invocation log.
 - **policy** - Argv validation rejecting shell metachars.
-- **scope** - Resolve cwd to its git toplevel for the audit RepoRoot.
+- **scope** - Resolve cwd to git toplevel for audit RepoRoot.
 - **exitcode** - Public exit-code taxonomy for orchestrators.
 - **valuesource** - Shared `value <provider>` resolution.
 - **config** - Layered-config primitives + `OverlayFile[T]`.

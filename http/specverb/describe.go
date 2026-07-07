@@ -13,6 +13,7 @@ import (
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/opcore"
 	"github.com/urfave/cli/v3"
 )
 
@@ -198,7 +199,7 @@ func Describe(cfg Config) (*Surface, error) {
 	if baseURL == "" {
 		baseURL = gf.BaseURL
 	}
-	display := baseURLDisplay(gf, defaultScheme(strings.TrimRight(baseURL, "/")))
+	display := baseURLDisplay(gf, opcore.DefaultScheme(strings.TrimRight(baseURL, "/")))
 	return buildSurface(gf, display, descs, actionDescs), nil
 }
 
@@ -283,13 +284,13 @@ func paramsOf(d opDescriptor) []ParamInfo {
 		params = append(params, ParamInfo{Name: p, Kind: "path", Type: "string", Required: true})
 	}
 	for _, f := range d.QueryFlags {
-		params = append(params, ParamInfo{Name: f.Name, Kind: "query", Type: f.typeLabel(), Required: f.Required, Desc: f.Desc})
+		params = append(params, ParamInfo{Name: f.Name, Kind: "query", Type: f.TypeLabel(), Required: f.Required, Desc: f.Desc})
 	}
 	for _, f := range d.BodyFlags {
-		params = append(params, ParamInfo{Name: f.Name, Kind: "body", Type: f.typeLabel(), Required: f.Required, Desc: f.Desc})
+		params = append(params, ParamInfo{Name: f.Name, Kind: "body", Type: f.TypeLabel(), Required: f.Required, Desc: f.Desc})
 	}
 	for _, f := range d.FormFlags {
-		params = append(params, ParamInfo{Name: f.Name, Kind: "form", Type: f.typeLabel(), Required: f.Required, Desc: f.Desc})
+		params = append(params, ParamInfo{Name: f.Name, Kind: "form", Type: f.TypeLabel(), Required: f.Required, Desc: f.Desc})
 	}
 	return params
 }
