@@ -1,0 +1,106 @@
+{
+  "note": "Cross-language contract for the canonical agent-id generator. Ports (cli-guard Go #177) must reproduce every seed->id below and the alphabets above, byte-for-byte. Regenerate with `python -m agentic_os.agent_id --emit-vectors`.",
+  "id_letters": "abcdefghjkmpqrstuvwxyz",
+  "id_digits": "456789",
+  "id_len": 4,
+  "id_letter_len": 2,
+  "seed_algorithm": "digest = sha256(utf8(seed)); id = id_letters[digest[0] % 22] + id_letters[digest[1] % 22] + id_digits[digest[2] % 6] + id_digits[digest[3] % 6]",
+  "vectors": [
+    {
+      "seed": "0",
+      "id": "hu54"
+    },
+    {
+      "seed": "1",
+      "id": "xc85"
+    },
+    {
+      "seed": "2",
+      "id": "sf88"
+    },
+    {
+      "seed": "3",
+      "id": "qh85"
+    },
+    {
+      "seed": "4",
+      "id": "kq99"
+    },
+    {
+      "seed": "5",
+      "id": "xb49"
+    },
+    {
+      "seed": "6",
+      "id": "pe49"
+    },
+    {
+      "seed": "7",
+      "id": "pc79"
+    },
+    {
+      "seed": "8",
+      "id": "am46"
+    },
+    {
+      "seed": "9",
+      "id": "da47"
+    },
+    {
+      "seed": "10",
+      "id": "jc87"
+    },
+    {
+      "seed": "11",
+      "id": "rc56"
+    },
+    {
+      "seed": "12",
+      "id": "xt65"
+    },
+    {
+      "seed": "13",
+      "id": "xz59"
+    },
+    {
+      "seed": "14",
+      "id": "bv45"
+    },
+    {
+      "seed": "15",
+      "id": "mx89"
+    },
+    {
+      "seed": "16",
+      "id": "bu49"
+    },
+    {
+      "seed": "17",
+      "id": "dr47"
+    },
+    {
+      "seed": "18",
+      "id": "qd97"
+    },
+    {
+      "seed": "19",
+      "id": "ua58"
+    },
+    {
+      "seed": "kai-server",
+      "id": "ut57"
+    },
+    {
+      "seed": "coilyco-flight-deck#302",
+      "id": "hb84"
+    },
+    {
+      "seed": "the-quick-brown-fox",
+      "id": "eb86"
+    },
+    {
+      "seed": "",
+      "id": "ha84"
+    }
+  ]
+}

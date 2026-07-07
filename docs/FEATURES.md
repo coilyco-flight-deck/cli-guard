@@ -1,6 +1,6 @@
 # cli-guard features
 
-Inventory of cli-guard today. See `examples/<feature>/` for each end-to-end.
+Inventory of cli-guard today. See `examples/<feature>/` for each.
 
 ## Framework primitives
 
@@ -39,19 +39,20 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 
 ### Shared core (`pkg/`)
 
-- **audit** - Append-only JSONL invocation log, rotated.
-- **policy** - Argv validation rejecting shell metacharacters.
-- **scope** - Resolve cwd to its git toplevel for the audit row's RepoRoot.
+- **audit** - Append-only rotated JSONL invocation log.
+- **policy** - Argv validation rejecting shell metachars.
+- **scope** - Resolve cwd to its git toplevel for the audit RepoRoot.
 - **exitcode** - Public exit-code taxonomy for orchestrators.
 - **valuesource** - Shared `value <provider>` resolution.
-- **config** - Layered-config primitives and an `OverlayFile[T]`.
-- **fleetconfig** - KDL fleet-config validator; core, not a guarded surface. See [fleetconfig.md](fleetconfig.md).
-- **stepflow** - Transport-agnostic sequence/rollback/canary action engine.
+- **config** - Layered-config primitives + `OverlayFile[T]`.
+- **fleetconfig** - KDL fleet-config validator (core, unguarded). See [fleetconfig.md](fleetconfig.md).
+- **stepflow** - Transport-agnostic sequence/rollback/canary engine.
 - **ttlcache** - Generic TTL-keyed cache.
-- **workdir** - Working-directory resolution helper.
-- **skillgen** - Render an urfave/cli command tree into markdown or yaml.
-- **broker** / **credseed** - Credential-broker core + env-file seeder. See [broker.md](broker.md).
-- **scan** / **attribution** / **flock** / **version** / **issueref** / **ownertrust** - Helpers lifted from ward. See [ward-helpers.md](ward-helpers.md).
+- **workdir** - Working-directory resolver.
+- **skillgen** - Render an urfave/cli command tree to markdown/yaml.
+- **broker** / **credseed** - Credential-broker core + env seeder. See [broker.md](broker.md).
+- **scan** / **attribution** / **flock** / **version** / **issueref** / **ownertrust** - Ward-lifted helpers. See [ward-helpers.md](ward-helpers.md).
+- **agentid** - Canonical agent-id generator (Go port, aos o2r vector).
 
 ## Repo development
 
