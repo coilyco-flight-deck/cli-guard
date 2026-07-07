@@ -242,10 +242,6 @@ type grantKey struct {
 	Resource string
 }
 
-// destructiveVerbs names the irreversibly-mutating verb classes. Generic, not
-// API-specific: `delete` is destructive whatever the resource.
-var destructiveVerbs = map[string]bool{"delete": true}
-
 // overriddenKeys maps each (verb, resource) an `override can` re-grants, so a deny
 // it lifts mounts no teaching leaf and the override's allow leaf stands instead.
 func overriddenKeys(gf *guardfile.Guardfile) map[grantKey]bool {
@@ -349,7 +345,7 @@ func resolveDescriptor(spec *spec, group []string, g guardfile.Grant) (opDescrip
 		QueryFlags:  queryFlagsFrom(op),
 		FormFlags:   formFlagsFrom(op),
 		FixedBody:   g.FixedBody,
-		Destructive: destructiveVerbs[g.Verb],
+		Destructive: opcore.DestructiveVerb(g.Verb),
 		Grant:       formatGrant(g),
 		Describe:    g.Describe,
 	}
@@ -363,27 +359,9 @@ func resolveDescriptor(spec *spec, group []string, g guardfile.Grant) (opDescrip
 	return desc, nil
 }
 
-// reservedFlagNames are the universal per-leaf flags no spec input may shadow.
-var reservedFlagNames = map[string]bool{
-	flagDryRun: true, flagQuery: true, flagOutput: true, flagBodyFile: true,
-}
-
-// checkFlagCollisions fails closed when a promoted spec input would shadow a
-// universal flag or another promoted input on the same leaf.
-func checkFlagCollisions(desc opDescriptor) error {
-	seen := map[string]bool{}
-	all := append(append([]fieldFlag{}, desc.QueryFlags...), desc.BodyFlags...)
-	for _, f := range append(all, desc.FormFlags...) {
-		if reservedFlagNames[f.Name] {
-			return fmt.Errorf("specverb: %s: spec input %q collides with a reserved engine flag (fail-closed)", desc.VerbName, f.Name)
-		}
-		if seen[f.Name] {
-			return fmt.Errorf("specverb: %s: two spec inputs both name %q (fail-closed)", desc.VerbName, f.Name)
-		}
-		seen[f.Name] = true
-	}
-	return nil
-}
+// checkFlagCollisions is opcore's shared reserved-flag guard, aliased so the
+// resolved source fails closed identically to the inline one.
+var checkFlagCollisions = opcore.CheckFlagCollisions
 
 // formatGrant renders the authorizing grant sentence for help and describe,
 // e.g. {can, delete, repos, [created-by-me]} -> "can delete repos created-by-me".

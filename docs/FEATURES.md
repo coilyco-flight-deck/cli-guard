@@ -27,7 +27,7 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 ### HTTP request surface (`http/`)
 
 - **egress** - Per-run CONNECT proxy with consumer allowlist.
-- **guardfile** / **specverb** / **opcore** / **kdl-specs** / **codegen** - Spec-driven verbs from a Guardfile (Swagger 2/OpenAPI 3); opcore is the cli-free engine core. See [specverb.md](specverb.md).
+- **guardfile** / **specverb** / **opcore** / **kdl-specs** / **codegen** - Spec-driven verbs from a Guardfile; opcore is the cli-free core, fed by the OpenAPI source (Swagger 2/OpenAPI 3) or inline KDL ([opcore-inline.md](opcore-inline.md)). See [specverb.md](specverb.md).
 - **complex actions** - `wrap`-block `poll`/`call`/`collect` verbs; the mount form shadows its leaf. See [specverb-actions.md](specverb-actions.md).
 - **guarded rollback** - `compensate` + `canary` health-window rollback. See [specverb-rollback.md](specverb-rollback.md).
 - **respfmt** - JSON renderer + JMESPath, five formats.
@@ -35,24 +35,24 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 
 ### MCP surface (`mcp/`)
 
-- **mcporter** - Pre-exec preflight for the mcporter tool, secret resolver.
+- **mcporter** - Pre-exec preflight + secret resolver for mcporter.
 
 ### Shared core (`pkg/`)
 
 - **audit** - Append-only rotated JSONL invocation log.
 - **policy** - Argv validation rejecting shell metachars.
-- **scope** - Resolve cwd to git toplevel for audit RepoRoot.
-- **exitcode** - Public exit-code taxonomy for orchestrators.
+- **scope** - Resolve cwd to git toplevel for audit.
+- **exitcode** - Public exit-code taxonomy.
 - **valuesource** - Shared `value <provider>` resolution.
 - **config** - Layered-config primitives + `OverlayFile[T]`.
 - **fleetconfig** - KDL fleet-config validator (core, unguarded). See [fleetconfig.md](fleetconfig.md).
-- **stepflow** - Transport-agnostic sequence/rollback/canary engine.
+- **stepflow** - Transport-agnostic sequence/rollback engine.
 - **ttlcache** - Generic TTL-keyed cache.
 - **workdir** - Working-directory resolver.
-- **skillgen** - Render an urfave/cli command tree to markdown/yaml.
-- **broker** / **credseed** - Credential-broker core + env seeder. See [broker.md](broker.md).
+- **skillgen** - Render a cli command tree to markdown/yaml.
+- **broker** / **credseed** - Credential broker + env seeder. See [broker.md](broker.md).
 - **scan** / **attribution** / **flock** / **version** / **issueref** / **ownertrust** - Ward-lifted helpers. See [ward-helpers.md](ward-helpers.md).
-- **agentid** - Canonical agent-id generator (Go port, aos o2r vector).
+- **agentid** - Canonical agent-id generator (Go port).
 
 ## Repo development
 

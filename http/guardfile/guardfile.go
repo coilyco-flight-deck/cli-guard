@@ -335,32 +335,45 @@ func unknownWrapNode(name string) error {
 	return fmt.Errorf("guardfile: unknown node %q in wrap body (fail-closed)", name)
 }
 
-// applyBaseURL reads the base-url node: a bare string, or a `{ value ... }` block
-// for a host resolved at request time. See specverb-policy.md.
+// applyBaseURL reads the base-url node onto gf via the shared ParseBaseURL.
 func (gf *Guardfile) applyBaseURL(n *kdl.Node) error {
+	raw, chain, err := ParseBaseURL(n)
+	if err != nil {
+		return err
+	}
+	// Assign only the form this node carried, so a second base-url node in the
+	// other form accumulates into both fields and validate catches the conflict.
+	if raw != "" {
+		gf.BaseURL = raw
+	}
+	if !chain.IsZero() {
+		gf.BaseURLValue = chain
+	}
+	return nil
+}
+
+// ParseBaseURL reads a base-url node: a bare string (raw) or a `{ value ... }`
+// block (chain). Exactly one is non-zero. Shared with the opcore inline source.
+func ParseBaseURL(n *kdl.Node) (raw string, chain ValueChain, err error) {
 	children := n.Children().Nodes
 	if len(children) == 0 {
-		v, err := singleArg(n)
-		if err != nil {
-			return err
-		}
-		gf.BaseURL = v
-		return nil
+		v, serr := singleArg(n)
+		return v, nil, serr
 	}
 	for _, c := range children {
 		if c.Name() != "value" {
-			return fmt.Errorf("guardfile: base-url: unknown field %q (want value; fail-closed)", c.Name())
+			return "", nil, fmt.Errorf("guardfile: base-url: unknown field %q (want value; fail-closed)", c.Name())
 		}
-		vc, err := parseValueChain(c)
-		if err != nil {
-			return fmt.Errorf("guardfile: base-url: %w", err)
+		vc, verr := parseValueChain(c)
+		if verr != nil {
+			return "", nil, fmt.Errorf("guardfile: base-url: %w", verr)
 		}
-		gf.BaseURLValue = vc
+		chain = vc
 	}
-	if gf.BaseURLValue.IsZero() {
-		return fmt.Errorf("guardfile: base-url block requires `value <provider> \"...\"`")
+	if chain.IsZero() {
+		return "", nil, fmt.Errorf("guardfile: base-url block requires `value <provider> \"...\"`")
 	}
-	return nil
+	return "", chain, nil
 }
 
 // parseValueChain reads a `value` node in either form (inline `value <p> "<a>"`
@@ -498,6 +511,14 @@ func (gf *Guardfile) denyCovers(verb, resource string) bool {
 
 // wildcardSentinel is the verb-global resource sentinel a `*` grant carries.
 const wildcardSentinel = "*"
+
+// ParseAuthNode parses one `auth` KDL node into an Auth: the entry the opcore
+// inline source shares, so both sources speak one auth grammar.
+func ParseAuthNode(n *kdl.Node) (Auth, error) { return parseAuth(n) }
+
+// ParseRestrictNode parses one `restrict` KDL node into a Restriction, shared
+// with the opcore inline source so both sources speak one restrict grammar.
+func ParseRestrictNode(n *kdl.Node) (Restriction, error) { return parseRestrict(n) }
 
 // parseAuth reads the auth block, dispatching on the named scheme. Three are
 // supported: header-token, bearer, query-param. See docs/specverb.md.

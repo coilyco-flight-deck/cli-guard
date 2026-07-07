@@ -1822,6 +1822,10 @@ type Auth struct {
     Three schemes: header-token, bearer, query-param (dual-secret). See
     docs/specverb.md.
 
+func ParseAuthNode(n *kdl.Node) (Auth, error)
+    ParseAuthNode parses one `auth` KDL node into an Auth: the entry the opcore
+    inline source shares, so both sources speak one auth grammar.
+
 type Call struct {
 	Verb     string
 	Resource string
@@ -1987,9 +1991,18 @@ type Restriction struct {
     allowlist: a {Param}-carrying leaf must match a Glob or fail closed.
     See docs/specverb.md.
 
+func ParseRestrictNode(n *kdl.Node) (Restriction, error)
+    ParseRestrictNode parses one `restrict` KDL node into a Restriction, shared
+    with the opcore inline source so both sources speak one restrict grammar.
+
 type ValueChain []ValueSource
     ValueChain is an ordered fallback list of value sources: resolution takes
     the first yielding a non-empty value. See specverb-value-chain.md.
+
+func ParseBaseURL(n *kdl.Node) (raw string, chain ValueChain, err error)
+    ParseBaseURL reads a base-url node: a bare string (raw) or a `{ value ...
+    }` block (chain). Exactly one is non-zero. Shared with the opcore inline
+    source.
 
 func (c ValueChain) IsZero() bool
     IsZero reports whether the chain names no source.
@@ -2189,11 +2202,29 @@ const OwnerRepoArg = "owner-repo"
     split across the leaf's `owner` and `repo` path params.
 
 
+VARIABLES
+
+var ReservedFlagNames = map[string]bool{
+	"dry-run": true, "query": true, "output": true, "body-file": true,
+}
+    ReservedFlagNames are the universal per-leaf engine flags no promoted input
+    (query, body, or form field) may shadow. See docs/specverb-request.md.
+
+
 FUNCTIONS
+
+func CheckFlagCollisions(desc Descriptor) error
+    CheckFlagCollisions fails closed when a promoted input shadows a reserved
+    engine flag or another input on the same leaf. Shared by both descriptor
+    sources.
 
 func DefaultScheme(baseURL string) string
     DefaultScheme prepends https:// to a base-url that carries no scheme, so a
     Guardfile may write `base-url "host/api/v1"` and rely on TLS by default.
+
+func DestructiveVerb(verb string) bool
+    DestructiveVerb reports whether a verb mutates irreversibly, so both the
+    resolved and the inline source flag the same leaves. See docs/specverb.md.
 
 func FillPath(template string, values []string) string
     FillPath substitutes the i-th positional value into the i-th `{...}` slot.
@@ -2203,6 +2234,16 @@ func MethodForVerb(verb string) (string, bool)
     MethodForVerb returns the HTTP method a verb maps to by convention;
     ok is false only for the bare-unknown-verb POST default. See
     specverb-resolution.md.
+
+func ParseInline(src []byte) ([]Descriptor, RuntimeConfig, error)
+    ParseInline states the ward-mcp inline grammar as the same []Descriptor
+    the OpenAPI source feeds, plus the request RuntimeConfig. See
+    docs/opcore-inline.md.
+
+func PathParamsInOrder(path string) []string
+    PathParamsInOrder returns the `{...}` names in path-template order,
+    the order the leaf takes them positionally. Shared with the CLI projection's
+    binder.
 
 
 TYPES
