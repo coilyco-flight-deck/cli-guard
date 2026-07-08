@@ -1,14 +1,11 @@
 # Forgejo-canonical CI gate. Mirrors the pre-commit suite (vet, build, test,
 # golangci-lint, godoc-current, go mod tidy, secret scan) so the gate is enforced
-# on the canonical remote even when a contributor's container lacks golangci-lint
-# or trufflehog on PATH. The GitHub mirror's .github/workflows/ci.yml stays the
-# PR-gated twin. See #165.
+# on the canonical remote inside the pinned dev-base image. The GitHub mirror's
+# .github/workflows/ci.yml stays the PR-gated twin. See #165.
 #
-# GO_VERSION is pinned to the toolchain the module builds with (go.mod go 1.25.5).
-# The docker runner ships no Go, golangci-lint, or trufflehog, so every job
-# installs its own tooling from the upstream tarball/installer. The golangci-lint
-# install.sh is pulled at the GOLANGCI_LINT_VERSION tag (not a moving `master`) so
-# a drifted installer can't fail the lint job when the code has 0 issues (#180).
+# The pinned dev-base image already carries Go, golangci-lint, and trufflehog,
+# so the jobs run the same toolchain a dispatched agent lands in. Pin the image
+# deliberately, never :latest.
 
 name: ci
 
@@ -20,22 +17,14 @@ on:
 permissions:
   contents: read
 
-env:
-  GO_VERSION: "1.26.4"
-
 jobs:
   test:
     runs-on: docker
+    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:v0.195.0
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Install Go
-        run: |
-          set -euo pipefail
-          curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz
-          tar -xzf /tmp/go.tar.gz -C /usr/local
-          echo "/usr/local/go/bin" >> "$GITHUB_PATH"
       - name: go vet
         run: go vet ./...
       - name: go build
@@ -52,36 +41,20 @@ jobs:
 
   lint:
     runs-on: docker
-    env:
-      GOLANGCI_LINT_VERSION: v2.12.2
+    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:v0.195.0
     steps:
       - uses: actions/checkout@v6
-      - name: Install Go
-        run: |
-          set -euo pipefail
-          curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz
-          tar -xzf /tmp/go.tar.gz -C /usr/local
-          echo "/usr/local/go/bin" >> "$GITHUB_PATH"
-      - name: Install golangci-lint
-        run: |
-          set -euo pipefail
-          curl -sSfL "https://raw.githubusercontent.com/golangci/golangci-lint/${GOLANGCI_LINT_VERSION}/install.sh" \
-            | sh -s -- -b /usr/local/bin "${GOLANGCI_LINT_VERSION}"
       - name: golangci-lint
         run: golangci-lint run --timeout=5m ./...
 
   secrets:
     runs-on: docker
+    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:v0.195.0
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Install TruffleHog
-        run: |
-          set -euo pipefail
-          curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh \
-            | sh -s -- -b /usr/local/bin
       - name: Scan filesystem for secrets
         run: |
           set -euo pipefail
