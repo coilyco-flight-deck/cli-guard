@@ -42,10 +42,16 @@ type Response struct {
 	Status  string
 }
 
+// Resolve validates, gates, and assembles one request without firing it.
+// Consumers use it when they need the resolved request shape.
+func (o Operation) Resolve(ctx context.Context, a Args, dry bool) (Request, error) {
+	return o.resolve(ctx, a, dry)
+}
+
 // Execute runs the leaf under the full security floor (gate, restrict, assemble,
 // base-url, auth, fire) and returns the decoded response, rendering nothing.
 func (o Operation) Execute(ctx context.Context, a Args) (Response, error) {
-	req, err := o.resolve(ctx, a, false)
+	req, err := o.Resolve(ctx, a, false)
 	if err != nil {
 		return Response{}, err
 	}
@@ -59,7 +65,7 @@ func (o Operation) Execute(ctx context.Context, a Args) (Response, error) {
 // Preview resolves the request without firing it (same gate/restrict/assembly as
 // Execute) for a dry-run; a value-resolved base-url stays an offline placeholder.
 func (o Operation) Preview(a Args) (Request, error) {
-	return o.resolve(context.Background(), a, true)
+	return o.Resolve(context.Background(), a, true)
 }
 
 // resolve runs the gate, restrictions, and assembly shared by Execute and

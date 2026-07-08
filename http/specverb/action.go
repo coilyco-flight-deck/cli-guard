@@ -529,31 +529,61 @@ func (rt *runtime) buildCallRequest(ctx context.Context, dry bool, leaf opDescri
 	if berr := b.RequireAllPaths(); berr != nil {
 		return "", "", nil, "", berr
 	}
+	if dry {
+		return rt.buildCallRequestDry(ctx, leaf, b)
+	}
+	return rt.buildCallRequestLive(ctx, leaf, b)
+}
+
+// buildCallRequestDry keeps the dry-run planner's placeholder-friendly request
+// assembly local to specverb.
+func (rt *runtime) buildCallRequestDry(ctx context.Context, leaf opDescriptor, b *opcore.ArgBinder) (method, url string, body []byte, contentType string, err error) {
 	if rerr := rt.CheckRestrictions(leaf.PathParams, b.PathVals); rerr != nil {
 		return "", "", nil, "", rerr
 	}
-	pathVals, query, bodyObj := b.PathVals, b.Query, b.BodyObj
-
 	qs := ""
-	if len(query) > 0 {
-		qs = "?" + query.Encode()
+	if len(b.Query) > 0 {
+		qs = "?" + b.Query.Encode()
 	}
-	base, berr := rt.BaseForRequest(ctx, dry)
+	base, berr := rt.BaseForRequest(ctx, true)
 	if berr != nil {
 		return "", "", nil, "", berr
 	}
-	url = base + opcore.FillPath(leaf.Path, pathVals) + qs
+	url = base + opcore.FillPath(leaf.Path, b.PathVals) + qs
 	contentType = contentTypeJSON
 	switch {
 	case len(leaf.FixedBody) > 0:
 		body, err = json.Marshal(leaf.FixedBody)
-	case len(bodyObj) > 0:
-		body, err = json.Marshal(bodyObj)
+	case len(b.BodyObj) > 0:
+		body, err = json.Marshal(b.BodyObj)
 	}
 	if err != nil {
 		return "", "", nil, "", exitcode.New(exitcode.Internal, "internal", err, "")
 	}
 	return leaf.Method, url, body, contentType, nil
+}
+
+// buildCallRequestLive lowers a resolved leaf request through the transport-
+// neutral opcore.Request resolver, then hands the assembled request back.
+func (rt *runtime) buildCallRequestLive(ctx context.Context, leaf opDescriptor, b *opcore.ArgBinder) (method, url string, body []byte, contentType string, err error) {
+	argsByLocation := opcore.Args{
+		Path:  map[string]string{},
+		Query: map[string]string{},
+		Body:  b.BodyObj,
+	}
+	for i, p := range leaf.PathParams {
+		argsByLocation.Path[p] = b.PathVals[i]
+	}
+	for k, vals := range b.Query {
+		if len(vals) > 0 {
+			argsByLocation.Query[k] = vals[0]
+		}
+	}
+	req, rerr := (opcore.Operation{Desc: leaf, RT: rt.Runtime}).Resolve(ctx, argsByLocation, false)
+	if rerr != nil {
+		return "", "", nil, "", rerr
+	}
+	return req.Method, req.URL, req.Body, req.ContentType, nil
 }
 
 // resolveArgValue resolves a `$ref` against the bound input strings, or returns

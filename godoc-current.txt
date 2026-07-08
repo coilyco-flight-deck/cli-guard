@@ -2351,6 +2351,10 @@ func (o Operation) Preview(a Args) (Request, error)
     as Execute) for a dry-run; a value-resolved base-url stays an offline
     placeholder.
 
+func (o Operation) Resolve(ctx context.Context, a Args, dry bool) (Request, error)
+    Resolve validates, gates, and assembles one request without firing it.
+    Consumers use it when they need the resolved request shape.
+
 type Property struct {
 	Type        string // string|boolean|integer|number|array
 	Items       string // element type when Type==array
