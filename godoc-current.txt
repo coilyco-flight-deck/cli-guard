@@ -3631,9 +3631,8 @@ type Agent struct {
 	Verbosity       string // verbosity knob, e.g. "low"
 	Argv            Argv   // the three launch argvs (preflight/headless/interactive)
 }
-    Agent describes one agent the fleet can run and how to launch it.
-    Every field is descriptive - a binary, a model, an argv shape - never a
-    permission.
+    Agent describes one agent the fleet can run and how to launch it. Sparse
+    top-level nodes may leave launch fields empty for consumer-side defaulting.
 
 type Argv struct {
 	Preflight   []string // optional pre-launch probe argv

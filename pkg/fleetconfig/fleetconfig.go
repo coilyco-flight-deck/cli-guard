@@ -47,8 +47,8 @@ type Fleet struct {
 	Director *Director
 }
 
-// Agent describes one agent the fleet can run and how to launch it. Every field
-// is descriptive - a binary, a model, an argv shape - never a permission.
+// Agent describes one agent the fleet can run and how to launch it.
+// Sparse top-level nodes may leave launch fields empty for consumer-side defaulting.
 type Agent struct {
 	Name            string // block name, e.g. `agent codex` -> "codex"
 	Binary          string // the launcher binary on PATH
@@ -491,6 +491,7 @@ func parseAttribution(n *kdl.Node) (Attribution, error) {
 }
 
 // parseAgent reads one `agent <name> { ... }` block into an Agent.
+// It accepts sparse top-level data for consumer-side defaulting.
 func parseAgent(n *kdl.Node) (Agent, error) {
 	name, err := singleStringArg(n, "agent")
 	if err != nil {
@@ -535,9 +536,6 @@ func parseAgent(n *kdl.Node) (Agent, error) {
 		if err != nil {
 			return Agent{}, err
 		}
-	}
-	if a.Binary == "" {
-		return Agent{}, fmt.Errorf("fleetconfig: agent %q is missing `binary` (cannot launch; fail-closed)", name)
 	}
 	return a, nil
 }

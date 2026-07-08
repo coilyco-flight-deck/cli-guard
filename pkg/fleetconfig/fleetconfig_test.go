@@ -270,6 +270,30 @@ fleet { schema-version 2; agent a { binary a } }
 	})
 }
 
+func TestParseSparseAgentData(t *testing.T) {
+	src := `fleet { schema-version 2; agent claude { model "bundle-override"; context-level 1 } }`
+	f, err := fleetconfig.Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(f.Agents) != 1 {
+		t.Fatalf("len(Agents) = %d, want 1", len(f.Agents))
+	}
+	a := f.Agents[0]
+	if a.Name != "claude" {
+		t.Errorf("Name = %q, want claude", a.Name)
+	}
+	if a.Binary != "" {
+		t.Errorf("Binary = %q, want empty sparse data", a.Binary)
+	}
+	if a.ContextLevel != 1 {
+		t.Errorf("ContextLevel = %d, want 1", a.ContextLevel)
+	}
+	if a.Model != "bundle-override" {
+		t.Errorf("Model = %q, want bundle-override", a.Model)
+	}
+}
+
 func TestParseRejects(t *testing.T) {
 	cases := []struct {
 		name string
@@ -315,11 +339,6 @@ func TestParseRejects(t *testing.T) {
 			name: "no agents",
 			src:  `fleet { schema-version 2 }`,
 			want: "declares no `agent`",
-		},
-		{
-			name: "agent without binary",
-			src:  `fleet { schema-version 2; agent a { model "x" } }`,
-			want: "missing `binary`",
 		},
 		{
 			name: "duplicate agent",
