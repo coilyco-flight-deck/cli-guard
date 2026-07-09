@@ -318,7 +318,11 @@ type IssueRef struct {
 	Platform Platform
 }
     IssueRef is the parsed shape of an issue reference. Empty Platform means
-    shortform - resolveDispatchIssue picks a forge. Shared core.
+    shortform or bare - resolveDispatchIssue picks a forge. Shared core.
+
+func ParseIssueRef(baseURL, s string) (IssueRef, error)
+    ParseIssueRef parses the supported issue reference forms into an exported
+    IssueRef, so consumers can normalize refs the same way dispatch does.
 
 func (i IssueRef) String() string
 
