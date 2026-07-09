@@ -134,19 +134,84 @@ func (o Operation) assembleBody(body map[string]any) ([]byte, error) {
 	if len(o.Desc.FixedBody) > 0 {
 		return json.Marshal(o.Desc.FixedBody)
 	}
-	for _, f := range o.Desc.BodyFlags {
-		if f.Required {
-			if _, present := body[f.Name]; !present {
-				return nil, exitcode.New(exitcode.UserError, "user_error",
-					fmt.Errorf("required body field %q is missing", f.Name),
-					"supply the required body field")
-			}
-		}
+	if err := validateBodyFields(body, o.Desc.BodyFlags, ""); err != nil {
+		return nil, err
 	}
 	if len(body) == 0 {
 		return nil, nil
 	}
 	return json.Marshal(body)
+}
+
+// validateBodyFields enforces required body fields recursively. Optional
+// nested fields only matter when their parent object or array is present.
+func validateBodyFields(body map[string]any, fields []Field, prefix string) error {
+	for _, f := range fields {
+		if err := validateBodyField(body, f, prefix); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateBodyField enforces one required field and recurses into nested shapes.
+func validateBodyField(body map[string]any, f Field, prefix string) error {
+	path := f.Name
+	if prefix != "" {
+		path = prefix + "." + f.Name
+	}
+	v, present := body[f.Name]
+	if !present {
+		if f.Required {
+			return exitcode.New(exitcode.UserError, "user_error",
+				fmt.Errorf("required body field %q is missing", path),
+				"supply the required body field")
+		}
+		return nil
+	}
+	if f.Raw {
+		return nil
+	}
+	switch f.Type {
+	case "object":
+		return validateObjectBodyValue(v, f, path)
+	case "array":
+		return validateArrayBodyValue(v, f, path)
+	default:
+		return nil
+	}
+}
+
+// validateObjectBodyValue walks a nested object value when the field declares
+// child requirements.
+func validateObjectBodyValue(v any, f Field, path string) error {
+	child, ok := v.(map[string]any)
+	if !ok || len(f.Fields) == 0 {
+		return nil
+	}
+	return validateBodyFields(child, f.Fields, path)
+}
+
+// validateArrayBodyValue walks an array of object items when the field declares
+// an item schema.
+func validateArrayBodyValue(v any, f Field, path string) error {
+	if f.Item == nil || len(f.Item.Fields) == 0 {
+		return nil
+	}
+	items, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	for i, item := range items {
+		child, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if err := validateBodyFields(child, f.Item.Fields, fmt.Sprintf("%s[%d]", path, i)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // gateDenied wraps a shell-metachar rejection as a coded PolicyDenied error.

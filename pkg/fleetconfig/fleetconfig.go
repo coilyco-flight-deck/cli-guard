@@ -38,7 +38,7 @@ type Fleet struct {
 	// Agents is the roster, in source order. Empty in an operator-local source.
 	Agents []Agent
 
-// Roles is the per-role capability roster: each startup role names
+	// Roles is the per-role capability roster: each startup role names
 	// the guardfile set it holds. Empty when no `roles` block is present.
 	Roles []Role
 

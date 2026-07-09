@@ -69,7 +69,7 @@ func TestParseURLDisabledWithoutBase(t *testing.T) {
 }
 
 func TestParseErrors(t *testing.T) {
-	for _, in := range []string{"", "  ", "not-a-ref", "owner/repo"+"#"+"0", "owner/repo"+"#"+"-1", "#" + "0"} {
+	for _, in := range []string{"", "  ", "not-a-ref", "owner/repo" + "#" + "0", "owner/repo" + "#" + "-1", "#" + "0"} {
 		if _, err := issueref.Parse(in, base); err == nil {
 			t.Errorf("Parse(%q) should error", in)
 		}

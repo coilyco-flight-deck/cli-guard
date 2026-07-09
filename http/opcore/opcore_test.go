@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
@@ -160,6 +161,46 @@ func TestExecuteRequiredBody(t *testing.T) {
 	})
 	if kindOf(err) != "user_error" {
 		t.Fatalf("required body: kind = %q, want user_error", kindOf(err))
+	}
+}
+
+func TestExecuteNestedRequiredBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Errorf("call with a missing nested required field must not fire")
+	}))
+	defer srv.Close()
+	rt := opcore.NewRuntime(opcore.RuntimeConfig{
+		BaseURL:   srv.URL,
+		Auth:      tokenAuth("s3cret"),
+		Providers: valuesource.Merge(nil),
+		Client:    srv.Client(),
+	})
+	op := opcore.Operation{RT: rt, Desc: opcore.Descriptor{
+		Method: http.MethodPost,
+		Path:   "/query",
+		Leaf:   "query",
+		BodyFlags: []opcore.Field{
+			{
+				Name:     "compositeQuery",
+				Type:     "object",
+				Required: true,
+				Fields: []opcore.Field{
+					{Name: "start", Type: "integer", Required: true},
+					{Name: "end", Type: "integer", Required: true},
+				},
+			},
+		},
+	}}
+	_, err := op.Execute(context.Background(), opcore.Args{
+		Path:  map[string]string{},
+		Query: map[string]string{},
+		Body:  map[string]any{"compositeQuery": map[string]any{"start": 1}},
+	})
+	if kindOf(err) != "user_error" {
+		t.Fatalf("nested required: kind = %q, want user_error (err=%v)", kindOf(err), err)
+	}
+	if err != nil && !strings.Contains(err.Error(), "compositeQuery.end") {
+		t.Fatalf("nested required error should name the missing path, got %v", err)
 	}
 }
 

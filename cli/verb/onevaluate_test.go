@@ -146,7 +146,7 @@ func TestOnEvaluate_DenyShortCircuitsAndExitsPolicyDenied(t *testing.T) {
 	if c == nil || c.Code() != exitcode.PolicyDenied {
 		t.Errorf("exit code = %v, want PolicyDenied", c)
 	}
-		// The lockdown-axis deny must carry its own Reasoner why-line.
+	// The lockdown-axis deny must carry its own Reasoner why-line.
 	var rsn exitcode.Reasoner
 	if !errors.As(err, &rsn) || rsn.Reason() == "" {
 		t.Errorf("lockdown policy_denied carried no Reason(); want the lockdown-axis why-line")

@@ -2305,7 +2305,7 @@ type Descriptor struct {
 	Method      string         // HTTP method
 	Path        string         // path template, e.g. /repos/{owner}/{repo}
 	PathParams  []string       // ordered positional args drawn from the path
-	BodyFlags   []Field        // request-body fields promoted to flags
+	BodyFlags   []Field        // request-body fields, including nested object/array shapes
 	QueryFlags  []Field        // scalar query params promoted to flags
 	FormFlags   []Field        // formData params; "file" types take a path
 	FixedBody   map[string]any // exact body for state-toggle leaves; no body flags mount
@@ -2327,13 +2327,16 @@ func (d Descriptor) Label() string
 
 type Field struct {
 	Name     string // json field / query param name, doubling as the flag name
-	Type     string // swagger type: string|boolean|integer|number|array
-	Items    string // scalar element type when Type is "array"
-	Required bool   // required in the schema; enforced at request assembly
+	Type     string // swagger type: string|boolean|integer|number|array|object
+	Items    string // scalar element type when Type is "array" and Item is nil
+	Item     *Field // nested element schema when Type is "array" and Item is object/array
+	Fields   []Field
+	Raw      bool
+	Required bool // required in the schema; enforced at request assembly
 	Desc     string
 }
-    Field is one spec input promoted to a typed CLI flag: a request-body field
-    (scalar or array-of-scalar) or a scalar query parameter.
+    Field is one spec input. The flat cases lower to CLI flags, while a body
+    field may also carry nested object/array shape for neutral schema emission.
 
 func (f Field) TypeLabel() string
     TypeLabel renders the flag's type for help and the reference doc.
@@ -2362,11 +2365,15 @@ func (o Operation) Resolve(ctx context.Context, a Args, dry bool) (Request, erro
 type Property struct {
 	Type        string // string|boolean|integer|number|array
 	Items       string // element type when Type==array
+	Item        *Property
+	Properties  map[string]Property
+	Required    []string
+	Raw         bool
 	Location    string // path|query|body|form (neutral hint)
 	Description string
 }
     Property is one input in a Schema: its type (or array element type),
-    the neutral where-it-goes hint, and its help text.
+    the neutral where-it-goes hint, its help text, and any nested shape.
 
 type Provider = valuesource.Provider
     Provider resolves the value at address for one named value source:
