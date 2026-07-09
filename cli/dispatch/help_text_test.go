@@ -9,8 +9,8 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// The dispatch + headless help text must advertise the same owner set the runtime
-// gate (ownerAllowed) accepts, not AllowedOwner alone. Regression guard for #67.
+// The dispatch + headless help text must advertise the same owner set the
+// runtime gate (ownerAllowed) accepts, not AllowedOwner alone.
 func TestHelpTextAdvertisesFullOwnerSet(t *testing.T) {
 	repoRoot := t.TempDir()
 	worktreeRoot := t.TempDir()

@@ -4,7 +4,7 @@
 Where the OpenAPI source resolves a `Descriptor` against a spec, the inline source
 **states** it directly from KDL, so a non-CLI consumer (ward-mcp) never couples to
 the CLI projection. Both sources feed the one `opcore.Descriptor` type, so every
-downstream projection is source-blind. See [specverb.md](specverb.md) and cli-guard#196.
+downstream projection is source-blind. See [specverb.md](specverb.md) and the opcore docs.
 
 ## Grammar
 

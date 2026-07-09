@@ -59,7 +59,7 @@ func TestRegistryPublicAPI(t *testing.T) {
 	writeFakeDispatch(t, root, "example-repo", 119, "20260527-130000", "", &dispatchMeta{
 		PID:          livePID,
 		StartedAt:    time.Unix(1700000000, 0).UTC(),
-		Ref:          "example-org/example-repo#119",
+		Ref:          issueRefText("example-repo", 119),
 		PathsClaimed: []string{"/work/skills/tooling-foo"},
 	})
 	r := NewRegistry(root)
@@ -110,7 +110,7 @@ func TestRegistryListFiltersDeadPIDs(t *testing.T) {
 	writeFakeDispatch(t, root, "example-repo", 99, "20260527-130001", "", &dispatchMeta{
 		PID:       deadPID,
 		StartedAt: time.Now().UTC(),
-		Ref:       "example-org/example-repo#99",
+		Ref:       issueRefText("example-repo", 99),
 	})
 	out, err := runRegistryCmd(t, d, []string{"list"})
 	if err != nil {
@@ -129,7 +129,7 @@ func TestRegistryListIncludesAliveSidequest(t *testing.T) {
 	writeFakeDispatch(t, root, "example-repo", 119, "20260527-130000", "", &dispatchMeta{
 		PID:           livePID,
 		StartedAt:     time.Unix(1700000000, 0).UTC(),
-		Ref:           "example-org/example-repo#119",
+		Ref:           issueRefText("example-repo", 119),
 		ParentSession: "parent-e935",
 		PathsClaimed:  []string{"example-repo/.agents/skills/tooling-mcp-servers"},
 	})
@@ -138,7 +138,7 @@ func TestRegistryListIncludesAliveSidequest(t *testing.T) {
 		t.Fatalf("registry list: %v", err)
 	}
 	for _, want := range []string{
-		"example-org/example-repo#119",
+		issueRefText("example-repo", 119),
 		"parent-e935",
 		"example-repo/.agents/skills/tooling-mcp-servers",
 	} {
@@ -204,7 +204,7 @@ func TestRegistryCheckCleanReturnsZero(t *testing.T) {
 	writeFakeDispatch(t, root, "example-repo", 119, "20260527-130000", "", &dispatchMeta{
 		PID:          os.Getpid(),
 		StartedAt:    time.Unix(1700000000, 0).UTC(),
-		Ref:          "example-org/example-repo#119",
+		Ref:          issueRefText("example-repo", 119),
 		PathsClaimed: []string{"/work/foo"},
 	})
 	out, err := runRegistryCheckCmd(t, d, []string{"/work/bar"})
@@ -224,7 +224,7 @@ func TestRegistryCheckExactConflict(t *testing.T) {
 	writeFakeDispatch(t, root, "example-repo", 119, "20260527-130000", "", &dispatchMeta{
 		PID:          os.Getpid(),
 		StartedAt:    time.Unix(1700000000, 0).UTC(),
-		Ref:          "example-org/example-repo#119",
+		Ref:          issueRefText("example-repo", 119),
 		PathsClaimed: []string{"/work/foo"},
 	})
 	out, err := runRegistryCheckCmd(t, d, []string{"/work/foo"})
@@ -244,7 +244,7 @@ func TestRegistryCheckAncestorConflict(t *testing.T) {
 	writeFakeDispatch(t, root, "example-repo", 119, "20260527-130000", "", &dispatchMeta{
 		PID:          os.Getpid(),
 		StartedAt:    time.Unix(1700000000, 0).UTC(),
-		Ref:          "example-org/example-repo#119",
+		Ref:          issueRefText("example-repo", 119),
 		PathsClaimed: []string{"/work/skills/tooling-foo"},
 	})
 	out, err := runRegistryCheckCmd(t, d, []string{"/work/skills/tooling-foo/SKILL.md"})
@@ -264,7 +264,7 @@ func TestRegistryCheckAncestorBoundary(t *testing.T) {
 	writeFakeDispatch(t, root, "example-repo", 119, "20260527-130000", "", &dispatchMeta{
 		PID:          os.Getpid(),
 		StartedAt:    time.Unix(1700000000, 0).UTC(),
-		Ref:          "example-org/example-repo#119",
+		Ref:          issueRefText("example-repo", 119),
 		PathsClaimed: []string{"/work/skills/tooling-foo"},
 	})
 	out, err := runRegistryCheckCmd(t, d, []string{"/work/skills/tooling-foobar"})
@@ -282,7 +282,7 @@ func TestRegistryListJSON(t *testing.T) {
 	writeFakeDispatch(t, root, "example-repo", 119, "20260527-130000", "", &dispatchMeta{
 		PID:       livePID,
 		StartedAt: time.Unix(1700000000, 0).UTC(),
-		Ref:       "example-org/example-repo#119",
+		Ref:       issueRefText("example-repo", 119),
 	})
 	out, err := runRegistryCmd(t, d, []string{"list", "--json"})
 	if err != nil {
@@ -292,7 +292,7 @@ func TestRegistryListJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("parse JSON output: %v\n%s", err, out)
 	}
-	if len(got) != 1 || got[0].PID != livePID || got[0].Ref != "example-org/example-repo#119" {
+	if len(got) != 1 || got[0].PID != livePID || got[0].Ref != issueRefText("example-repo", 119) {
 		t.Fatalf("unexpected entries: %+v", got)
 	}
 }

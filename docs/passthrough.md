@@ -35,4 +35,4 @@ A `never pass <token>` over an opaque-argument tool is a speed-bump, not a bound
 
 The wildcard funnel already enforced `when`/`deny-when`/gates/flag-policy at invocation (`actionFor`). The passthrough dialect lifts `when`/`deny-when` to wrap scope (`Guardfile.Whens`, applied to every leaf) and adds the `shell <cmd>` selector source resolved through a `HostResolver` (injectable for tests; nil execs for real). `Surface.Guards` renders the wrap-level guards in the describe doc.
 
-Design: [#130](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/130), the security-pure-engine refactor ([#123](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/123)).
+Design: the security-pure-engine refactor.

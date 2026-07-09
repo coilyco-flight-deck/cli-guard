@@ -69,7 +69,7 @@ func renderDeny(name, recovery string) string {
 # denied invocation gets a clear recovery message. A same-user agent can
 # still reach the real binary by absolute path; the PreToolUse hook
 # (basename-aware) and the sudo/ownership floor are the actual enforcement.
-# See cli-guard #79.
+# See the path-boundary rule in the dispatch docs.
 printf '%%s\n' %s >&2
 exit 2
 `, sq(name), sq(name), sq(msg))

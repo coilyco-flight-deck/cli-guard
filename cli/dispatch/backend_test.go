@@ -136,7 +136,7 @@ func TestBackend_DetachedRunUsesBackend(t *testing.T) {
 	b := &fakeBackend{name: "container", prepareCwd: cwd}
 	d := newBackendDispatcher(t, b)
 
-	c := parsedHeadlessCmd(t, d, "example-org/example-repo#42")
+	c := parsedHeadlessCmd(t, d, issueRefText("example-repo", 42))
 	if err := d.runDetached(context.Background(), c, detachedSpec{mode: "headless", surface: levelHeadless, prompt: seedPrompt}); err != nil {
 		t.Fatalf("runDetached: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestBackend_DetachedRunUsesBackend(t *testing.T) {
 		t.Errorf("SpawnPlan.Cwd = %q, want the prepared cwd %q", b.spawnPlan.Cwd, cwd)
 	}
 	if b.spawnPlan.Ref == nil || b.spawnPlan.Ref.Number != 42 {
-		t.Errorf("SpawnPlan.Ref = %+v, want #42", b.spawnPlan.Ref)
+		t.Errorf("SpawnPlan.Ref = %+v, want issue 42", b.spawnPlan.Ref)
 	}
 	if !strings.HasSuffix(b.spawnPlan.LogPath, ".log") {
 		t.Errorf("SpawnPlan.LogPath = %q, want a .log file", b.spawnPlan.LogPath)
@@ -178,7 +178,7 @@ func TestBackend_SpawnFailureReleasesReservation(t *testing.T) {
 	b := &fakeBackend{name: "container", prepareCwd: t.TempDir(), spawnErr: errors.New("boom")}
 	d := newBackendDispatcher(t, b)
 
-	c := parsedHeadlessCmd(t, d, "example-org/example-repo#42")
+	c := parsedHeadlessCmd(t, d, issueRefText("example-repo", 42))
 	err := d.runDetached(context.Background(), c, detachedSpec{mode: "headless", surface: levelHeadless, prompt: seedPrompt})
 	if err == nil {
 		t.Fatal("expected spawn failure, got nil")
@@ -194,7 +194,7 @@ func TestBackend_PrepareFailureReleasesReservation(t *testing.T) {
 	b := &fakeBackend{name: "container", prepareErr: errors.New("no room")}
 	d := newBackendDispatcher(t, b)
 
-	c := parsedHeadlessCmd(t, d, "example-org/example-repo#42")
+	c := parsedHeadlessCmd(t, d, issueRefText("example-repo", 42))
 	if err := d.runDetached(context.Background(), c, detachedSpec{mode: "headless", surface: levelHeadless, prompt: seedPrompt}); err == nil {
 		t.Fatal("expected prepare failure, got nil")
 	}
@@ -212,7 +212,7 @@ func TestBackend_DryRunPreparesWithoutReserveOrSpawn(t *testing.T) {
 	b := &fakeBackend{name: "container", prepareCwd: t.TempDir()}
 	d := newBackendDispatcher(t, b)
 
-	c := parsedHeadlessCmd(t, d, "--dry-run", "example-org/example-repo#42")
+	c := parsedHeadlessCmd(t, d, "--dry-run", issueRefText("example-repo", 42))
 	if err := d.runDetached(context.Background(), c, detachedSpec{mode: "headless", surface: levelHeadless, prompt: seedPrompt}); err != nil {
 		t.Fatalf("runDetached dry-run: %v", err)
 	}

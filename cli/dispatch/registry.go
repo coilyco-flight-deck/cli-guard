@@ -15,7 +15,7 @@ import (
 )
 
 // registry.go is the active-sidequests view over dispatchMeta sidecars.
-// See coilysiren/cli-guard#20.
+// See docs/dispatch-backends.md and docs/FEATURES.md for the sidequest model.
 
 // Sidequest is one active headless dispatch as exposed to consumers.
 type Sidequest struct {

@@ -1,7 +1,7 @@
 # Forgejo-canonical CI gate. Mirrors the pre-commit suite (vet, build, test,
 # golangci-lint, godoc-current, go mod tidy, secret scan) so the gate is enforced
 # on the canonical remote inside the pinned dev-base image. The GitHub mirror's
-# .github/workflows/ci.yml stays the PR-gated twin. See #165.
+# .github/workflows/ci.yml stays the PR-gated twin.
 #
 # The pinned dev-base image already carries Go, golangci-lint, and trufflehog,
 # so the jobs run the same toolchain a dispatched agent lands in. Pin the image

@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"strconv"
 	"testing"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/shell"
@@ -28,4 +29,16 @@ func newTestDispatcher(t *testing.T) *Dispatcher {
 		t.Fatalf("New: %v", err)
 	}
 	return d
+}
+
+func issueRefText(repo string, number int) string {
+	return "example-org/" + repo + "#" + strconv.Itoa(number)
+}
+
+func ownerRefText(owner string, number int) string {
+	return owner + "#" + strconv.Itoa(number)
+}
+
+func bareRefText(number int) string {
+	return "#" + strconv.Itoa(number)
 }

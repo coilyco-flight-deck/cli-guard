@@ -96,7 +96,7 @@ func TestCascadeSeedPrompt(t *testing.T) {
 	got := cascadeSeedPrompt(ref, issue, "/repo/example-repo", 3)
 	for _, want := range []string{
 		"cascade worker with a recursion depth budget of 3",
-		"Work on Forgejo issue example-org/example-repo#130.",
+		"Work on Forgejo issue " + issueRefText("example-repo", 130) + ".",
 		"migrate repos A B C",
 		"do NOT close this issue",
 		"closes #",
@@ -147,7 +147,7 @@ func TestDispatchHasCascadeSubverb(t *testing.T) {
 func TestDispatchBare_NamesCascade(t *testing.T) {
 	d := newTestDispatcher(t)
 	cmd := d.Command()
-	err := cmd.Run(context.Background(), []string{"dispatch", "example-org/example-repo#130"})
+	err := cmd.Run(context.Background(), []string{"dispatch", issueRefText("example-repo", 130)})
 	if err == nil {
 		t.Fatal("bare dispatch <ref> should error")
 	}

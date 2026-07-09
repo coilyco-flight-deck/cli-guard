@@ -5,7 +5,7 @@ versioned request/response protocol over a unix socket through which an
 unprivileged client asks a privileged server to act on issues and dispatch
 work - *without the client ever holding the credential*.
 
-It is the foundation piece for ward's root broker (ward#329), where a root
+It is the foundation piece for ward's root broker, where a root
 daemon holds the bot token while an explore agent reaches the forge and the
 dispatch path through the daemon socket, holding nothing itself.
 

@@ -25,7 +25,7 @@ import (
 const dispatchStatusTailLines = 15
 
 // dispatchMeta is the sidecar JSON next to a headless dispatch log.
-// ParentSession + PathsClaimed back the sidequest registry (cli-guard#20).
+// ParentSession + PathsClaimed back the sidequest registry.
 type dispatchMeta struct {
 	PID           int       `json:"pid"`
 	StartedAt     time.Time `json:"started_at"`

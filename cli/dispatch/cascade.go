@@ -184,7 +184,7 @@ func cascadeWorktreeFooter(repoPath string, number int, title string) string {
 		"- Run tests, linters, and builds without asking. Fix failures. Never use --no-verify.\n"+
 		"- To land work you do directly (no fan-out): run `git -C %s merge %s` then `git -C %s push origin main`. Resolve any merge conflicts yourself. Never force-push.\n"+
 		"- If `git push origin main` is rejected as non-fast-forward (a sibling worker pushed first), run `git -C %s pull --rebase origin main`, re-run tests/build, then merge and push again. Repeat until it lands.\n"+
-		"- If you do the work directly (no fan-out), close this issue with a commit trailer: closes #<N>.\n"+
+		"- If you do the work directly (no fan-out), close this issue with a commit trailer that closes the issue: closes #<N>.\n"+
 		"- If you fan out, do NOT close this issue: it stays open until the spawned leaves land their own work and close their own sub-issues. Leave a summary comment instead. Your worktree branch may stay empty - that is fine, it reaps once merged (an empty branch is already an ancestor of main).\n"+
 		"- Use `dispatch registry list` to see sibling sidequests before writing shared paths.\n"+
 		"- Leave the worktree directory in place - the next `dispatch` run reaps it once the branch merges into main.\n",

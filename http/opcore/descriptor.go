@@ -2,7 +2,7 @@
 // design: the per-operation descriptor, the request runtime, and the
 // self-guarding Operation.Execute entrypoint. specverb projects this core onto
 // a urfave/cli tree; a non-CLI consumer (ward-mcp) drives Operation.Execute
-// directly and is still fully gated. See docs/specverb.md and cli-guard#196.
+// directly and is still fully gated. See docs/specverb.md for the projection shape.
 package opcore
 
 // Descriptor is the tiny per-operation payload the generic action binds to,

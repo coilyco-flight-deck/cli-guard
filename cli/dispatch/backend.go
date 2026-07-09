@@ -3,7 +3,7 @@ package dispatch
 import "context"
 
 // backend.go defines the pluggable backend seam for the detached surfaces
-// (headless, cascade). See docs/dispatch-backends.md and issue #162.
+// (headless, cascade). See docs/dispatch-backends.md for the seam details.
 
 // Backend abstracts where and how a detached dispatch runs: reserve
 // capacity, prepare a working dir, spawn the worker, reap finished work.

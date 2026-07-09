@@ -72,20 +72,20 @@ func TestStatus_List_NewestFirst(t *testing.T) {
 	d.cfg.LogRoot = func() (string, error) { return root, nil }
 
 	writeFakeDispatch(t, root, "example-repo", 1, "20260101-101010", "old log\n", &dispatchMeta{
-		PID: 1, StartedAt: time.Date(2026, 1, 1, 10, 10, 10, 0, time.UTC), Ref: "example-org/example-repo#1",
+		PID: 1, StartedAt: time.Date(2026, 1, 1, 10, 10, 10, 0, time.UTC), Ref: issueRefText("example-repo", 1),
 	})
 	writeFakeDispatch(t, root, "another-repo", 5, "20260301-090000",
 		"line one\nline two\nline three\n", &dispatchMeta{
-			PID: 2, StartedAt: time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC), Ref: "example-org/another-repo#5",
+			PID: 2, StartedAt: time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC), Ref: issueRefText("another-repo", 5),
 		})
 
 	out, err := runStatusCmd(t, d, []string{"--all"})
 	if err != nil {
 		t.Fatalf("status --all: %v", err)
 	}
-	// Both dispatches must appear, newest (another-repo#5) listed first.
-	idxNewest := strings.Index(out, "example-org/another-repo#5")
-	idxOlder := strings.Index(out, "example-org/example-repo#1")
+	// Both dispatches must appear, newest listed first.
+	idxNewest := strings.Index(out, issueRefText("another-repo", 5))
+	idxOlder := strings.Index(out, issueRefText("example-repo", 1))
 	if idxNewest < 0 || idxOlder < 0 {
 		t.Fatalf("expected both refs listed, got:\n%s", out)
 	}
@@ -102,7 +102,7 @@ func TestStatus_List_WindowFiltersOld(t *testing.T) {
 	d.cfg.LogRoot = func() (string, error) { return root, nil }
 
 	writeFakeDispatch(t, root, "example-repo", 7, "20260101-101010", "ancient\n", &dispatchMeta{
-		PID: deadPID, StartedAt: time.Date(2026, 1, 1, 10, 10, 10, 0, time.UTC), Ref: "example-org/example-repo#7",
+		PID: deadPID, StartedAt: time.Date(2026, 1, 1, 10, 10, 10, 0, time.UTC), Ref: issueRefText("example-repo", 7),
 	})
 
 	out, err := runStatusCmd(t, d, nil)
@@ -112,7 +112,7 @@ func TestStatus_List_WindowFiltersOld(t *testing.T) {
 	if !strings.Contains(out, "no dispatches active or spawned within") {
 		t.Errorf("expected empty-window fallback note, got:\n%s", out)
 	}
-	if !strings.Contains(out, "example-org/example-repo#7") {
+	if !strings.Contains(out, issueRefText("example-repo", 7)) {
 		t.Errorf("expected most-recent hint to name the dispatch, got:\n%s", out)
 	}
 }
@@ -127,14 +127,14 @@ func TestStatus_List_RunningAlwaysShows(t *testing.T) {
 	// os.Getpid() is alive for the duration of the test, so processRunning
 	// returns true; the old timestamp would otherwise filter it out.
 	writeFakeDispatch(t, root, "example-repo", 8, "20260101-101010", "running\n", &dispatchMeta{
-		PID: os.Getpid(), StartedAt: time.Date(2026, 1, 1, 10, 10, 10, 0, time.UTC), Ref: "example-org/example-repo#8",
+		PID: os.Getpid(), StartedAt: time.Date(2026, 1, 1, 10, 10, 10, 0, time.UTC), Ref: issueRefText("example-repo", 8),
 	})
 
 	out, err := runStatusCmd(t, d, nil)
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	if !strings.Contains(out, "example-org/example-repo#8") || !strings.Contains(out, "RUNNING") {
+	if !strings.Contains(out, issueRefText("example-repo", 8)) || !strings.Contains(out, "RUNNING") {
 		t.Errorf("expected the running dispatch listed despite old spawn time, got:\n%s", out)
 	}
 }
@@ -148,19 +148,19 @@ func TestStatus_ByRef_FiltersToRepoAndNumber(t *testing.T) {
 
 	// Newer log for a different repo - status must skip it.
 	writeFakeDispatch(t, root, "another-repo", 5, "20260301-090000", "other repo\n", nil)
-	// Two logs for example-repo#330: pick the newer one.
+	// Two logs for example-repo issue 330: pick the newer one.
 	writeFakeDispatch(t, root, "example-repo", 330, "20260101-100000", "older 330\n", nil)
 	target := writeFakeDispatch(t, root, "example-repo", 330, "20260201-100000",
 		"newer 330\nmore newer\n", &dispatchMeta{
-			PID: 99999, StartedAt: time.Date(2026, 2, 1, 10, 0, 0, 0, time.UTC), Ref: "example-org/example-repo#330",
+			PID: 99999, StartedAt: time.Date(2026, 2, 1, 10, 0, 0, 0, time.UTC), Ref: issueRefText("example-repo", 330),
 		})
 
-	out, err := runStatusCmd(t, d, []string{"example-org/example-repo#330"})
+	out, err := runStatusCmd(t, d, []string{issueRefText("example-repo", 330)})
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
 	if !strings.Contains(out, target) {
-		t.Errorf("expected newer example-repo#330 log %q in output, got:\n%s", target, out)
+		t.Errorf("expected newer example-repo issue 330 log %q in output, got:\n%s", target, out)
 	}
 	if strings.Contains(out, "another-repo") {
 		t.Errorf("unrelated repo leaked into output:\n%s", out)
@@ -231,7 +231,7 @@ func TestStatus_RejectsPidPlusRef(t *testing.T) {
 	d.cfg.LogRoot = func() (string, error) { return root, nil }
 	writeFakeDispatch(t, root, "example-repo", 1, "20260101-100000", "x\n", &dispatchMeta{PID: 1})
 
-	_, err := runStatusCmd(t, d, []string{"--pid", "1", "example-org/example-repo#1"})
+	_, err := runStatusCmd(t, d, []string{"--pid", "1", issueRefText("example-repo", 1)})
 	if err == nil {
 		t.Fatal("expected error when --pid and ref combined")
 	}
@@ -259,7 +259,7 @@ func TestStatus_MissingMeta_Degrades(t *testing.T) {
 	}
 
 	// The full block (by ref) still renders the tail for a sidecar-less log.
-	block, err := runStatusCmd(t, d, []string{"example-org/example-repo#1"})
+	block, err := runStatusCmd(t, d, []string{issueRefText("example-repo", 1)})
 	if err != nil {
 		t.Fatalf("status by ref with missing meta: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestStatus_ExitedShowsDuration(t *testing.T) {
 	logPath := writeFakeDispatch(t, root, "example-repo", 42, "20260101-100000", "done\n", &dispatchMeta{
 		PID:       1, // pid 1 is init / launchd; signal-0 returns EPERM, treated as not-running
 		StartedAt: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC),
-		Ref:       "example-org/example-repo#42",
+		Ref:       issueRefText("example-repo", 42),
 	})
 	// Bump the log mtime to 5m after spawn so duration is deterministic.
 	later := time.Date(2026, 1, 1, 10, 5, 0, 0, time.UTC)
@@ -289,7 +289,7 @@ func TestStatus_ExitedShowsDuration(t *testing.T) {
 
 	// Target by ref so the full block (which carries the duration line)
 	// renders regardless of the bare list's time window.
-	out, err := runStatusCmd(t, d, []string{"example-org/example-repo#42"})
+	out, err := runStatusCmd(t, d, []string{issueRefText("example-repo", 42)})
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
@@ -355,7 +355,7 @@ func TestWriteAndReadDispatchMeta(t *testing.T) {
 	m := dispatchMeta{
 		PID:       4242,
 		StartedAt: time.Date(2026, 5, 22, 21, 35, 4, 0, time.UTC),
-		Ref:       "example-org/example-repo#7",
+		Ref:       issueRefText("example-repo", 7),
 		URL:       "https://github.com/example-org/example-repo/issues/7",
 	}
 	if err := writeDispatchMeta(logPath, m); err != nil {

@@ -13,7 +13,7 @@ import (
 )
 
 // TestInteractivePrompt_RefAndFirstAction pins the prompt contract. The
-// shim greps the owner/repo#N token out of the JSON payload via jq, but
+// shim greps the issue-ref token out of the JSON payload via jq, but
 func TestInteractivePrompt_RefAndFirstAction(t *testing.T) {
 	ref := &issueRef{Owner: "example-org", Repo: "example-repo", Number: 270}
 	issue := &ghIssue{
@@ -24,8 +24,8 @@ func TestInteractivePrompt_RefAndFirstAction(t *testing.T) {
 	}
 	got := interactivePrompt(ref, issue, "")
 
-	if !strings.HasPrefix(got, "Work on issue example-org/example-repo#270.") {
-		t.Errorf("interactivePrompt prefix = %q, want \"Work on issue example-org/example-repo#270.\" lead", got)
+	if !strings.HasPrefix(got, "Work on issue "+issueRefText("example-repo", 270)+".") {
+		t.Errorf("interactivePrompt prefix = %q, want issue lead", got)
 	}
 	for _, want := range []string{
 		"First action",
@@ -54,7 +54,7 @@ func TestInteractivePrompt_MainMode(t *testing.T) {
 	for _, want := range []string{
 		"canonical checkout on the default branch",
 		"there is no worktree",
-		"closes #300",
+		"closes the issue",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("main-mode prompt missing %q, got %q", want, got)
@@ -88,7 +88,7 @@ func TestInteractiveTitleLine(t *testing.T) {
 		State:  "open",
 	}
 	got := interactiveTitleLine(ref, issue)
-	want := "example-org/example-repo#279: dispatch interactive: echo issue title and prime first agent action"
+	want := issueRefText("example-repo", 279) + ": dispatch interactive: echo issue title and prime first agent action"
 	if got != want {
 		t.Errorf("interactiveTitleLine = %q, want %q", got, want)
 	}
@@ -100,10 +100,10 @@ func TestWriteDispatchQueueEntry_ModeAndJSON(t *testing.T) {
 	dir := t.TempDir()
 	entry := dispatchQueueEntry{
 		SchemaVersion: dispatchQueueSchemaVersion,
-		Ref:           "example-org/example-repo#280",
+		Ref:           issueRefText("example-repo", 280),
 		Title:         "concurrency race on scratch path",
 		Cwd:           "/Users/kai/projects/example-org/example-repo",
-		Prompt:        "Work on issue example-org/example-repo#280. First action: ...",
+		Prompt:        "Work on issue " + issueRefText("example-repo", 280) + ". First action: ...",
 	}
 	path, err := writeDispatchQueueEntry(dir, entry)
 	if err != nil {
@@ -143,10 +143,10 @@ func TestWriteDispatchQueueEntry_UniqueFilenames(t *testing.T) {
 	dir := t.TempDir()
 	entry := dispatchQueueEntry{
 		SchemaVersion: dispatchQueueSchemaVersion,
-		Ref:           "example-org/example-repo#280",
+		Ref:           issueRefText("example-repo", 280),
 		Title:         "concurrency race on scratch path",
 		Cwd:           "/Users/kai/projects/example-org/example-repo",
-		Prompt:        "Work on issue example-org/example-repo#280.",
+		Prompt:        "Work on issue " + issueRefText("example-repo", 280) + ".",
 	}
 	seen := map[string]bool{}
 	for i := 0; i < 16; i++ {
@@ -243,7 +243,7 @@ func TestDispatchURL_RejectsUnknownSurface(t *testing.T) {
 func TestDispatchBare_ErrorsWithSurfaceGate(t *testing.T) {
 	d := newTestDispatcher(t)
 	cmd := d.Command()
-	err := cmd.Run(context.Background(), []string{"dispatch", "example-org/example-repo#270"})
+	err := cmd.Run(context.Background(), []string{"dispatch", issueRefText("example-repo", 270)})
 	if err == nil {
 		t.Fatal("bare dispatch <ref> should error with surface-gate, got nil")
 	}
@@ -277,7 +277,7 @@ func TestDispatchInteractiveRejectsPostureFlag(t *testing.T) {
 	d := newTestDispatcher(t)
 	cmd := d.Command()
 	err := cmd.Run(context.Background(), []string{
-		"dispatch", "interactive", "--posture", "consult", "example-org/example-repo#144",
+		"dispatch", "interactive", "--posture", "consult", issueRefText("example-repo", 144),
 	})
 	if err == nil {
 		t.Fatal("dispatch interactive --posture should error (flag removed), got nil")

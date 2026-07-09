@@ -38,7 +38,7 @@ type Fleet struct {
 	// Agents is the roster, in source order. Empty in an operator-local source.
 	Agents []Agent
 
-	// Roles is the per-role capability roster (ward#578): each startup role names
+// Roles is the per-role capability roster: each startup role names
 	// the guardfile set it holds. Empty when no `roles` block is present.
 	Roles []Role
 
@@ -63,19 +63,19 @@ type Agent struct {
 	Argv            Argv   // the three launch argvs (preflight/headless/interactive)
 }
 
-// Role is one entry in the per-role capability roster (ward#578): a name, the
-// guardfile set it holds, and an optional per-agent overlay (cli-guard#192).
+// Role is one entry in the per-role capability roster: a name, the
+// guardfile set it holds, and an optional per-agent overlay.
 type Role struct {
 	Name       string     // block name, e.g. `role advisor` -> "advisor"
 	Guardfiles Guardfiles // the guardfile set this role holds (list or prefix)
 
 	// AgentConfig is the sparse per-agent override overlay, keyed by agent name;
-	// nil when the role sets none. See docs/fleetconfig.md (cli-guard#192).
+	// nil when the role sets none. See docs/fleetconfig.md.
 	AgentConfig map[string]RoleAgentOverride
 }
 
 // RoleAgentOverride is a role's sparse overlay on a top-level `agent` node: only
-// the launch knobs a role may retune. See docs/fleetconfig.md (cli-guard#192).
+// the launch knobs a role may retune. See docs/fleetconfig.md.
 type RoleAgentOverride struct {
 	Model           string // model id override
 	Endpoint        string // API endpoint override
@@ -84,7 +84,7 @@ type RoleAgentOverride struct {
 }
 
 // Guardfiles is a role's guardfile set: EITHER a flat List of names OR a single
-// Prefix selecting by name prefix, mutually exclusive; both zero means none (ward#578).
+// Prefix selecting by name prefix, mutually exclusive; both zero means none.
 type Guardfiles struct {
 	List   []string // flat list of guardfile names; nil when Prefix is set
 	Prefix string   // a name prefix selecting a set; "" when List is used
@@ -317,7 +317,7 @@ func applyRolesChild(c *kdl.Node, f *Fleet, st *fleetState) error {
 }
 
 // parseRoles reads the `roles { role <name> { guardfiles ... } }` block: the
-// per-role capability roster (ward#578). Empty or malformed fails closed.
+// per-role capability roster. Empty or malformed fails closed.
 func parseRoles(n *kdl.Node) ([]Role, error) {
 	if len(n.Arguments()) != 0 {
 		return nil, fmt.Errorf("fleetconfig: `roles` takes no arguments, only a block (fail-closed)")
@@ -385,7 +385,7 @@ func parseRole(n *kdl.Node) (Role, error) {
 }
 
 // parseRoleAgent reads a role's `agent <name> { ... }` block: a sparse overlay of
-// the overridable launch knobs, reusing the agent grammar's names (cli-guard#192).
+// the overridable launch knobs, reusing the agent grammar's names.
 func parseRoleAgent(n *kdl.Node, role string) (string, RoleAgentOverride, error) {
 	name, err := singleStringArg(n, fmt.Sprintf("role %q > agent", role))
 	if err != nil {

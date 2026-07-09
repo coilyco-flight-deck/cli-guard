@@ -40,7 +40,7 @@ func TestCISeedPrompt_InPlaceFooter(t *testing.T) {
 	}
 	got := ciSeedPrompt(ref, issue)
 	for _, want := range []string{
-		"example-org/example-repo#141",
+		issueRefText("example-repo", 141),
 		"Forgejo issue",
 		"ci execution mode",
 		"design body here",
@@ -51,7 +51,7 @@ func TestCISeedPrompt_InPlaceFooter(t *testing.T) {
 		"git push origin HEAD:main",
 		"autonomous-block:",
 		"exit nonzero",
-		"closes #141",
+		"closes the issue",
 		"--no-verify",
 	} {
 		if !strings.Contains(got, want) {
@@ -87,7 +87,7 @@ func TestRunCI_ForegroundSuccess(t *testing.T) {
 		return 0, nil
 	}
 
-	c := parsedCICmd(t, d, "example-org/example-repo#141")
+	c := parsedCICmd(t, d, issueRefText("example-repo", 141))
 	if err := d.runCI(context.Background(), c); err != nil {
 		t.Fatalf("runCI clean exit should succeed, got: %v", err)
 	}
@@ -115,12 +115,12 @@ func TestRunCI_NonzeroExitFailsJob(t *testing.T) {
 		return 7, nil
 	}
 
-	c := parsedCICmd(t, d, "example-org/example-repo#141")
+	c := parsedCICmd(t, d, issueRefText("example-repo", 141))
 	err := d.runCI(context.Background(), c)
 	if err == nil {
 		t.Fatal("nonzero foreground exit should fail the job, got nil")
 	}
-	for _, want := range []string{"example-org/example-repo#141", "exited 7", "autonomous-block:"} {
+	for _, want := range []string{issueRefText("example-repo", 141), "exited 7", "autonomous-block:"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error missing %q in:\n%s", want, err.Error())
 		}
@@ -140,7 +140,7 @@ func TestRunCI_DryRunDoesNotSpawn(t *testing.T) {
 		return 0, nil
 	}
 
-	c := parsedCICmd(t, d, "--dry-run", "example-org/example-repo#141")
+	c := parsedCICmd(t, d, "--dry-run", issueRefText("example-repo", 141))
 	if err := d.runCI(context.Background(), c); err != nil {
 		t.Fatalf("dry-run runCI: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestRunCI_RejectsForeignOwner(t *testing.T) {
 		t.Fatal("must refuse before spawning")
 		return 0, nil
 	}
-	c := parsedCICmd(t, d, "someoneelse/repo#1")
+	c := parsedCICmd(t, d, ownerRefText("someoneelse/repo", 1))
 	err := d.runCI(context.Background(), c)
 	if err == nil || !strings.Contains(err.Error(), "refusing to dispatch outside example-org/*") {
 		t.Fatalf("runCI should refuse a foreign owner, got: %v", err)

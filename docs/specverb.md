@@ -46,4 +46,4 @@ One generic action backs every verb: path params positional, query/body fields a
 
 Proven across three specs: Forgejo (Swagger 2.0 JSON), Trello (OpenAPI 3.0 JSON, `in:query` mutation fields), and Tailscale (OpenAPI 3.1 YAML, `$ref` path params). `Prune` has a path per version, reducing a document to the granted ops plus the transitive closure of the components they reach.
 
-Design: [#75](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/75), [#146](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/146).
+Design: the Forgejo and Trello specverb implementations.

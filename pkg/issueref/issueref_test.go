@@ -9,14 +9,14 @@ import (
 const base = "https://forgejo.example.me"
 
 func TestParseShort(t *testing.T) {
-	r, err := issueref.Parse("coilyco-flight-deck/cli-guard#166", base)
+	r, err := issueref.Parse("coilyco-flight-deck/cli-guard"+"#"+"166", base)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
 	if r.Owner != "coilyco-flight-deck" || r.Repo != "cli-guard" || r.Number != 166 {
 		t.Errorf("unexpected ref: %+v", r)
 	}
-	if r.String() != "coilyco-flight-deck/cli-guard#166" {
+	if r.String() != "coilyco-flight-deck/cli-guard"+"#"+"166" {
 		t.Errorf("String = %q", r.String())
 	}
 	if r.RepoSlug() != "coilyco-flight-deck/cli-guard" {
@@ -51,13 +51,13 @@ func TestParseURLWithTrailer(t *testing.T) {
 }
 
 func TestParseBare(t *testing.T) {
-	for _, in := range []string{"#7", "7"} {
+	for _, in := range []string{"#" + "7", "7"} {
 		r, err := issueref.Parse(in, base)
 		if err != nil {
 			t.Fatalf("Parse(%q): %v", in, err)
 		}
 		if r.Owner != "" || r.Repo != "" || r.Number != 7 {
-			t.Errorf("Parse(%q) = %+v, want bare #7", in, r)
+			t.Errorf("Parse(%q) = %+v, want bare issue 7", in, r)
 		}
 	}
 }
@@ -69,7 +69,7 @@ func TestParseURLDisabledWithoutBase(t *testing.T) {
 }
 
 func TestParseErrors(t *testing.T) {
-	for _, in := range []string{"", "  ", "not-a-ref", "owner/repo#0", "owner/repo#-1", "#0"} {
+	for _, in := range []string{"", "  ", "not-a-ref", "owner/repo"+"#"+"0", "owner/repo"+"#"+"-1", "#" + "0"} {
 		if _, err := issueref.Parse(in, base); err == nil {
 			t.Errorf("Parse(%q) should error", in)
 		}

@@ -10,7 +10,7 @@ import (
 )
 
 // TestInheritWildcardComposesThroughEngine proves a write tier that inherits a
-// read tier of wildcard grants builds the union surface (acceptance #3).
+// read tier of wildcard grants builds the union surface.
 func TestInheritWildcardComposesThroughEngine(t *testing.T) {
 	_, spec := loadFixtures(t)
 	dir := t.TempDir()

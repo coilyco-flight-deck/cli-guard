@@ -45,7 +45,7 @@ func TestInteractivePrompt_ConsultSurface(t *testing.T) {
 	if !strings.HasPrefix(got, "You are in auto mode.") {
 		t.Errorf("consult prompt should lead with the consult preamble, got %q", got)
 	}
-	if !strings.Contains(got, "Work on issue example-org/example-repo#144.") {
+	if !strings.Contains(got, "Work on issue "+issueRefText("example-repo", 144)+".") {
 		t.Errorf("consult prompt missing the work instruction, got %q", got)
 	}
 }
@@ -61,7 +61,7 @@ func TestInteractivePrompt_InteractiveSurface(t *testing.T) {
 		State:  "open",
 	}
 	got := interactivePrompt(ref, issue, "")
-	if !strings.HasPrefix(got, "Work on issue example-org/example-repo#144.") {
+	if !strings.HasPrefix(got, "Work on issue "+issueRefText("example-repo", 144)+".") {
 		t.Errorf("interactive prompt should lead with the work instruction, got %q", got)
 	}
 }
@@ -80,7 +80,7 @@ func TestSeedPrompt_HeadlessPreamble(t *testing.T) {
 	if !strings.HasPrefix(got, "Complete this work end to end") {
 		t.Errorf("headless seed prompt should lead with the headless preamble, got %q", got)
 	}
-	for _, want := range []string{"Work on Forgejo issue example-org/example-repo#144.", "Workflow rules"} {
+	for _, want := range []string{"Work on Forgejo issue " + issueRefText("example-repo", 144) + ".", "Workflow rules"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("headless seed prompt missing %q, got %q", want, got)
 		}

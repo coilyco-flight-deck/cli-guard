@@ -11,7 +11,7 @@ import (
 )
 
 // ci.go is the foreground / in-place surface: run claude -p inside a
-// Forgejo Actions runner (coilyco-flight-deck/cli-guard#141).
+// Forgejo Actions runner.
 
 // ciCommand runs claude -p in the foreground, in place, against the issue,
 // blocking until the agent exits so the Actions job tracks its lifecycle.
@@ -92,7 +92,7 @@ func (d *Dispatcher) runCI(ctx context.Context, c *cli.Command) error {
 		return fmt.Errorf("dispatch ci: pass exactly one issue reference (got %d args)", len(args))
 	}
 	// ci runs claude -p unattended, so it is autonomous and gates at the
-	// headless ceiling (agentic-os#246).
+	// headless ceiling.
 	ref, issue, err := d.resolveDispatchIssue(ctx, args[0], levelHeadless)
 	if err != nil {
 		return err
@@ -155,7 +155,7 @@ func ciInPlaceFooter(number int) string {
 		"- When the work is complete and verified (tests, linters, builds green), land it: commit, then `git push origin HEAD:main`. Resolve any merge conflicts yourself. Never force-push.\n"+
 		"- If the push is rejected as non-fast-forward (someone pushed first), run `git pull --rebase origin main`, re-run tests/build, then push again. Repeat until it lands.\n"+
 		"- If you cannot land the work - validation keeps failing and you cannot fix it, or the issue is blocked on a decision you cannot make - file an `autonomous-block:` issue in this repo describing the blocker, with a link back to this issue, then exit nonzero so the CI job reports the failure. Do not push a broken tree.\n"+
-		"- Close the issue with a commit trailer: closes #%d (or fixes / resolves).\n",
+		"- Close the issue with a commit trailer that closes the issue: closes #%d (or fixes / resolves).\n",
 		number)
 }
 

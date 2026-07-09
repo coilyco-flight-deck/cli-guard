@@ -107,7 +107,7 @@ func TestContextLevelUnset(t *testing.T) {
 	}
 }
 
-// TestParseRoles exercises the per-role capability roster (ward#578): a flat
+// TestParseRoles exercises the per-role capability roster: a flat
 // list, a prefix, an empty-set role, and that the parsed shape round-trips.
 func TestParseRoles(t *testing.T) {
 	src := `
@@ -154,7 +154,7 @@ fleet {
 }
 
 // TestParseRoleAgentOverrides exercises the per-agent override overlay
-// (cli-guard#192): guardfiles-only, agent-only, and a role carrying both.
+// guardfiles-only, agent-only, and a role carrying both.
 func TestParseRoleAgentOverrides(t *testing.T) {
 	src := `
 fleet {

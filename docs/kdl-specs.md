@@ -29,4 +29,4 @@ The consumer's only source-of-truth build artifacts, the analog of `pyproject.to
 
 First `run` after a fresh `lock` works offline because `lock`'s `go mod tidy` already warmed the module cache.
 
-Origin: [cli-guard#106](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/106).
+Origin: the KDL specs surface.

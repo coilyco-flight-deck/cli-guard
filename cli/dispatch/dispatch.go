@@ -471,7 +471,7 @@ const (
 )
 
 // String renders the surface level as its label/surface name (the two
-// vocabularies are deliberately one, agentic-os#246).
+// vocabularies are deliberately one.
 func (s surfaceLevel) String() string {
 	switch s {
 	case levelHeadless:
@@ -557,7 +557,7 @@ func (d *Dispatcher) resolveDispatchIssue(ctx context.Context, raw string, surfa
 		return nil, nil, fmt.Errorf("dispatch: refusing to dispatch against non-open issue %s (state=%s)", ref, issue.State)
 	}
 	// Automation-mode ceiling: run a surface only when surface <= mode on
-	// headless > interactive > consult; unlabeled fails closed (agentic-os#246).
+	// headless > interactive > consult; unlabeled fails closed.
 	if mode, modeName := issueModeLevel(issue); surface > mode {
 		return nil, nil, fmt.Errorf(
 			"dispatch: refusing %s surface on %s: issue automation mode is %q, ceiling %s (rule: surface <= mode on headless > interactive > consult) - relabel the issue to raise the ceiling",
@@ -946,7 +946,7 @@ func detachedWorktreeFooter(repoPath string, number int, title string) string {
 		"- Run tests, linters, and builds without asking. Fix failures. Never use --no-verify.\n"+
 		"- When the work is complete and verified (tests, linters, builds green), land it: run `git -C %s merge %s` then `git -C %s push origin main`. Resolve any merge conflicts yourself. Never force-push.\n"+
 		"- If `git push origin main` is rejected as non-fast-forward (a sibling worker pushed first), run `git -C %s pull --rebase origin main`, re-run tests/build, then merge and push again. Repeat until it lands.\n"+
-		"- Close the issue with a commit trailer: closes #<N> (or fixes / resolves).\n"+
+		"- Close the issue with a commit trailer that closes the issue: closes #<N> (or fixes / resolves).\n"+
 		"- Leave the worktree directory in place - the next `dispatch` run reaps it once the merge lands.\n",
 		branch, repoPath, branch, repoPath, repoPath)
 }

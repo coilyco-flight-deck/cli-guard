@@ -52,7 +52,7 @@ Wildcards and specifics compose through the existing deny-wins rule
   ([`prune.go`](../http/specverb/prune.go)).
 - **Future-proofing.** A new spec resource exposing `delete` is auto-denied by
   `never delete "*"` with no guardfile edit — the deny-by-structure direction of
-  [cli-guard#79](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/79).
+  the local wildcard grant rule.
 - **Empty expansion is an error.** A wildcard whose verb no resource exposes (a
   typo'd verb, or a verb the spec never declares) fails the build rather than
   mounting nothing silently.
@@ -72,6 +72,6 @@ sees it exists because of a wildcard rule, not a per-resource line.
 `readonly` becomes `can get "*"` + `can list "*"` (everything else unmounted =
 denied); a no-delete `admin` build adds `never delete "*"`. Without wildcards each
 build hand-lists every `(verb, resource)` across the whole spec and rots as the
-spec grows. See [ward#240](https://forgejo.coilysiren.me/coilyco-bridge/ward/issues/240)
+spec grows. See the ward wildcard design note
 (readonly/write/admin forgejo builds) and
-[cli-guard#159](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/159).
+the local wildcard design note.

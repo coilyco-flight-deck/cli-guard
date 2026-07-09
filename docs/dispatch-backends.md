@@ -1,6 +1,6 @@
 # Pluggable dispatch backends and pre-flight verdicts
 
-The [dispatch](FEATURES.md) subsystem fires `claude` against a real open issue. Its core - owner allow-listing (`AllowedOwner` / `AllowedOwners`), reference parsing (`IssueRef` / `ParseIssueRef`), and the sidequest registry - is shared. Two seams let a consumer drive the detached surfaces (`headless`, `cascade`) without re-hosting that core: the run **backend** and the pre-flight **verdict** stage. See [cli-guard#162](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/162).
+The [dispatch](FEATURES.md) subsystem fires `claude` against a real open issue. Its core - owner allow-listing (`AllowedOwner` / `AllowedOwners`), reference parsing (`IssueRef` / `ParseIssueRef`), and the sidequest registry - is shared. Two seams let a consumer drive the detached surfaces (`headless`, `cascade`) without re-hosting that core: the run **backend** and the pre-flight **verdict** stage.
 
 ## Backend seam
 

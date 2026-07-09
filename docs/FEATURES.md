@@ -66,4 +66,4 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 - [AGENTS.md](../AGENTS.md) - agent-facing operating rules.
 - [features-detail.md](features-detail.md) - per-primitive details.
 
-Cross-reference convention from [coilysiren/agentic-os#59](https://github.com/coilysiren/agentic-os/issues/59).
+Cross-reference convention from the shared repo-pointer rule in the agentic-os docs.

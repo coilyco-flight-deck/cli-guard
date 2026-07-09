@@ -11,14 +11,14 @@ import (
 )
 
 // Operation is one resolved leaf plus the runtime that fires it: the unit a
-// non-CLI consumer (ward-mcp) drives via the self-guarding Execute. See #196.
+// non-CLI consumer (ward-mcp) drives via the self-guarding Execute.
 type Operation struct {
 	Desc Descriptor
 	RT   *Runtime
 }
 
 // Args is the operator input to one Operation, split by URL location: Path and
-// Query values reach the URL (the injection surface); Body does not. See #136.
+// Query values reach the URL (the injection surface); Body does not.
 type Args struct {
 	Path  map[string]string
 	Query map[string]string

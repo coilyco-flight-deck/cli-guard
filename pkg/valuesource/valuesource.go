@@ -65,7 +65,7 @@ type Source struct {
 }
 
 // ResolveFirst returns the first source resolving to a non-empty value with no
-// error, else a combined error naming each tried source - never a value (#176).
+// error, else a combined error naming each tried source - never a value.
 func ResolveFirst(ctx context.Context, providers map[string]Provider, sources []Source) (string, error) {
 	if len(sources) == 0 {
 		return "", fmt.Errorf("value chain names no source")

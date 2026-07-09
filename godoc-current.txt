@@ -1729,7 +1729,7 @@ func Invalidate() error
 package ghratelimit // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/ghratelimit"
 
 Package ghratelimit retries gh-CLI calls that fail with a GitHub rate-limit
-error. v1 of cli-guard#66: pattern-match the failure mode
+error. v1 pattern-matches the failure mode.
 
 CONSTANTS
 
@@ -2206,7 +2206,7 @@ Package opcore is the urfave/cli-free engine core of the spec-driven verb
 design: the per-operation descriptor, the request runtime, and the self-guarding
 Operation.Execute entrypoint. specverb projects this core onto a urfave/cli
 tree; a non-CLI consumer (ward-mcp) drives Operation.Execute directly and is
-still fully gated. See docs/specverb.md and cli-guard#196.
+still fully gated. See docs/specverb.md for the projection shape.
 
 CONSTANTS
 
@@ -2296,7 +2296,7 @@ type Args struct {
 	Body  map[string]any
 }
     Args is the operator input to one Operation, split by URL location: Path and
-    Query values reach the URL (the injection surface); Body does not. See #136.
+    Query values reach the URL (the injection surface); Body does not.
 
 type Descriptor struct {
 	VerbName    string         // dotted audit name, e.g. ward.ops.forgejo.repo.create
@@ -2343,7 +2343,7 @@ type Operation struct {
 	RT   *Runtime
 }
     Operation is one resolved leaf plus the runtime that fires it: the unit a
-    non-CLI consumer (ward-mcp) drives via the self-guarding Execute. See #196.
+    non-CLI consumer (ward-mcp) drives via the self-guarding Execute.
 
 func (o Operation) Execute(ctx context.Context, a Args) (Response, error)
     Execute runs the leaf under the full security floor (gate, restrict,
@@ -3684,7 +3684,7 @@ type Fleet struct {
 	// Agents is the roster, in source order. Empty in an operator-local source.
 	Agents []Agent
 
-	// Roles is the per-role capability roster (ward#578): each startup role names
+	// Roles is the per-role capability roster: each startup role names
 	// the guardfile set it holds. Empty when no `roles` block is present.
 	Roles []Role
 
@@ -3710,18 +3710,18 @@ type Guardfiles struct {
 }
     Guardfiles is a role's guardfile set: EITHER a flat List of names OR a
     single Prefix selecting by name prefix, mutually exclusive; both zero means
-    none (ward#578).
+    none.
 
 type Role struct {
 	Name       string     // block name, e.g. `role advisor` -> "advisor"
 	Guardfiles Guardfiles // the guardfile set this role holds (list or prefix)
 
 	// AgentConfig is the sparse per-agent override overlay, keyed by agent name;
-	// nil when the role sets none. See docs/fleetconfig.md (cli-guard#192).
+	// nil when the role sets none. See docs/fleetconfig.md.
 	AgentConfig map[string]RoleAgentOverride
 }
-    Role is one entry in the per-role capability roster (ward#578): a name, the
-    guardfile set it holds, and an optional per-agent overlay (cli-guard#192).
+    Role is one entry in the per-role capability roster: a name, the guardfile
+    set it holds, and an optional per-agent overlay.
 
 type RoleAgentOverride struct {
 	Model           string // model id override
@@ -3730,8 +3730,7 @@ type RoleAgentOverride struct {
 	Verbosity       string // verbosity override
 }
     RoleAgentOverride is a role's sparse overlay on a top-level `agent` node:
-    only the launch knobs a role may retune. See docs/fleetconfig.md
-    (cli-guard#192).
+    only the launch knobs a role may retune. See docs/fleetconfig.md.
 
 type Source int
     Source selects which subset of the one grammar a parse accepts. One parser,
@@ -4156,9 +4155,8 @@ func Resolve(ctx context.Context, providers map[string]Provider, provider, addre
     logged.
 
 func ResolveFirst(ctx context.Context, providers map[string]Provider, sources []Source) (string, error)
-    ResolveFirst returns the first source resolving to a non-empty value with
-    no error, else a combined error naming each tried source - never a value
-    (#176).
+    ResolveFirst returns the first source resolving to a non-empty value with no
+    error, else a combined error naming each tried source - never a value.
 
 
 TYPES

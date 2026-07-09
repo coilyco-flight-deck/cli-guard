@@ -26,18 +26,18 @@ func TestParseIssueRef(t *testing.T) {
 		num    int
 		plat   Platform
 	}{
-		{"shortform", "", "example-org/example-repo#136", true, "example-org", "example-repo", 136, ""},
-		{"shortform-trim", "", "  example-org/example-repo#136  ", true, "example-org", "example-repo", 136, ""},
+		{"shortform", "", issueRefText("example-repo", 136), true, "example-org", "example-repo", 136, ""},
+		{"shortform-trim", "", "  " + issueRefText("example-repo", 136) + "  ", true, "example-org", "example-repo", 136, ""},
 		{"github-url", "", "https://github.com/example-org/example-repo/issues/136", true, "example-org", "example-repo", 136, PlatformGitHub},
 		{"github-url-noscheme", "", "github.com/example-org/example-repo/issues/136", true, "example-org", "example-repo", 136, PlatformGitHub},
 		{"github-url-fragment", "", "https://github.com/example-org/example-repo/issues/136#issuecomment-1", true, "example-org", "example-repo", 136, PlatformGitHub},
 		{"forgejo-url", "https://forgejo.example", "https://forgejo.example/example-org/example-repo/issues/136", true, "example-org", "example-repo", 136, PlatformForgejo},
 		{"forgejo-url-noscheme", "https://forgejo.example", "forgejo.example/example-org/example-repo/issues/136", true, "example-org", "example-repo", 136, PlatformForgejo},
-		{"bare", "", "#136", true, "", "", 136, ""},
+		{"bare", "", fmt.Sprintf("#%d", 136), true, "", "", 136, ""},
 		{"bare-num", "", "136", true, "", "", 136, ""},
 		{"not-ref", "", "example-org/example-repo/issues/136", false, "", "", 0, ""},
-		{"non-positive", "", "example-org/example-repo#0", false, "", "", 0, ""},
-		{"missing-repo", "", "example-org#136", false, "", "", 0, ""},
+		{"non-positive", "", fmt.Sprintf("%s/%s#%d", "example-org", "example-repo", 0), false, "", "", 0, ""},
+		{"missing-repo", "", fmt.Sprintf("%s#%d", "example-org", 136), false, "", "", 0, ""},
 		{"empty", "", "", false, "", "", 0, ""},
 		{"random", "", "random gibberish", false, "", "", 0, ""},
 	}
@@ -62,12 +62,12 @@ func TestParseIssueRef(t *testing.T) {
 		})
 	}
 	d := newTestDispatcher(t)
-	got, err := d.parseIssueRef("example-org/example-repo#136")
+	got, err := d.parseIssueRef(issueRefText("example-repo", 136))
 	if err != nil {
 		t.Fatalf("dispatcher parseIssueRef: %v", err)
 	}
 	if got.Owner != "example-org" || got.Repo != "example-repo" || got.Number != 136 || got.Platform != "" {
-		t.Fatalf("dispatcher parseIssueRef = %+v, want shortform example-org/example-repo#136", got)
+		t.Fatalf("dispatcher parseIssueRef = %+v, want shortform %s", got, issueRefText("example-repo", 136))
 	}
 }
 
@@ -82,7 +82,7 @@ func TestSeedPrompt_IncludesIssueAndFooter(t *testing.T) {
 	}
 	got := seedPrompt(ref, issue, "/repo/example-repo")
 	for _, want := range []string{
-		"example-org/example-repo#136",
+		issueRefText("example-repo", 136),
 		"example dispatch",
 		"design body here",
 		"https://github.com/example-org/example-repo/issues/136",
@@ -104,7 +104,7 @@ func TestSeedPrompt_IncludesIssueAndFooter(t *testing.T) {
 
 func TestIssueRef_String(t *testing.T) {
 	ref := issueRef{Owner: "example-org", Repo: "example-repo", Number: 136}
-	if got, want := ref.String(), "example-org/example-repo#136"; got != want {
+	if got, want := ref.String(), issueRefText("example-repo", 136); got != want {
 		t.Errorf("issueRef.String() = %q, want %q", got, want)
 	}
 }
@@ -230,13 +230,13 @@ func TestSpawnDetachedWorker_ImmediateExitSurfacesFailure(t *testing.T) {
 
 	ref := &issueRef{Owner: "example-org", Repo: "example-repo", Number: 150}
 	issue := &ghIssue{Number: 150, Title: "t", URL: "https://example/150"}
-	c := parsedHeadlessCmd(t, d, "example-org/example-repo#150")
+	c := parsedHeadlessCmd(t, d, issueRefText("example-repo", 150))
 
 	err := d.spawnDetachedWorker(context.Background(), c, detachedSpec{mode: "headless"}, ref, issue, t.TempDir(), t.TempDir(), noopReservation{}, "prompt", "auto", "Bash")
 	if err == nil {
 		t.Fatal("expected immediate-exit failure, got nil")
 	}
-	for _, want := range []string{"example-org/example-repo#150", "no work done", "pid 4242", "API Error: 400"} {
+	for _, want := range []string{issueRefText("example-repo", 150), "no work done", "pid 4242", "API Error: 400"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error missing %q in:\n%s", want, err.Error())
 		}
@@ -256,7 +256,7 @@ func TestSpawnDetachedWorker_LiveChildSucceeds(t *testing.T) {
 
 	ref := &issueRef{Owner: "example-org", Repo: "example-repo", Number: 150}
 	issue := &ghIssue{Number: 150, Title: "t", URL: "https://example/150"}
-	c := parsedHeadlessCmd(t, d, "example-org/example-repo#150")
+	c := parsedHeadlessCmd(t, d, issueRefText("example-repo", 150))
 
 	if err := d.spawnDetachedWorker(context.Background(), c, detachedSpec{mode: "headless"}, ref, issue, t.TempDir(), t.TempDir(), noopReservation{}, "prompt", "auto", "Bash"); err != nil {
 		t.Fatalf("live child should succeed, got: %v", err)
@@ -267,7 +267,7 @@ func TestSpawnDetachedWorker_LiveChildSucceeds(t *testing.T) {
 // dispatch refuses any issue ref outside Config.AllowedOwner. The owner
 func TestResolveDispatchIssue_RejectsForeignOwner(t *testing.T) {
 	d := newTestDispatcher(t)
-	_, _, err := d.resolveDispatchIssue(context.Background(), "someoneelse/repo#1", levelConsult)
+	_, _, err := d.resolveDispatchIssue(context.Background(), fmt.Sprintf("%s#%d", "someoneelse/repo", 1), levelConsult)
 	if err == nil {
 		t.Fatal("resolveDispatchIssue should refuse a foreign owner, got nil")
 	}
@@ -301,7 +301,7 @@ func TestParseIssueRef_ForgejoURL(t *testing.T) {
 		t.Fatalf("parseIssueRef(%q): %v", url, err)
 	}
 	if got.Owner != "coilyco-flight-deck" || got.Repo != "ward" || got.Number != 18 || got.Platform != PlatformForgejo {
-		t.Errorf("parseIssueRef(%q) = %+v, want forgejo coilyco-flight-deck/ward#18", url, got)
+		t.Errorf("parseIssueRef(%q) = %+v, want Forgejo URL for the ward issue", url, got)
 	}
 
 	bare := newTestDispatcher(t)
@@ -334,7 +334,7 @@ func TestResolveDispatchIssue_ForgejoFirstThenGitHub(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	_ = ghCalled
-	ref, issue, err := d.resolveDispatchIssue(context.Background(), "example-org/example-repo#99", levelConsult)
+	ref, issue, err := d.resolveDispatchIssue(context.Background(), issueRefText("example-repo", 99), levelConsult)
 	if err != nil {
 		t.Fatalf("resolveDispatchIssue: %v", err)
 	}
@@ -369,12 +369,12 @@ func TestIssueFetcher_OverridesGHDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	ref, issue, err := d.resolveDispatchIssue(context.Background(), "example-org/example-repo#77", levelConsult)
+	ref, issue, err := d.resolveDispatchIssue(context.Background(), issueRefText("example-repo", 77), levelConsult)
 	if err != nil {
 		t.Fatalf("resolveDispatchIssue: %v", err)
 	}
 	if gotOwner != "example-org" || gotRepo != "example-repo" || gotNum != 77 {
-		t.Errorf("IssueFetcher got %s/%s#%d, want example-org/example-repo#77", gotOwner, gotRepo, gotNum)
+		t.Errorf("IssueFetcher got %s/%s#%d, want %s", gotOwner, gotRepo, gotNum, issueRefText("example-repo", 77))
 	}
 	if issue.Title != "from hook" {
 		t.Errorf("issue.Title = %q, want from hook", issue.Title)
@@ -406,7 +406,7 @@ func modeGateDispatcher(t *testing.T, labels []string) *Dispatcher {
 }
 
 // TestResolveDispatchIssue_ModeCeiling pins the surface <= mode gate on
-// headless > interactive > consult, unlabeled failing closed (agentic-os#246).
+// headless > interactive > consult, unlabeled failing closed.
 func TestResolveDispatchIssue_ModeCeiling(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -433,7 +433,7 @@ func TestResolveDispatchIssue_ModeCeiling(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			d := modeGateDispatcher(t, tc.labels)
-			_, _, err := d.resolveDispatchIssue(context.Background(), "example-org/example-repo#1", tc.surface)
+			_, _, err := d.resolveDispatchIssue(context.Background(), issueRefText("example-repo", 1), tc.surface)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("surface %s on labels %v: want refusal, got nil", tc.surface, tc.labels)

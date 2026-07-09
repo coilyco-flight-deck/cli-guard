@@ -146,8 +146,7 @@ func TestOnEvaluate_DenyShortCircuitsAndExitsPolicyDenied(t *testing.T) {
 	if c == nil || c.Code() != exitcode.PolicyDenied {
 		t.Errorf("exit code = %v, want PolicyDenied", c)
 	}
-	// The lockdown-axis deny must carry its own Reasoner why-line
-	// (coilyco-flight-deck/cli-guard#2).
+		// The lockdown-axis deny must carry its own Reasoner why-line.
 	var rsn exitcode.Reasoner
 	if !errors.As(err, &rsn) || rsn.Reason() == "" {
 		t.Errorf("lockdown policy_denied carried no Reason(); want the lockdown-axis why-line")
@@ -162,7 +161,7 @@ func TestOnEvaluate_DenyShortCircuitsAndExitsPolicyDenied(t *testing.T) {
 }
 
 // TestOnEvaluate_EvaluatorFailedHintIsConsumerAgnostic: an internal evaluator
-// error surfaces a hint that names no consumer filename (cli-guard#110).
+// error surfaces a hint that names no consumer filename.
 func TestOnEvaluate_EvaluatorFailedHintIsConsumerAgnostic(t *testing.T) {
 	w, _ := newWriterForTest(t)
 	wrapped := verb.Wrap(verb.Spec{

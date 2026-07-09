@@ -584,7 +584,7 @@ What the wrapper does NOT buy:
       readonly-vs-mutator gating is delegated to the lockdown deny
       list, which fires before the consumer ever runs.
 
-Why per-CLI subcommand trees were ripped (issue #27): generator-
+Why per-CLI subcommand trees were ripped: generator-
 driven trees that wrapped aws/gh/kubectl earned their cost only via
 the readonly-vs-mutator gate already handled by the lockdown deny
 list. The remaining benefits (help mirroring, tab completion below
@@ -921,8 +921,8 @@ dispatch.Config. Consumers wire their own.
 
 Try the dry-run paths, which resolve and print without spawning claude:
 
-    dispatch-demo dispatch headless    --dry-run example-org/example-repo#1
-    dispatch-demo dispatch interactive --dry-run example-org/example-repo#1`,
+    dispatch-demo dispatch headless    --dry-run https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/1
+    dispatch-demo dispatch interactive --dry-run https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/1`,
 		Commands: []*cli.Command{d.Command()},
 	}
 }

@@ -36,7 +36,7 @@ convention.
 - **fleetconfig** parses it into `Fleet.Description` for the consumer (e.g.
   `ward-kdl`) to surface.
 
-Origin: [cli-guard#179](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/179).
+Origin: the KDL description node.
 
 ## See also
 

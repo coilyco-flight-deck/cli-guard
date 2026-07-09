@@ -239,7 +239,7 @@ func interactivePrompt(ref *issueRef, issue *ghIssue, preamble string) string {
 		"Work on issue %s. First action: %s and read the full body and comment thread before doing anything else.",
 		ref, firstActionHint(ref, issue))
 	fmt.Fprintf(&b,
-		"\n\nThis session runs directly in the canonical checkout on the default branch - there is no worktree. Commit and push to `main` as you go; the operator is supervising, so what-you-see-is-what-ships. Close the issue with a commit trailer: closes #%d (or fixes / resolves).",
+		"\n\nThis session runs directly in the canonical checkout on the default branch - there is no worktree. Commit and push to `main` as you go; the operator is supervising, so what-you-see-is-what-ships. Close the issue with a commit trailer that closes the issue: closes #%d (or fixes / resolves).",
 		ref.Number)
 	return b.String()
 }
