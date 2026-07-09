@@ -17,6 +17,7 @@ import (
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/ghcache"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/ghratelimit"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/issueref"
 	"github.com/urfave/cli/v3"
 )
 
@@ -353,7 +354,7 @@ const (
 )
 
 // IssueRef is the parsed shape of an issue reference. Empty Platform
-// means shortform - resolveDispatchIssue picks a forge. Shared core.
+// means shortform or bare - resolveDispatchIssue picks a forge. Shared core.
 type IssueRef struct {
 	Owner    string
 	Repo     string
@@ -370,38 +371,63 @@ func (i IssueRef) String() string {
 }
 
 // issueRefShortRE matches owner/repo#N.
-var issueRefShortRE = regexp.MustCompile(`^([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)#(\d+)$`)
+var issueRefShortRE = regexp.MustCompile(`^([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)#(\d+)(?:[/?#].*)?$`)
 
-// issueRefURLRE matches https://github.com/owner/repo/issues/N.
-var issueRefURLRE = regexp.MustCompile(`^https?://github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/issues/(\d+)/?$`)
+// githubIssueRefRE matches github.com issue URLs and compact refs, tolerating
+// optional scheme, www, .git, and trailing query / fragment text.
+var githubIssueRefRE = regexp.MustCompile(`(?i)^(?:https?://)?(?:www\.)?github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+?)(?:\.git)?(?:/issues/(\d+)|#(\d+))(?:[/?#].*)?$`)
 
-// forgejoURLRE matches <ForgejoBaseURL>/owner/repo/issues/N. Built
+// forgejoIssueRefRE matches a Forgejo issue URL under baseURL. Built
 // dynamically because the base URL is host-configurable.
-func forgejoURLRE(baseURL string) *regexp.Regexp {
-	return regexp.MustCompile(`^` + regexp.QuoteMeta(strings.TrimRight(baseURL, "/")) +
-		`/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/issues/(\d+)/?$`)
+func forgejoIssueRefRE(baseURL string) *regexp.Regexp {
+	baseURL = strings.TrimRight(strings.TrimPrefix(strings.TrimPrefix(baseURL, "https://"), "http://"), "/")
+	return regexp.MustCompile(`(?i)^(?:https?://)?` + regexp.QuoteMeta(baseURL) +
+		`/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/issues/(\d+)(?:[/?#].*)?$`)
 }
 
-// parseIssueRef accepts the supported reference forms. Forgejo URLs
-// require d.cfg.ForgejoBaseURL to be set.
-func (d *Dispatcher) parseIssueRef(s string) (*issueRef, error) {
+// ParseIssueRef parses the supported issue reference forms into an exported
+// IssueRef, so consumers can normalize refs the same way dispatch does.
+func ParseIssueRef(baseURL, s string) (IssueRef, error) {
 	s = strings.TrimSpace(s)
 	if m := issueRefShortRE.FindStringSubmatch(s); m != nil {
-		return buildRef(m, "", s)
+		return buildRef(m[1], m[2], m[3], "", s)
 	}
-	if m := issueRefURLRE.FindStringSubmatch(s); m != nil {
-		return buildRef(m, PlatformGitHub, s)
+	if m := githubIssueRefRE.FindStringSubmatch(s); m != nil {
+		num := m[3]
+		if num == "" {
+			num = m[4]
+		}
+		return buildRef(m[1], m[2], num, PlatformGitHub, s)
 	}
-	if d.cfg.ForgejoBaseURL != "" {
-		if m := forgejoURLRE(d.cfg.ForgejoBaseURL).FindStringSubmatch(s); m != nil {
-			return buildRef(m, PlatformForgejo, s)
+	if baseURL != "" {
+		if m := forgejoIssueRefRE(baseURL).FindStringSubmatch(s); m != nil {
+			return buildRef(m[1], m[2], m[3], PlatformForgejo, s)
 		}
 	}
-	want := "owner/repo#N or https://github.com/owner/repo/issues/N"
-	if d.cfg.ForgejoBaseURL != "" {
-		want += " or " + strings.TrimRight(d.cfg.ForgejoBaseURL, "/") + "/owner/repo/issues/N"
+	ref, err := issueref.Parse(s, baseURL)
+	if err == nil {
+		return IssueRef{Owner: ref.Owner, Repo: ref.Repo, Number: ref.Number}, nil
 	}
-	return nil, fmt.Errorf("dispatch: not an issue reference (want %s): %q", want, s)
+	if baseURL != "" && !strings.Contains(s, "://") {
+		if ref, err := issueref.Parse("https://"+s, baseURL); err == nil {
+			return IssueRef{Owner: ref.Owner, Repo: ref.Repo, Number: ref.Number}, nil
+		}
+	}
+	want := "owner/repo#N or a bare #N or https://github.com/owner/repo/issues/N"
+	if baseURL != "" {
+		want += " or " + strings.TrimRight(baseURL, "/") + "/owner/repo/issues/N"
+	}
+	return IssueRef{}, fmt.Errorf("dispatch: not an issue reference (want %s): %q", want, s)
+}
+
+// parseIssueRef is the historical Dispatcher-bound spelling, kept as a thin
+// wrapper so existing call sites continue to compile unchanged.
+func (d *Dispatcher) parseIssueRef(s string) (*issueRef, error) {
+	ref, err := ParseIssueRef(d.cfg.ForgejoBaseURL, s)
+	if err != nil {
+		return nil, err
+	}
+	return &ref, nil
 }
 
 // ParseIssueRef parses any supported reference form into an IssueRef, so
@@ -410,15 +436,15 @@ func (d *Dispatcher) ParseIssueRef(s string) (*IssueRef, error) {
 	return d.parseIssueRef(s)
 }
 
-func buildRef(m []string, platform Platform, s string) (*issueRef, error) {
+func buildRef(owner, repo, num string, platform Platform, s string) (IssueRef, error) {
 	n := 0
-	if _, err := fmt.Sscanf(m[3], "%d", &n); err != nil {
-		return nil, fmt.Errorf("dispatch: parse issue number in %q: %w", s, err)
+	if _, err := fmt.Sscanf(num, "%d", &n); err != nil {
+		return IssueRef{}, fmt.Errorf("dispatch: parse issue number in %q: %w", s, err)
 	}
 	if n <= 0 {
-		return nil, fmt.Errorf("dispatch: issue number must be positive: %q", s)
+		return IssueRef{}, fmt.Errorf("dispatch: issue number must be positive: %q", s)
 	}
-	return &issueRef{Owner: m[1], Repo: m[2], Number: n, Platform: platform}, nil
+	return IssueRef{Owner: owner, Repo: repo, Number: n, Platform: platform}, nil
 }
 
 // Issue is the platform-neutral fetch result. GitHub and Forgejo share

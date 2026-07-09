@@ -123,15 +123,41 @@ func TestPreflight_NotReachedForForeignOwner(t *testing.T) {
 	}
 }
 
-// TestParseIssueRef_Exported proves the exported ParseIssueRef gives a
-// consumer the same parse dispatch uses internally.
+// TestParseIssueRef_Exported proves the exported parser gives consumers the
+// same normalization dispatch uses internally, including bare refs and URLs.
 func TestParseIssueRef_Exported(t *testing.T) {
+	cases := []struct {
+		name      string
+		baseURL   string
+		in        string
+		wantOwner string
+		wantRepo  string
+		wantNum   int
+		wantPlat  Platform
+	}{
+		{"shortform", "", "example-org/example-repo#99", "example-org", "example-repo", 99, ""},
+		{"bare", "", "#99", "", "", 99, ""},
+		{"github-url", "", "https://github.com/example-org/example-repo/issues/99", "example-org", "example-repo", 99, PlatformGitHub},
+		{"forgejo-url", "https://forgejo.example", "forgejo.example/example-org/example-repo/issues/99", "example-org", "example-repo", 99, PlatformForgejo},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ref, err := ParseIssueRef(tc.baseURL, tc.in)
+			if err != nil {
+				t.Fatalf("ParseIssueRef(%q): %v", tc.in, err)
+			}
+			if ref.Owner != tc.wantOwner || ref.Repo != tc.wantRepo || ref.Number != tc.wantNum || ref.Platform != tc.wantPlat {
+				t.Fatalf("ParseIssueRef(%q) = %+v, want %+v/%+v#%d platform %q", tc.in, ref, tc.wantOwner, tc.wantRepo, tc.wantNum, tc.wantPlat)
+			}
+		})
+	}
+
 	d := newTestDispatcher(t)
 	ref, err := d.ParseIssueRef("example-org/example-repo#99")
 	if err != nil {
-		t.Fatalf("ParseIssueRef: %v", err)
+		t.Fatalf("Dispatcher.ParseIssueRef: %v", err)
 	}
 	if ref.Owner != "example-org" || ref.Repo != "example-repo" || ref.Number != 99 {
-		t.Errorf("ParseIssueRef = %+v, want example-org/example-repo#99", ref)
+		t.Errorf("Dispatcher.ParseIssueRef = %+v, want example-org/example-repo#99", ref)
 	}
 }

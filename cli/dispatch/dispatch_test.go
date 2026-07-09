@@ -17,39 +17,57 @@ import (
 
 func TestParseIssueRef(t *testing.T) {
 	cases := []struct {
+		name   string
+		base   string
 		in     string
 		wantOK bool
 		owner  string
 		repo   string
 		num    int
+		plat   Platform
 	}{
-		{"example-org/example-repo#136", true, "example-org", "example-repo", 136},
-		{"  example-org/example-repo#136  ", true, "example-org", "example-repo", 136},
-		{"https://github.com/example-org/example-repo/issues/136", true, "example-org", "example-repo", 136},
-		{"https://github.com/example-org/example-repo/issues/136/", true, "example-org", "example-repo", 136},
-		{"http://github.com/example-org/example-repo/issues/1", true, "example-org", "example-repo", 1},
-		{"example-org/example-repo/issues/136", false, "", "", 0},
-		{"example-org/example-repo#0", false, "", "", 0},
-		{"example-org#136", false, "", "", 0},
-		{"", false, "", "", 0},
-		{"random gibberish", false, "", "", 0},
-		{"github.com/example-org/example-repo/issues/136", false, "", "", 0}, // missing scheme
+		{"shortform", "", "example-org/example-repo#136", true, "example-org", "example-repo", 136, ""},
+		{"shortform-trim", "", "  example-org/example-repo#136  ", true, "example-org", "example-repo", 136, ""},
+		{"github-url", "", "https://github.com/example-org/example-repo/issues/136", true, "example-org", "example-repo", 136, PlatformGitHub},
+		{"github-url-noscheme", "", "github.com/example-org/example-repo/issues/136", true, "example-org", "example-repo", 136, PlatformGitHub},
+		{"github-url-fragment", "", "https://github.com/example-org/example-repo/issues/136#issuecomment-1", true, "example-org", "example-repo", 136, PlatformGitHub},
+		{"forgejo-url", "https://forgejo.example", "https://forgejo.example/example-org/example-repo/issues/136", true, "example-org", "example-repo", 136, PlatformForgejo},
+		{"forgejo-url-noscheme", "https://forgejo.example", "forgejo.example/example-org/example-repo/issues/136", true, "example-org", "example-repo", 136, PlatformForgejo},
+		{"bare", "", "#136", true, "", "", 136, ""},
+		{"bare-num", "", "136", true, "", "", 136, ""},
+		{"not-ref", "", "example-org/example-repo/issues/136", false, "", "", 0, ""},
+		{"non-positive", "", "example-org/example-repo#0", false, "", "", 0, ""},
+		{"missing-repo", "", "example-org#136", false, "", "", 0, ""},
+		{"empty", "", "", false, "", "", 0, ""},
+		{"random", "", "random gibberish", false, "", "", 0, ""},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ParseIssueRef(tc.base, tc.in)
+			if tc.wantOK {
+				if err != nil {
+					t.Errorf("ParseIssueRef(%q): unexpected err: %v", tc.in, err)
+					return
+				}
+				if got.Owner != tc.owner || got.Repo != tc.repo || got.Number != tc.num || got.Platform != tc.plat {
+					t.Errorf("ParseIssueRef(%q) = %+v, want owner=%s repo=%s num=%d platform=%q",
+						tc.in, got, tc.owner, tc.repo, tc.num, tc.plat)
+				}
+				return
+			}
+			if err == nil {
+				t.Errorf("ParseIssueRef(%q): expected error, got %+v", tc.in, got)
+			}
+		})
 	}
 	d := newTestDispatcher(t)
-	for _, tc := range cases {
-		got, err := d.parseIssueRef(tc.in)
-		if tc.wantOK {
-			if err != nil {
-				t.Errorf("parseIssueRef(%q): unexpected err: %v", tc.in, err)
-				continue
-			}
-			if got.Owner != tc.owner || got.Repo != tc.repo || got.Number != tc.num {
-				t.Errorf("parseIssueRef(%q) = %+v, want owner=%s repo=%s num=%d",
-					tc.in, got, tc.owner, tc.repo, tc.num)
-			}
-		} else if err == nil {
-			t.Errorf("parseIssueRef(%q): expected error, got %+v", tc.in, got)
-		}
+	got, err := d.parseIssueRef("example-org/example-repo#136")
+	if err != nil {
+		t.Fatalf("dispatcher parseIssueRef: %v", err)
+	}
+	if got.Owner != "example-org" || got.Repo != "example-repo" || got.Number != 136 || got.Platform != "" {
+		t.Fatalf("dispatcher parseIssueRef = %+v, want shortform example-org/example-repo#136", got)
 	}
 }
 
