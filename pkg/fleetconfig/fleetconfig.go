@@ -2,11 +2,11 @@
 // agent-shaped schema that names which agents a fleet runs and how each one is
 // launched. It is pure core data-typing, deliberately NOT a guarded surface.
 //
-// The three guarded surfaces (cli/, http/, mcp/) express permissions; this
+// The two guarded surfaces (cli/, http/) express permissions; this
 // package structurally cannot. Its vocabulary has no `mount`, no `exec`, no
 // `can run` - a fleet config names agents and their launch shape, never a
 // grant. That package boundary IS the config/permission partition: config
-// validation is a core concern, not a fourth surface, so the three-surface
+// validation is a core concern, not a third surface, so the two-surface
 // least-privilege identity stays legible. See docs/fleetconfig.md.
 package fleetconfig
 

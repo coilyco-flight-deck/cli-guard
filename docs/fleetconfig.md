@@ -23,4 +23,4 @@ It fails closed on unknown nodes, wrong arguments, schema-version mismatch, or a
 
 ## Why Core
 
-The three guarded surfaces (`cli/`, `http/`, `mcp/`) express permissions. `pkg/fleetconfig` does not. Its vocabulary has no `mount`, no `exec`, no `can run`. That package boundary is the config/permission partition, keeping the three-surface least-privilege identity legible. See [architecture.md](architecture.md).
+The two guarded surfaces (`cli/`, `http/`) express permissions. `pkg/fleetconfig` does not. Its vocabulary has no `mount`, no `exec`, no `can run`. That package boundary is the config/permission partition, keeping the two-surface least-privilege identity legible. See [architecture.md](architecture.md).

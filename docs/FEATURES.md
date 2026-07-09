@@ -33,10 +33,6 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 - **respfmt** - JSON renderer + JMESPath, five formats.
 - **ghcache** / **ghidcache** / **ghratelimit** / **stscache** - Response, id, rate-limit, STS caches.
 
-### MCP surface (`mcp/`)
-
-- **mcporter** - Pre-exec preflight + secret resolver for mcporter.
-
 ### Shared core (`pkg/`)
 
 - **audit** - Append-only rotated JSONL invocation log.
