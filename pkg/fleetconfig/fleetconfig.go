@@ -16,8 +16,8 @@ import (
 	kdl "github.com/calico32/kdl-go"
 )
 
-// SchemaVersion is the fleet-config dialect this package parses. A `fleet` block
-// must declare exactly this version; a mismatch fails closed. See docs/fleetconfig.md.
+// SchemaVersion is the fleet-config dialect this package parses. `agents` must
+// declare exactly this version, and a mismatch fails closed.
 const SchemaVersion = 2
 
 // Fleet is the parsed form of one fleet config: the agent roster plus the
@@ -28,7 +28,7 @@ type Fleet struct {
 	Description string
 
 	// SchemaVersion is the declared dialect version (== SchemaVersion). Zero in
-	// an operator-local source, which carries no `fleet` block.
+	// an operator-local source, which carries no embedded roster block.
 	SchemaVersion int
 
 	// Defaults are the fleet-wide fallbacks: the default agent and the commit
@@ -63,11 +63,11 @@ type Agent struct {
 	Argv            Argv   // the three launch argvs (preflight/headless/interactive)
 }
 
-// Role is one entry in the per-role capability roster: a name, the
-// guardfile set it holds, and an optional per-agent overlay.
+// Role is one entry in the per-role capability roster: a name, the guardfile
+// set it holds, and an optional per-agent overlay.
 type Role struct {
 	Name       string     // block name, e.g. `role advisor` -> "advisor"
-	Guardfiles Guardfiles // the guardfile set this role holds (list or prefix)
+	Guardfiles Guardfiles // the guardfile set this role holds (list or legacy prefix)
 
 	// AgentConfig is the sparse per-agent override overlay, keyed by agent name;
 	// nil when the role sets none. See docs/fleetconfig.md.
@@ -83,7 +83,7 @@ type RoleAgentOverride struct {
 	Verbosity       string // verbosity override
 }
 
-// Guardfiles is a role's guardfile set: EITHER a flat List of names OR a single
+// Guardfiles is a role's guardfile set: EITHER a flat List of names OR a legacy
 // Prefix selecting by name prefix, mutually exclusive; both zero means none.
 type Guardfiles struct {
 	List   []string // flat list of guardfile names; nil when Prefix is set
@@ -122,11 +122,11 @@ type Source int
 
 const (
 	// Embedded is the fleet config shipped inside a binary: it accepts the full
-	// schema (the `fleet` block plus an optional `director` seed).
+	// schema (the `agents` block plus an optional `director` seed).
 	Embedded Source = iota
 
 	// OperatorLocal is a per-host operator file: it accepts only the narrow
-	// per-host node set (`director`) and rejects the embed-only `fleet` block.
+	// per-host node set (`director`) and rejects the embed-only roster block.
 	OperatorLocal
 )
 
@@ -162,8 +162,8 @@ func Parse(src []byte) (Fleet, error) {
 	return ParseSource(src, Embedded)
 }
 
-// ParseSource validates a fleet config under the given source's accepted subset.
-// It fails closed on any out-of-subset node or malformed field. See docs/fleetconfig.md.
+// ParseSource validates a fleet config under the given source's accepted
+// subset. It fails closed on any out-of-subset node or malformed field.
 func ParseSource(src []byte, source Source) (Fleet, error) {
 	doc, err := kdl.ParseString(string(src))
 	if err != nil {
@@ -177,21 +177,30 @@ func ParseSource(src []byte, source Source) (Fleet, error) {
 		}
 	}
 	if source == Embedded && !seenFleet {
-		return Fleet{}, fmt.Errorf("fleetconfig: embedded source needs a top-level `fleet` block (fail-closed)")
+		return Fleet{}, fmt.Errorf("fleetconfig: embedded source needs a top-level `agents` block (or legacy `fleet`; fail-closed)")
 	}
 	return f, nil
 }
 
-// applyTopLevel dispatches one top-level node (`fleet` | `director` |
-// `description`) onto f, enforcing the source subset and the once-only rules.
+// applyTopLevel dispatches top-level roster, director, and description nodes onto f.
+// It enforces the source subset and the once-only rules.
 func applyTopLevel(n *kdl.Node, f *Fleet, source Source, seenFleet *bool) error {
 	switch n.Name() {
+	case "agents":
+		if source == OperatorLocal {
+			return fmt.Errorf("fleetconfig: `agents` is an embed-only block, rejected in an %s source (fail-closed)", source)
+		}
+		if *seenFleet {
+			return fmt.Errorf("fleetconfig: duplicate top-level roster block (`agents`/legacy `fleet`; fail-closed)")
+		}
+		*seenFleet = true
+		return parseFleetBlock(n, f)
 	case "fleet":
 		if source == OperatorLocal {
 			return fmt.Errorf("fleetconfig: `fleet` is an embed-only block, rejected in an %s source (fail-closed)", source)
 		}
 		if *seenFleet {
-			return fmt.Errorf("fleetconfig: duplicate top-level `fleet` block (fail-closed)")
+			return fmt.Errorf("fleetconfig: duplicate top-level roster block (`agents`/legacy `fleet`; fail-closed)")
 		}
 		*seenFleet = true
 		return parseFleetBlock(n, f)
@@ -205,7 +214,7 @@ func applyTopLevel(n *kdl.Node, f *Fleet, source Source, seenFleet *bool) error 
 	case "description":
 		return applyTopLevelDescription(n, f)
 	default:
-		return unknownNode("top-level", n.Name(), "fleet | director | description")
+		return unknownNode("top-level", n.Name(), "agents | fleet | director | description")
 	}
 }
 
@@ -234,10 +243,10 @@ type fleetState struct {
 	names        map[string]bool // agent names, for duplicate detection
 }
 
-// parseFleetBlock fills the fleet-level fields from the `fleet` block body.
+// parseFleetBlock fills the fleet-level fields from the `agents` block body.
 func parseFleetBlock(n *kdl.Node, f *Fleet) error {
 	if len(n.Arguments()) != 0 {
-		return fmt.Errorf("fleetconfig: `fleet` takes no arguments, only a block (fail-closed)")
+		return fmt.Errorf("fleetconfig: `agents` takes no arguments, only a block (fail-closed)")
 	}
 	st := &fleetState{names: map[string]bool{}}
 	for _, c := range n.Children().Nodes {
@@ -246,10 +255,10 @@ func parseFleetBlock(n *kdl.Node, f *Fleet) error {
 		}
 	}
 	if !st.seenVersion {
-		return fmt.Errorf("fleetconfig: `fleet` block is missing `schema-version` (fail-closed)")
+		return fmt.Errorf("fleetconfig: `agents` block is missing `schema-version` (fail-closed)")
 	}
 	if len(f.Agents) == 0 {
-		return fmt.Errorf("fleetconfig: `fleet` block declares no `agent` (nothing to run; fail-closed)")
+		return fmt.Errorf("fleetconfig: `agents` block declares no `agent` (nothing to run; fail-closed)")
 	}
 	return nil
 }
@@ -284,7 +293,7 @@ func applyFleetChild(c *kdl.Node, f *Fleet, st *fleetState) error {
 	case "roles":
 		return applyRolesChild(c, f, st)
 	default:
-		return unknownNode("fleet body", c.Name(), "schema-version | defaults | agent | roles")
+		return unknownNode("agents body", c.Name(), "schema-version | defaults | agent | roles")
 	}
 }
 
@@ -316,7 +325,7 @@ func applyRolesChild(c *kdl.Node, f *Fleet, st *fleetState) error {
 	return nil
 }
 
-// parseRoles reads the `roles { role <name> { guardfiles ... } }` block: the
+// parseRoles reads the `roles { role <name> { guardfile ... } }` block: the
 // per-role capability roster. Empty or malformed fails closed.
 func parseRoles(n *kdl.Node) ([]Role, error) {
 	if len(n.Arguments()) != 0 {
@@ -344,44 +353,91 @@ func parseRoles(n *kdl.Node) ([]Role, error) {
 	return out, nil
 }
 
-// parseRole reads one `role <name> { guardfiles ...; agent <name> { ... } }` entry.
-// A role may hold an empty guardfile set and/or no agent overlay; both are legal.
+// parseRole reads one role block with guardfile nodes and optional agent overrides.
+// A role may hold no guardfiles and no agent overlay. `guardfiles` is a temporary alias.
 func parseRole(n *kdl.Node) (Role, error) {
 	name, err := singleStringArg(n, "role")
 	if err != nil {
 		return Role{}, fmt.Errorf("fleetconfig: `role` needs a single name, e.g. `role advisor`: %w", err)
 	}
-	role := Role{Name: name}
-	seenGuardfiles := false
+	st := roleState{
+		role:           Role{Name: name},
+		guardfileNames: map[string]bool{},
+	}
 	for _, c := range n.Children().Nodes {
-		switch c.Name() {
-		case "guardfiles":
-			if seenGuardfiles {
-				return Role{}, fmt.Errorf("fleetconfig: role %q has a duplicate `guardfiles` (fail-closed)", name)
-			}
-			seenGuardfiles = true
-			gf, gerr := parseGuardfiles(c, name)
-			if gerr != nil {
-				return Role{}, gerr
-			}
-			role.Guardfiles = gf
-		case "agent":
-			an, ov, aerr := parseRoleAgent(c, name)
-			if aerr != nil {
-				return Role{}, aerr
-			}
-			if _, dup := role.AgentConfig[an]; dup {
-				return Role{}, fmt.Errorf("fleetconfig: role %q has a duplicate `agent %s` override (fail-closed)", name, an)
-			}
-			if role.AgentConfig == nil {
-				role.AgentConfig = map[string]RoleAgentOverride{}
-			}
-			role.AgentConfig[an] = ov
-		default:
-			return Role{}, unknownNode(fmt.Sprintf("role %q body", name), c.Name(), "guardfiles | agent")
+		if err := st.applyChild(c); err != nil {
+			return Role{}, err
 		}
 	}
-	return role, nil
+	return st.role, nil
+}
+
+type roleState struct {
+	role             Role
+	guardfileNames   map[string]bool
+	seenGuardfiles   bool
+	seenLegacyBundle bool
+}
+
+func (st *roleState) applyChild(c *kdl.Node) error {
+	switch c.Name() {
+	case "guardfile":
+		return st.applyGuardfile(c)
+	case "guardfiles":
+		return st.applyLegacyGuardfiles(c)
+	case "agent":
+		return st.applyAgent(c)
+	default:
+		return unknownNode(fmt.Sprintf("role %q body", st.role.Name), c.Name(), "guardfile | guardfiles | agent")
+	}
+}
+
+func (st *roleState) applyGuardfile(c *kdl.Node) error {
+	if st.seenLegacyBundle {
+		return fmt.Errorf("fleetconfig: role %q mixes new `guardfile` nodes with legacy `guardfiles` (fail-closed)", st.role.Name)
+	}
+	st.seenGuardfiles = true
+	gf, err := singleStringArg(c, fmt.Sprintf("role %q > guardfile", st.role.Name))
+	if err != nil {
+		return fmt.Errorf("fleetconfig: role %q `guardfile` needs a single guardfile name: %w", st.role.Name, err)
+	}
+	if st.guardfileNames[gf] {
+		return fmt.Errorf("fleetconfig: role %q has a duplicate `guardfile %q` (fail-closed)", st.role.Name, gf)
+	}
+	st.guardfileNames[gf] = true
+	st.role.Guardfiles.List = append(st.role.Guardfiles.List, gf)
+	return nil
+}
+
+func (st *roleState) applyLegacyGuardfiles(c *kdl.Node) error {
+	if st.seenGuardfiles {
+		return fmt.Errorf("fleetconfig: role %q mixes new `guardfile` nodes with legacy `guardfiles` (fail-closed)", st.role.Name)
+	}
+	if st.seenLegacyBundle {
+		return fmt.Errorf("fleetconfig: role %q has a duplicate legacy `guardfiles` alias (fail-closed)", st.role.Name)
+	}
+	st.seenLegacyBundle = true
+	gf, err := parseGuardfiles(c, st.role.Name, st.guardfileNames)
+	if err != nil {
+		return err
+	}
+	st.role.Guardfiles = gf
+	return nil
+}
+
+func (st *roleState) applyAgent(c *kdl.Node) error {
+	an, ov, err := parseRoleAgent(c, st.role.Name)
+	if err != nil {
+		return err
+	}
+	if _, dup := st.role.AgentConfig[an]; dup {
+		return fmt.Errorf("fleetconfig: role %q has a duplicate `agent %s` override (fail-closed)", st.role.Name, an)
+	}
+	if st.role.AgentConfig == nil {
+		st.role.AgentConfig = map[string]RoleAgentOverride{}
+	}
+	st.role.AgentConfig[an] = ov
+	return nil
 }
 
 // parseRoleAgent reads a role's `agent <name> { ... }` block: a sparse overlay of
@@ -416,9 +472,9 @@ func parseRoleAgent(n *kdl.Node, role string) (string, RoleAgentOverride, error)
 	return name, o, nil
 }
 
-// parseGuardfiles reads a role's `guardfiles` set: EITHER positional names (a
-// flat list) OR a single `prefix=` property, never both, never neither.
-func parseGuardfiles(n *kdl.Node, role string) (Guardfiles, error) {
+// parseGuardfiles reads a role's legacy `guardfiles` set: EITHER positional
+// names (a flat list) OR a single `prefix=` property, never both, never neither.
+func parseGuardfiles(n *kdl.Node, role string, seen map[string]bool) (Guardfiles, error) {
 	args := stringArgs(n)
 	prefix := ""
 	for k, v := range n.Properties() {
@@ -433,6 +489,12 @@ func parseGuardfiles(n *kdl.Node, role string) (Guardfiles, error) {
 	case prefix != "":
 		return Guardfiles{Prefix: prefix}, nil
 	case len(args) > 0:
+		for _, name := range args {
+			if seen[name] {
+				return Guardfiles{}, fmt.Errorf("fleetconfig: role %q has a duplicate `guardfile %q` (fail-closed)", role, name)
+			}
+			seen[name] = true
+		}
 		return Guardfiles{List: args}, nil
 	default:
 		return Guardfiles{}, fmt.Errorf("fleetconfig: role %q `guardfiles` needs a flat list of names or a prefix= (an empty node is ambiguous; fail-closed)", role)
