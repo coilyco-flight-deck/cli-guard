@@ -25,10 +25,46 @@ type Surface struct {
 	BaseURL     string              `json:"base_url"`              // resolved request base, scheme defaulted
 	Auth        AuthInfo            `json:"auth"`                  // how the engine authenticates
 	Verbs       []VerbInfo          `json:"verbs"`                 // every mounted leaf, in mount order
+	Fetches     []FetchInfo         `json:"fetches,omitempty"`     // HTTP fetch overlays, in declaration order
 	Actions     []ActionInfo        `json:"actions,omitempty"`     // complex actions, in declaration order
 	Denied      []DenyInfo          `json:"denied,omitempty"`      // blocked classes, in declaration order
 	Restrict    []RestrictionInfo   `json:"restrict,omitempty"`    // wrap-level scope allowlists
 	DocLinks    []guardfile.DocLink `json:"doc_links,omitempty"`   // `doc-link` footer pointers back to companion docs
+}
+
+// FetchInfo is one mounted HTTP overlay: the fixed method/path, output mode,
+// env-backed headers, and the positional guards that gate invocation.
+type FetchInfo struct {
+	Name     string            `json:"name"`               // dotted audit name, e.g. ward.ops.forgejo.fetch.actions-logs
+	Leaf     string            `json:"leaf"`               // CLI leaf, e.g. actions-logs
+	Title    string            `json:"title"`              // author-supplied fetch label
+	Describe string            `json:"describe,omitempty"` // optional human note
+	Method   string            `json:"method"`             // HTTP method
+	Path     string            `json:"path"`               // path template
+	Output   string            `json:"output"`             // raw
+	Params   []ParamInfo       `json:"params,omitempty"`   // positional path args, in order
+	Env      []FetchEnvInfo    `json:"env,omitempty"`      // env value sources, never resolved values
+	Headers  []FetchHeaderInfo `json:"headers,omitempty"`  // literal headers with env templates
+	Whens    []FetchWhenInfo   `json:"whens,omitempty"`    // glob guards on the positional inputs
+}
+
+// FetchEnvInfo is one fetch env source, rendered as the value chain rather than
+// the resolved secret.
+type FetchEnvInfo struct {
+	Name   string `json:"name"`
+	Source string `json:"source"`
+}
+
+// FetchHeaderInfo is one fetch header, rendered with its template intact.
+type FetchHeaderInfo struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// FetchWhenInfo is one fetch guard clause.
+type FetchWhenInfo struct {
+	Selector string   `json:"selector"`
+	Globs    []string `json:"globs"`
 }
 
 // RestrictionInfo is one wrap-level restrict clause for the describe surface: the
@@ -176,45 +212,65 @@ func Describe(cfg Config) (*Surface, error) {
 	if len(gf.Group) == 0 {
 		return nil, fmt.Errorf("specverb: Guardfile has no command group")
 	}
-	spec, err := parseSwagger(cfg.Spec)
+	fetchDescs, err := resolveFetchDescriptors(gf)
 	if err != nil {
 		return nil, err
 	}
-	gf, err = expandWildcards(spec, gf)
-	if err != nil {
-		return nil, err
+	var descs []opDescriptor
+	var actionDescs []actionDescriptor
+	hasSpecDriven := len(gf.Grants) > 0 || len(gf.Actions) > 0 || len(gf.Restrict) > 0
+	if hasSpecDriven {
+		spec, err := parseSwagger(cfg.Spec)
+		if err != nil {
+			return nil, err
+		}
+		gf, err = expandWildcards(spec, gf)
+		if err != nil {
+			return nil, err
+		}
+		descs, err = resolveDescriptors(spec, gf)
+		if err != nil {
+			return nil, err
+		}
+		actionDescs, err = resolveActions(spec, gf, grantedGrants(gf))
+		if err != nil {
+			return nil, err
+		}
+		// Match Build: a mount action shadows its generated leaf, so the surface
+		// must drop that leaf too (the action stands in for it).
+		mountActions, _ := splitMountActions(actionDescs)
+		descs = suppressShadowed(descs, mountActions)
 	}
-	descs, err := resolveDescriptors(spec, gf)
-	if err != nil {
-		return nil, err
-	}
-	actionDescs, err := resolveActions(spec, gf, grantedGrants(gf))
-	if err != nil {
-		return nil, err
-	}
-	// Match Build: a mount action shadows its generated leaf, so the surface
-	// must drop that leaf too (the action stands in for it).
-	mountActions, _ := splitMountActions(actionDescs)
-	descs = suppressShadowed(descs, mountActions)
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		baseURL = gf.BaseURL
 	}
 	display := baseURLDisplay(gf, opcore.DefaultScheme(strings.TrimRight(baseURL, "/")))
-	return buildSurface(gf, display, descs, actionDescs), nil
+	return buildSurface(gf, display, descs, actionDescs, fetchDescs), nil
 }
 
 // buildSurface assembles the model from the already-resolved descriptors, so the
 // description can never name a verb the runtime did not mount.
-func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor, actions []actionDescriptor) *Surface {
+func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor, actions []actionDescriptor, fetches []fetchDescriptor) *Surface {
 	s := &Surface{
 		Group:       gf.Group,
 		Description: gf.Description,
 		BaseURL:     baseURL,
 		Auth:        AuthInfo{Scheme: gf.Auth.Scheme, Header: gf.Auth.Header, Source: authSourceDisplay(gf.Auth)},
 	}
+	s.Verbs = verbInfosOf(descs)
+	s.Fetches = fetchInfosOf(fetches)
+	s.Actions = actionInfosOf(actions)
+	s.Denied = denyInfosOf(gf)
+	s.Restrict = restrictInfosOf(gf)
+	s.DocLinks = gf.DocLinks
+	return s
+}
+
+func verbInfosOf(descs []opDescriptor) []VerbInfo {
+	var out []VerbInfo
 	for _, d := range descs {
-		s.Verbs = append(s.Verbs, VerbInfo{
+		out = append(out, VerbInfo{
 			Name:        d.VerbName,
 			Group:       d.Group,
 			Leaf:        d.Leaf,
@@ -227,55 +283,117 @@ func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor,
 			FixedBody:   d.FixedBody,
 		})
 	}
+	return out
+}
+
+func fetchInfosOf(fetches []fetchDescriptor) []FetchInfo {
+	var out []FetchInfo
+	for _, f := range fetches {
+		out = append(out, fetchInfoOf(f))
+	}
+	return out
+}
+
+func actionInfosOf(actions []actionDescriptor) []ActionInfo {
+	var out []ActionInfo
 	for _, a := range actions {
 		info := ActionInfo{Name: a.VerbName, Leaf: a.Name, Describe: a.Describe, FailWhen: a.FailWhen, MountVerb: a.MountVerb, MountResource: a.MountResource}
 		switch {
 		case a.isCall():
-			for _, step := range a.Calls {
-				op := leafOp(step.Leaf)
-				ci := ActionCallInfo{Method: op.Method, Path: op.Path, Grant: op.Grant, As: step.As}
-				if step.Compensate != nil {
-					comp := leafOp(step.Compensate.Leaf)
-					ci.Compensate = &ActionCompensateInfo{Method: comp.Method, Path: comp.Path, Grant: comp.Grant}
-				}
-				info.Calls = append(info.Calls, ci)
-			}
-			if a.Canary != nil {
-				can := leafOp(a.Canary.Leaf)
-				info.Canary = &ActionCanaryInfo{
-					Method: can.Method, Path: can.Path, Grant: can.Grant,
-					Every: a.Canary.Every.String(), Window: a.Canary.Window.String(),
-					DegradedWhen: a.Canary.DegradedWhen, HealthyWhen: a.Canary.HealthyWhen, As: a.Canary.As,
-				}
-			}
+			info = addCallInfo(info, a)
 		case a.isCollect():
-			info.Collect = &ActionCollectInfo{
-				Method:       a.Collect.Leaf.Method,
-				Path:         a.Collect.Leaf.Path,
-				Grant:        a.Collect.Leaf.Grant,
-				PageParam:    a.Collect.PageParam,
-				LimitParam:   a.Collect.LimitParam,
-				DefaultLimit: a.Collect.DefaultLimit,
-				As:           a.Collect.As,
-				Cache:        collectCacheLabel(a.Collect.CacheTTL),
-			}
+			info = addCollectInfo(info, a)
 		default:
-			info.Method, info.Path, info.Grant = a.Leaf.Method, a.Leaf.Path, a.Leaf.Grant
-			info.Every, info.Timeout, info.Until = a.Every.String(), a.Timeout.String(), a.Until
-			for _, in := range defaultedInputs(a) {
-				info.Defaults = append(info.Defaults, ActionDefaultInfo{Input: in.Name, JMESPath: in.Default})
-			}
+			info = addLeafActionInfo(info, a)
 		}
-		s.Actions = append(s.Actions, info)
+		out = append(out, info)
 	}
+	return out
+}
+
+func addCallInfo(info ActionInfo, a actionDescriptor) ActionInfo {
+	for _, step := range a.Calls {
+		op := leafOp(step.Leaf)
+		ci := ActionCallInfo{Method: op.Method, Path: op.Path, Grant: op.Grant, As: step.As}
+		if step.Compensate != nil {
+			comp := leafOp(step.Compensate.Leaf)
+			ci.Compensate = &ActionCompensateInfo{Method: comp.Method, Path: comp.Path, Grant: comp.Grant}
+		}
+		info.Calls = append(info.Calls, ci)
+	}
+	if a.Canary != nil {
+		can := leafOp(a.Canary.Leaf)
+		info.Canary = &ActionCanaryInfo{
+			Method: can.Method, Path: can.Path, Grant: can.Grant,
+			Every: a.Canary.Every.String(), Window: a.Canary.Window.String(),
+			DegradedWhen: a.Canary.DegradedWhen, HealthyWhen: a.Canary.HealthyWhen, As: a.Canary.As,
+		}
+	}
+	return info
+}
+
+func addCollectInfo(info ActionInfo, a actionDescriptor) ActionInfo {
+	info.Collect = &ActionCollectInfo{
+		Method:       a.Collect.Leaf.Method,
+		Path:         a.Collect.Leaf.Path,
+		Grant:        a.Collect.Leaf.Grant,
+		PageParam:    a.Collect.PageParam,
+		LimitParam:   a.Collect.LimitParam,
+		DefaultLimit: a.Collect.DefaultLimit,
+		As:           a.Collect.As,
+		Cache:        collectCacheLabel(a.Collect.CacheTTL),
+	}
+	return info
+}
+
+func addLeafActionInfo(info ActionInfo, a actionDescriptor) ActionInfo {
+	info.Method, info.Path, info.Grant = a.Leaf.Method, a.Leaf.Path, a.Leaf.Grant
+	info.Every, info.Timeout, info.Until = a.Every.String(), a.Timeout.String(), a.Until
+	for _, in := range defaultedInputs(a) {
+		info.Defaults = append(info.Defaults, ActionDefaultInfo{Input: in.Name, JMESPath: in.Default})
+	}
+	return info
+}
+
+func denyInfosOf(gf *guardfile.Guardfile) []DenyInfo {
+	var out []DenyInfo
 	for _, d := range denyDescriptors(gf) {
-		s.Denied = append(s.Denied, DenyInfo{Name: d.VerbName, Group: d.Group, Leaf: d.Leaf, Message: d.Message})
+		out = append(out, DenyInfo{Name: d.VerbName, Group: d.Group, Leaf: d.Leaf, Message: d.Message})
 	}
+	return out
+}
+
+func restrictInfosOf(gf *guardfile.Guardfile) []RestrictionInfo {
+	var out []RestrictionInfo
 	for _, r := range gf.Restrict {
-		s.Restrict = append(s.Restrict, RestrictionInfo{Param: r.Param, Globs: r.Globs})
+		out = append(out, RestrictionInfo{Param: r.Param, Globs: r.Globs})
 	}
-	s.DocLinks = gf.DocLinks
-	return s
+	return out
+}
+
+func fetchInfoOf(f fetchDescriptor) FetchInfo {
+	info := FetchInfo{
+		Name:     f.VerbName,
+		Leaf:     f.Leaf,
+		Title:    f.Name,
+		Describe: f.Describe,
+		Method:   f.Method,
+		Path:     f.Path,
+		Output:   f.Output,
+	}
+	for _, p := range f.PathParams {
+		info.Params = append(info.Params, ParamInfo{Name: p, Kind: "path", Type: "string", Required: true})
+	}
+	for _, e := range f.Env {
+		info.Env = append(info.Env, FetchEnvInfo{Name: e.Name, Source: e.Value.String()})
+	}
+	for _, h := range f.Headers {
+		info.Headers = append(info.Headers, FetchHeaderInfo{Name: h.Name, Value: h.Value})
+	}
+	for _, w := range f.Whens {
+		info.Whens = append(info.Whens, FetchWhenInfo{Selector: w.Selector, Globs: w.Globs})
+	}
+	return info
 }
 
 // paramsOf flattens path params (positional, required), query flags, and body
@@ -349,11 +467,91 @@ func renderProse(s *Surface) string {
 		}
 		writeParamSections(&b, v.Params)
 	}
+	writeFetches(&b, prefix, s.Fetches)
 	writeActions(&b, prefix, s.Actions)
 	writeRestrictions(&b, s.Restrict)
 	writeDenied(&b, prefix, s.Denied)
 	writeSeeAlso(&b, s.DocLinks)
 	return b.String()
+}
+
+func writeFetches(b *strings.Builder, prefix string, fetches []FetchInfo) {
+	for _, f := range fetches {
+		writeFetch(b, prefix, f)
+	}
+}
+
+func writeFetch(b *strings.Builder, prefix string, f FetchInfo) {
+	writeFetchHeading(b, prefix, f)
+	writeFetchSignature(b, f)
+	writeFetchSummary(b)
+	writeFetchLabel(b, f)
+	writeFetchParams(b, f.Params)
+	writeFetchEnv(b, f.Env)
+	writeFetchHeaders(b, f.Headers)
+	writeFetchGuards(b, f.Whens)
+}
+
+func writeFetchHeading(b *strings.Builder, prefix string, f FetchInfo) {
+	heading := fmt.Sprintf("## %s fetch %s", prefix, f.Leaf)
+	if f.Describe != "" {
+		heading += " - " + f.Describe
+	}
+	fmt.Fprintf(b, "\n%s\n\n", heading)
+}
+
+func writeFetchSignature(b *strings.Builder, f FetchInfo) {
+	fmt.Fprintf(b, "`%s %s`\n\n", f.Method, f.Path)
+}
+
+func writeFetchSummary(b *strings.Builder) {
+	b.WriteString("Fetch overlay. Output is raw stdout.\n")
+}
+
+func writeFetchLabel(b *strings.Builder, f FetchInfo) {
+	if f.Title != "" && f.Title != f.Leaf {
+		fmt.Fprintf(b, "\nLabel: %s.\n", f.Title)
+	}
+}
+
+func writeFetchParams(b *strings.Builder, params []ParamInfo) {
+	if len(params) == 0 {
+		return
+	}
+	b.WriteString("\nPositional arguments:\n\n")
+	for _, p := range params {
+		fmt.Fprintf(b, "- `<%s>` (%s)\n", p.Name, p.Type)
+	}
+}
+
+func writeFetchEnv(b *strings.Builder, env []FetchEnvInfo) {
+	if len(env) == 0 {
+		return
+	}
+	b.WriteString("\nEnv values:\n\n")
+	for _, e := range env {
+		fmt.Fprintf(b, "- `%s` <- `%s`\n", e.Name, e.Source)
+	}
+}
+
+func writeFetchHeaders(b *strings.Builder, headers []FetchHeaderInfo) {
+	if len(headers) == 0 {
+		return
+	}
+	b.WriteString("\nHeaders:\n\n")
+	for _, h := range headers {
+		fmt.Fprintf(b, "- `%s`: `%s`\n", h.Name, h.Value)
+	}
+}
+
+func writeFetchGuards(b *strings.Builder, whens []FetchWhenInfo) {
+	if len(whens) == 0 {
+		return
+	}
+	b.WriteString("\nGuards:\n\n")
+	for _, w := range whens {
+		fmt.Fprintf(b, "- `%s` matches %s\n", w.Selector, strings.Join(w.Globs, " or "))
+	}
 }
 
 // writeSeeAlso appends the `## See also` footer, one bullet per doc-link, so the

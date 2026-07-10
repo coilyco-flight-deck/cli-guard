@@ -125,6 +125,9 @@ func (rt *Runtime) BaseForRequest(ctx context.Context, dry bool) (string, error)
 // authorize resolves the scheme's secret(s) and applies them to req: a header
 // for header-token/bearer, or query parameters for query-param.
 func (rt *Runtime) authorize(ctx context.Context, req *http.Request) error {
+	if rt.Auth.Scheme == "" {
+		return nil
+	}
 	if rt.Auth.Scheme == "query-param" {
 		q := req.URL.Query()
 		for _, p := range rt.Auth.Params {
@@ -145,6 +148,11 @@ func (rt *Runtime) authorize(ctx context.Context, req *http.Request) error {
 	return nil
 }
 
+// Authorize applies the runtime's configured auth to req. Blank auth is a no-op.
+func (rt *Runtime) Authorize(ctx context.Context, req *http.Request) error {
+	return rt.authorize(ctx, req)
+}
+
 // resolveChain resolves a value chain to its first available source, wrapping an
 // all-failed chain as a coded Internal error - never a value, never a silent empty.
 func (rt *Runtime) resolveChain(ctx context.Context, chain guardfile.ValueChain) (string, error) {
@@ -156,15 +164,17 @@ func (rt *Runtime) resolveChain(ctx context.Context, chain guardfile.ValueChain)
 	return v, nil
 }
 
-// chainSources lowers a guardfile.ValueChain to the []valuesource.Source the
+// ChainSources lowers a guardfile.ValueChain to the []valuesource.Source the
 // shared resolver walks, keeping guardfile free of the resolution layer.
-func chainSources(chain guardfile.ValueChain) []valuesource.Source {
+func ChainSources(chain guardfile.ValueChain) []valuesource.Source {
 	out := make([]valuesource.Source, len(chain))
 	for i, vs := range chain {
 		out[i] = valuesource.Source{Provider: vs.Provider, Address: vs.Address}
 	}
 	return out
 }
+
+func chainSources(chain guardfile.ValueChain) []valuesource.Source { return ChainSources(chain) }
 
 // FireCapture sends one request and returns the decoded JSON value plus raw
 // body, rendering nothing: the "fire and capture" path complex actions feed on.
@@ -177,7 +187,7 @@ func (rt *Runtime) FireCapture(ctx context.Context, method, url string, body []b
 	if rerr != nil {
 		return nil, nil, "", exitcode.New(exitcode.Internal, "internal", rerr, "")
 	}
-	if aerr := rt.authorize(ctx, req); aerr != nil {
+	if aerr := rt.Authorize(ctx, req); aerr != nil {
 		return nil, nil, "", aerr
 	}
 	if body != nil {
