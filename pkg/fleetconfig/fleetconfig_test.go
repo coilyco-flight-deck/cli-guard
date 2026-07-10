@@ -475,6 +475,21 @@ func TestParseRejects(t *testing.T) {
 			want: "duplicate `guardfile",
 		},
 		{
+			name: "guardfile then legacy guardfiles",
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { guardfile "x"; guardfiles "y" } } }`,
+			want: "mixes new `guardfile` nodes with legacy `guardfiles`",
+		},
+		{
+			name: "legacy guardfiles then guardfile",
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { guardfiles "x"; guardfile "y" } } }`,
+			want: "mixes new `guardfile` nodes with legacy `guardfiles`",
+		},
+		{
+			name: "duplicate legacy guardfiles alias",
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { guardfiles "x"; guardfiles "y" } } }`,
+			want: "duplicate legacy `guardfiles` alias",
+		},
+		{
 			name: "duplicate description",
 			src:  `description "a"; description "b"; agents { schema-version 2; agent a { binary a } }`,
 			want: "duplicate top-level `description`",
