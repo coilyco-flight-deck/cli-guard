@@ -2,7 +2,7 @@
 
 Per-host lockdown profile registry, embedded as `cli/profiles/default.yaml` and copied into the consumer's per-host config (`~/<app-dir>/<app>.yaml`) by `lockdown init-config`.
 
-Each profile is a self-contained tier-per-axis coordinate. There is no inheritance: every profile lists all four axes, every time, and the loader rejects partial entries on purpose (coilysiren/coily#150). With no override file present, the loader resolves every profile to the strictest tier on every axis (the headless-default) and refuses anything not explicitly allowed. The override file is how the operator opts into looser tiers, per axis, on disk.
+Each profile is a self-contained tier-per-axis coordinate. There is no inheritance: every profile lists all four axes, every time, and the loader rejects partial entries on purpose. With no override file present, the loader resolves every profile to the strictest tier on every axis (the headless-default) and refuses anything not explicitly allowed. The override file is how the operator opts into looser tiers, per axis, on disk.
 
 ## Axes (strictness-ascending, from cli-guard/profile)
 

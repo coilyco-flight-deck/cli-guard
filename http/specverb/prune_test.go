@@ -72,7 +72,7 @@ func TestPruneIsIdempotent(t *testing.T) {
 }
 
 // TestPruneClosesSharedResponses proves the pruner closes the shared `responses`
-// section (no dangling ref into pruned defs). Regression for forgejo #170.
+// section (no dangling ref into pruned defs).
 func TestPruneClosesSharedResponses(t *testing.T) {
 	spec := []byte(`{
 	  "swagger": "2.0",

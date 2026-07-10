@@ -7,10 +7,10 @@ import (
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/fleetconfig"
 )
 
-// fullFleet is the advisor-sketch schema exercised end to end: a defaults block,
-// two agents, per-agent argv, and a director seed.
+// fullFleet is the advisor-sketch schema exercised end to end: a defaults
+// block, two agents, per-agent argv, and a director seed.
 const fullFleet = `
-fleet {
+agents {
     schema-version 2
     defaults {
         agent claude
@@ -94,10 +94,10 @@ func TestParseFullFleet(t *testing.T) {
 	}
 }
 
-// TestContextLevelUnset checks an agent with no context-level lands at -1, not a
-// silent 0 that would read as level 0 (minimal context).
+// TestContextLevelUnset checks an agent with no context-level lands at -1, not
+// a silent 0 that would read as level 0 (minimal context).
 func TestContextLevelUnset(t *testing.T) {
-	src := `fleet { schema-version 2; agent goose { binary goose } }`
+	src := `agents { schema-version 2; agent goose { binary goose } }`
 	f, err := fleetconfig.Parse([]byte(src))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -107,23 +107,21 @@ func TestContextLevelUnset(t *testing.T) {
 	}
 }
 
-// TestParseRoles exercises the per-role capability roster (ward#578): a flat
-// list, a prefix, an empty-set role, and that the parsed shape round-trips.
+// TestParseRoles exercises the per-role capability roster: repeated singular
+// guardfile nodes, an empty-set role, and that the parsed shape round-trips.
 func TestParseRoles(t *testing.T) {
 	src := `
-fleet {
+agents {
     schema-version 2
     agent claude { binary claude }
     roles {
         role engineer { }
         role director {
-            guardfiles "ward-kdl.tailscale.guardfile.kdl"
+            guardfile "ward-kdl.tailscale.guardfile.kdl"
         }
         role advisor {
-            guardfiles "ward-kdl.aws.guardfile.kdl" "ward-kdl.tailscale.guardfile.kdl"
-        }
-        role observer {
-            guardfiles prefix="ward-kdl.observe"
+            guardfile "ward-kdl.aws.guardfile.kdl"
+            guardfile "ward-kdl.tailscale.guardfile.kdl"
         }
     }
 }
@@ -132,8 +130,8 @@ fleet {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if len(f.Roles) != 4 {
-		t.Fatalf("len(Roles) = %d, want 4", len(f.Roles))
+	if len(f.Roles) != 3 {
+		t.Fatalf("len(Roles) = %d, want 3", len(f.Roles))
 	}
 	byName := map[string]fleetconfig.Role{}
 	for _, r := range f.Roles {
@@ -148,21 +146,18 @@ fleet {
 	if g := byName["advisor"].Guardfiles; len(g.List) != 2 {
 		t.Errorf("advisor list = %+v (want 2)", g)
 	}
-	if g := byName["observer"].Guardfiles; g.Prefix != "ward-kdl.observe" || len(g.List) != 0 {
-		t.Errorf("observer guardfiles = %+v", g)
-	}
 }
 
 // TestParseRoleAgentOverrides exercises the per-agent override overlay
-// (cli-guard#192): guardfiles-only, agent-only, and a role carrying both.
+// guardfile-only, agent-only, and a role carrying both.
 func TestParseRoleAgentOverrides(t *testing.T) {
 	src := `
-fleet {
+agents {
     schema-version 2
     agent claude { binary claude }
     roles {
         role plain {
-            guardfiles "ward-kdl.aws.guardfile.kdl"
+            guardfile "ward-kdl.aws.guardfile.kdl"
         }
         role engineer {
             agent claude {
@@ -171,7 +166,7 @@ fleet {
             }
         }
         role advisor {
-            guardfiles "ward-kdl.tailscale.guardfile.kdl"
+            guardfile "ward-kdl.tailscale.guardfile.kdl"
             agent claude {
                 model "claude-sonnet-5"
                 reasoning-effort "low"
@@ -220,13 +215,37 @@ fleet {
 	}
 }
 
+func TestParseLegacyAliases(t *testing.T) {
+	src := `
+fleet {
+    schema-version 2
+    agent claude { binary claude }
+    roles {
+        role engineer {
+            guardfiles "ward-kdl.aws.guardfile.kdl" "ward-kdl.tailscale.guardfile.kdl"
+        }
+    }
+}
+`
+	f, err := fleetconfig.Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse legacy aliases: %v", err)
+	}
+	if len(f.Agents) != 1 || f.Agents[0].Name != "claude" {
+		t.Fatalf("legacy roster = %+v", f.Agents)
+	}
+	if got := f.Roles[0].Guardfiles.List; len(got) != 2 || got[0] != "ward-kdl.aws.guardfile.kdl" || got[1] != "ward-kdl.tailscale.guardfile.kdl" {
+		t.Fatalf("legacy guardfiles = %+v", got)
+	}
+}
+
 // TestParseDescription checks the first-class top-level `description` node: it
 // parses into Fleet.Description, is optional, and is accepted in both sources.
 func TestParseDescription(t *testing.T) {
 	t.Run("embedded carries description", func(t *testing.T) {
 		src := `
 description "Fleet config for ward: the agent roster and per-agent launch shape."
-fleet { schema-version 2; agent a { binary a } }
+agents { schema-version 2; agent a { binary a } }
 `
 		f, err := fleetconfig.Parse([]byte(src))
 		if err != nil {
@@ -238,7 +257,7 @@ fleet { schema-version 2; agent a { binary a } }
 	})
 
 	t.Run("absent description is empty, not an error", func(t *testing.T) {
-		f, err := fleetconfig.Parse([]byte(`fleet { schema-version 2; agent a { binary a } }`))
+		f, err := fleetconfig.Parse([]byte(`agents { schema-version 2; agent a { binary a } }`))
 		if err != nil {
 			t.Fatalf("Parse: %v", err)
 		}
@@ -259,7 +278,7 @@ fleet { schema-version 2; agent a { binary a } }
 	})
 
 	t.Run("multi-paragraph description via escaped newlines", func(t *testing.T) {
-		src := `description "line one\n\nline two"` + "\n" + `fleet { schema-version 2; agent a { binary a } }`
+		src := `description "line one\n\nline two"` + "\n" + `agents { schema-version 2; agent a { binary a } }`
 		f, err := fleetconfig.Parse([]byte(src))
 		if err != nil {
 			t.Fatalf("Parse: %v", err)
@@ -271,7 +290,7 @@ fleet { schema-version 2; agent a { binary a } }
 }
 
 func TestParseSparseAgentData(t *testing.T) {
-	src := `fleet { schema-version 2; agent claude { model "bundle-override"; context-level 1 } }`
+	src := `agents { schema-version 2; agent claude { model "bundle-override"; context-level 1 } }`
 	f, err := fleetconfig.Parse([]byte(src))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -302,17 +321,17 @@ func TestParseRejects(t *testing.T) {
 	}{
 		{
 			name: "permission token mount",
-			src:  `fleet { schema-version 2; agent a { binary a; mount "/x" } }`,
+			src:  `agents { schema-version 2; agent a { binary a; mount "/x" } }`,
 			want: "permission token",
 		},
 		{
 			name: "permission token can run",
-			src:  `fleet { schema-version 2; agent a { binary a }; can run "git" }`,
+			src:  `agents { schema-version 2; agent a { binary a }; can run "git" }`,
 			want: "permission token",
 		},
 		{
 			name: "exec token",
-			src:  `fleet { schema-version 2; exec "sh"; agent a { binary a } }`,
+			src:  `agents { schema-version 2; exec "sh"; agent a { binary a } }`,
 			want: "permission token",
 		},
 		{
@@ -322,147 +341,172 @@ func TestParseRejects(t *testing.T) {
 		},
 		{
 			name: "unknown agent field",
-			src:  `fleet { schema-version 2; agent a { binary a; temperature "0.7" } }`,
+			src:  `agents { schema-version 2; agent a { binary a; temperature "0.7" } }`,
 			want: "unknown node",
 		},
 		{
 			name: "wrong schema version",
-			src:  `fleet { schema-version 99; agent a { binary a } }`,
+			src:  `agents { schema-version 99; agent a { binary a } }`,
 			want: "not the supported dialect",
 		},
 		{
 			name: "missing schema version",
-			src:  `fleet { agent a { binary a } }`,
+			src:  `agents { agent a { binary a } }`,
 			want: "missing `schema-version`",
 		},
 		{
 			name: "no agents",
-			src:  `fleet { schema-version 2 }`,
+			src:  `agents { schema-version 2 }`,
 			want: "declares no `agent`",
 		},
 		{
 			name: "duplicate agent",
-			src:  `fleet { schema-version 2; agent a { binary a }; agent a { binary b } }`,
+			src:  `agents { schema-version 2; agent a { binary a }; agent a { binary b } }`,
 			want: "duplicate agent",
 		},
 		{
 			name: "attribution missing email",
-			src:  `fleet { schema-version 2; defaults { attribution name="x" }; agent a { binary a } }`,
+			src:  `agents { schema-version 2; defaults { attribution name="x" }; agent a { binary a } }`,
 			want: "needs both name= and email=",
 		},
 		{
 			name: "context-level non-integer",
-			src:  `fleet { schema-version 2; agent a { binary a; context-level "high" } }`,
+			src:  `agents { schema-version 2; agent a { binary a; context-level "high" } }`,
 			want: "must be an integer",
 		},
 		{
 			name: "binary non-string",
-			src:  `fleet { schema-version 2; agent a { binary 5 } }`,
+			src:  `agents { schema-version 2; agent a { binary 5 } }`,
 			want: "must be a string",
 		},
 		{
 			name: "empty argv mode",
-			src:  `fleet { schema-version 2; agent a { binary a; argv { headless } } }`,
+			src:  `agents { schema-version 2; agent a { binary a; argv { headless } } }`,
 			want: "needs at least one token",
 		},
 		{
 			name: "duplicate argv mode",
-			src:  `fleet { schema-version 2; agent a { binary a; argv { headless a; headless b } } }`,
+			src:  `agents { schema-version 2; agent a { binary a; argv { headless a; headless b } } }`,
 			want: "duplicate",
 		},
 		{
-			name: "roles guardfiles list and prefix",
-			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { guardfiles "x" prefix="y" } } }`,
+			name: "roles guardfiles legacy list and prefix",
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { guardfiles "x" prefix="y" } } }`,
 			want: "flat list OR a prefix",
 		},
 		{
 			name: "roles guardfiles empty node",
-			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { guardfiles } } }`,
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { guardfiles } } }`,
 			want: "needs a flat list of names or a prefix",
 		},
 		{
 			name: "roles guardfiles unknown property",
-			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { guardfiles suffix="z" } } }`,
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { guardfiles suffix="z" } } }`,
 			want: "unknown property",
 		},
 		{
 			name: "roles unknown child",
-			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { bogus "x" } } }`,
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { bogus "x" } } }`,
 			want: "unknown node",
 		},
 		{
 			name: "roles non-role child",
-			src:  `fleet { schema-version 2; agent a { binary a }; roles { bogus { } } }`,
+			src:  `agents { schema-version 2; agent a { binary a }; roles { bogus { } } }`,
 			want: "unknown node",
 		},
 		{
 			name: "duplicate role",
-			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { }; role r { } } }`,
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { }; role r { } } }`,
 			want: "duplicate role",
 		},
 		{
 			name: "empty roles block",
-			src:  `fleet { schema-version 2; agent a { binary a }; roles { } }`,
+			src:  `agents { schema-version 2; agent a { binary a }; roles { } }`,
 			want: "declares no `role`",
 		},
 		{
 			name: "duplicate roles block",
-			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { } }; roles { role s { } } }`,
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role s { } }; roles { role s { } } }`,
 			want: "duplicate `roles`",
 		},
 		{
 			name: "permission token in roles",
-			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { mount "/x" } } }`,
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { mount "/x" } } }`,
 			want: "permission token",
 		},
 		{
 			name: "duplicate role agent override",
-			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { agent a { model "x" }; agent a { model "y" } } } }`,
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { agent a { model "x" }; agent a { model "y" } } } }`,
 			want: "duplicate `agent a` override",
 		},
 		{
 			name: "role agent unknown property",
-			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { agent a { temperature "0.7" } } } }`,
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { agent a { temperature "0.7" } } } }`,
 			want: "unknown node",
 		},
 		{
 			name: "role agent structural knob rejected",
-			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { agent a { binary b } } } }`,
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { agent a { binary b } } } }`,
 			want: "unknown node",
 		},
 		{
 			name: "role agent missing name",
-			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { agent { model "x" } } } }`,
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { agent { model "x" } } } }`,
 			want: "needs a single name",
 		},
 		{
 			name: "role agent non-string knob",
-			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { agent a { model 5 } } } }`,
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { agent a { model 5 } } } }`,
 			want: "must be a string",
 		},
 		{
 			name: "permission token in role agent",
-			src:  `fleet { schema-version 2; agent a { binary a }; roles { role r { agent a { exec "sh" } } } }`,
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { agent a { exec "sh" } } } }`,
 			want: "permission token",
 		},
 		{
+			name: "duplicate guardfile node",
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { guardfile "x"; guardfile "x" } } }`,
+			want: "duplicate `guardfile",
+		},
+		{
+			name: "duplicate guardfile alias entry",
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { guardfiles "x" "x" } } }`,
+			want: "duplicate `guardfile",
+		},
+		{
+			name: "guardfile then legacy guardfiles",
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { guardfile "x"; guardfiles "y" } } }`,
+			want: "mixes new `guardfile` nodes with legacy `guardfiles`",
+		},
+		{
+			name: "legacy guardfiles then guardfile",
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { guardfiles "x"; guardfile "y" } } }`,
+			want: "mixes new `guardfile` nodes with legacy `guardfiles`",
+		},
+		{
+			name: "duplicate legacy guardfiles alias",
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { guardfiles "x"; guardfiles "y" } } }`,
+			want: "duplicate legacy `guardfiles` alias",
+		},
+		{
 			name: "duplicate description",
-			src:  `description "a"; description "b"; fleet { schema-version 2; agent a { binary a } }`,
+			src:  `description "a"; description "b"; agents { schema-version 2; agent a { binary a } }`,
 			want: "duplicate top-level `description`",
 		},
 		{
 			name: "empty description",
-			src:  `description ""; fleet { schema-version 2; agent a { binary a } }`,
+			src:  `description ""; agents { schema-version 2; agent a { binary a } }`,
 			want: "must be a non-empty string",
 		},
 		{
 			name: "description non-string",
-			src:  `description 5; fleet { schema-version 2; agent a { binary a } }`,
+			src:  `description 5; agents { schema-version 2; agent a { binary a } }`,
 			want: "must be a string",
 		},
 		{
 			name: "invalid KDL",
-			src:  `fleet {`,
+			src:  `agents {`,
 			want: "parse KDL",
 		},
 	}
@@ -479,8 +523,8 @@ func TestParseRejects(t *testing.T) {
 	}
 }
 
-// TestSourceSubsets exercises the one-grammar-two-sources rule: `fleet` is
-// embed-only, and an operator-local source parses its narrow per-host node set.
+// TestSourceSubsets exercises the one-grammar-two-sources rule.
+// The embedded roster block is embed-only, and operator-local parses only director.
 func TestSourceSubsets(t *testing.T) {
 	t.Run("operator-local accepts director", func(t *testing.T) {
 		f, err := fleetconfig.ParseSource([]byte(`director { default-scope "host" }`), fleetconfig.OperatorLocal)
@@ -495,22 +539,22 @@ func TestSourceSubsets(t *testing.T) {
 		}
 	})
 
-	t.Run("operator-local rejects fleet", func(t *testing.T) {
+	t.Run("operator-local rejects roster blocks", func(t *testing.T) {
 		_, err := fleetconfig.ParseSource([]byte(fullFleet), fleetconfig.OperatorLocal)
 		if err == nil || !strings.Contains(err.Error(), "embed-only") {
 			t.Fatalf("want embed-only rejection, got %v", err)
 		}
 	})
 
-	t.Run("embedded requires fleet", func(t *testing.T) {
+	t.Run("embedded requires agents", func(t *testing.T) {
 		_, err := fleetconfig.ParseSource([]byte(`director { default-scope "x" }`), fleetconfig.Embedded)
-		if err == nil || !strings.Contains(err.Error(), "needs a top-level `fleet`") {
-			t.Fatalf("want fleet-required error, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "needs a top-level `agents` block") {
+			t.Fatalf("want agents-required error, got %v", err)
 		}
 	})
 
 	t.Run("embedded accepts director seed", func(t *testing.T) {
-		src := "fleet { schema-version 2; agent a { binary a } }\ndirector { default-scope \"seed\" }"
+		src := "agents { schema-version 2; agent a { binary a } }\ndirector { default-scope \"seed\" }"
 		f, err := fleetconfig.ParseSource([]byte(src), fleetconfig.Embedded)
 		if err != nil {
 			t.Fatalf("ParseSource: %v", err)

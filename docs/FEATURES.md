@@ -20,14 +20,13 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 - **shim** - PATH shim per protected binary. See [deny-by-structure.md](deny-by-structure.md).
 - **doctor** - Verify the deny-by-structure floor.
 - **sudo** - Policy-free sudo plumbing over any stdin transport.
-- **dispatch** - Fire `claude` at an open issue; swap resolver, backend, verdict.
 - **profiles** / **profile** / **decision** - Profile registry, axes, per-call evaluator.
 - **cmd/cli-guard-hook** - PreToolUse binary for shell-only consumers.
 
 ### HTTP request surface (`http/`)
 
 - **egress** - Per-run CONNECT proxy with consumer allowlist.
-- **guardfile** / **specverb** / **opcore** / **kdl-specs** / **codegen** - Spec-driven verbs from a Guardfile; opcore is the cli-free core, fed by OpenAPI or inline KDL. A top-level [`description`](kdl-description.md) node carries context. See [specverb.md](specverb.md).
+- **guardfile** / **specverb** / **opcore** / **kdl-specs** / **codegen** - Spec-driven verbs from a Guardfile plus `fetch` overlays for non-Swagger endpoints. See [specverb.md](specverb.md) and [specverb-fetch.md](specverb-fetch.md).
 - **complex actions** - `wrap`-block `poll`/`call`/`collect` verbs; the mount form shadows its leaf. See [specverb-actions.md](specverb-actions.md).
 - **guarded rollback** - `compensate` + `canary` health-window rollback. See [specverb-rollback.md](specverb-rollback.md).
 - **respfmt** - JSON renderer + JMESPath, five formats.
@@ -62,4 +61,4 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 - [AGENTS.md](../AGENTS.md) - agent-facing operating rules.
 - [features-detail.md](features-detail.md) - per-primitive details.
 
-Cross-reference convention from [coilysiren/agentic-os#59](https://github.com/coilysiren/agentic-os/issues/59).
+Cross-reference convention from the shared repo-pointer rule in the agentic-os docs.

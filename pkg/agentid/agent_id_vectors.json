@@ -1,5 +1,5 @@
 {
-  "note": "Cross-language contract for the canonical agent-id generator. Ports (cli-guard Go #177) must reproduce every seed->id below and the alphabets above, byte-for-byte. Regenerate with `python -m agentic_os.agent_id --emit-vectors`.",
+  "note": "Cross-language contract for the canonical agent-id generator. Ports in cli-guard must reproduce every seed->id below and the alphabets above, byte-for-byte. Regenerate with `python -m agentic_os.agent_id --emit-vectors`.",
   "id_letters": "abcdefghjkmpqrstuvwxyz",
   "id_digits": "456789",
   "id_len": 4,
@@ -91,8 +91,8 @@
       "id": "ut57"
     },
     {
-      "seed": "coilyco-flight-deck#302",
-      "id": "hb84"
+      "seed": "coilyco-flight-deck issue 302",
+      "id": "yp75"
     },
     {
       "seed": "the-quick-brown-fox",

@@ -15,7 +15,6 @@ cli-guard is a **security-boundary** framework for [urfave/cli][urfave/cli] v3 a
 - thin pass-through wrapper for embedding existing CLIs as audited subcommands
 - per-invocation CONNECT proxy with consumer-supplied egress allowlist
 - public exit-code taxonomy for orchestrators
-- reusable dispatch subsystem firing `claude` against a real open issue, headless or interactive
 
 ## Documentation
 
@@ -46,4 +45,4 @@ See [`LICENSE`](./LICENSE).
 - [AGENTS.md](AGENTS.md) - agent-facing operating rules.
 - [docs/FEATURES.md](docs/FEATURES.md) - inventory of what ships today.
 
-Cross-reference convention from [coilysiren/agentic-os#59](https://github.com/coilysiren/agentic-os/issues/59).
+Cross-reference convention from the shared repo-pointer rule in the agentic-os docs.

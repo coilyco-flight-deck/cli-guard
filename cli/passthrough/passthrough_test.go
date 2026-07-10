@@ -343,7 +343,7 @@ func TestCommand_ForwardsArgvVerbatim(t *testing.T) {
 	}
 }
 
-// TestCommand_CapturesStderrTailOnFailure pins issue #63: pass-through
+// TestCommand_CapturesStderrTailOnFailure pins the pass-through stderr-tail
 // failures must carry the wrapped tool's stderr in the audit row, not just
 func TestCommand_CapturesStderrTailOnFailure(t *testing.T) {
 	dir := t.TempDir()

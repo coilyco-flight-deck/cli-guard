@@ -19,7 +19,7 @@ import (
 )
 
 // ciWatchDefaultGuardfile mirrors ciWatchGuardfile but gives `run` a `default`
-// pre-flight JMESPath: no --run resolves the latest run. See cli-guard#142.
+// pre-flight JMESPath: no --run resolves the latest run.
 func ciWatchDefaultGuardfile(t *testing.T) *guardfile.Guardfile {
 	t.Helper()
 	src := []byte("wrap ward ops forgejo {\n" +

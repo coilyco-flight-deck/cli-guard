@@ -86,7 +86,7 @@ func TestOverrideCrossesVerbStarDeny(t *testing.T) {
 }
 
 // TestInheritRestrictPropagates proves a base `restrict` now inherits to an
-// un-restating higher tier (the cli-guard#160 child-local behavior superseded).
+// un-restating higher tier (the earlier child-local behavior superseded).
 func TestInheritRestrictPropagates(t *testing.T) {
 	dir := t.TempDir()
 	writeGuardfile(t, dir, "read.guardfile.kdl", `wrap ward-kdl ops forgejo {

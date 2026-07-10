@@ -11,7 +11,6 @@ Each subdirectory is a self-contained urfave/cli app that exercises one feature 
 | [`repocfg/`](repocfg/main.go) | Per-repo verb allowlist loaded from `.ward/ward.yaml`. |
 | [`exitcode/`](exitcode/main.go) | The public exit-code taxonomy for orchestrators. |
 | [`egress/`](egress/main.go) | Per-invocation CONNECT proxy with an allowlist (used by `passthrough.WithEgress`). |
-| [`dispatch/`](dispatch/main.go) | Wire the cli-guard dispatch subsystem into a host CLI (fires `claude` at a real open issue). |
 
 Every feature is built on top of `audit`. The other examples wire `audit` in implicitly via `verb.Wrap` or `passthrough.Command`; the `audit/` example is the bare-minimum case. `treebuilders/` is not a runnable example: it is a support package exporting each example's command tree for `scripts/gen-webdocs`.
 

@@ -43,7 +43,7 @@ type Config struct {
 }
 
 // opDescriptor is the per-operation payload; it now lives urfave/cli-free in
-// opcore, aliased here so every reference stays mechanical. See cli-guard#196.
+// opcore, aliased here so every reference stays mechanical.
 type opDescriptor = opcore.Descriptor
 
 // fieldFlag is one spec input promoted to a typed CLI flag; moved to opcore
@@ -60,6 +60,25 @@ func Build(cfg Config) (*cli.Command, error) {
 	if len(gf.Group) == 0 {
 		return nil, fmt.Errorf("specverb: Guardfile has no command group")
 	}
+	baseURL := cfg.BaseURL
+	if baseURL == "" {
+		baseURL = gf.BaseURL
+	}
+
+	rt := newRuntime(cfg, gf, baseURL)
+
+	fetchDescs, err := resolveFetchDescriptors(gf)
+	if err != nil {
+		return nil, err
+	}
+	hasSpecDriven := len(gf.Grants) > 0 || len(gf.Actions) > 0 || len(gf.Restrict) > 0
+	if hasSpecDriven {
+		return buildSpecDriven(rt, cfg, gf, fetchDescs)
+	}
+	return buildFetchOnly(rt, gf, fetchDescs)
+}
+
+func buildSpecDriven(rt *runtime, cfg Config, gf *guardfile.Guardfile, fetchDescs []fetchDescriptor) (*cli.Command, error) {
 	spec, err := parseSwagger(cfg.Spec)
 	if err != nil {
 		return nil, err
@@ -68,13 +87,6 @@ func Build(cfg Config) (*cli.Command, error) {
 	if err != nil {
 		return nil, err
 	}
-	baseURL := cfg.BaseURL
-	if baseURL == "" {
-		baseURL = gf.BaseURL
-	}
-
-	rt := newRuntime(cfg, gf, baseURL)
-
 	descs, err := resolveDescriptors(spec, gf)
 	if err != nil {
 		return nil, err
@@ -86,24 +98,40 @@ func Build(cfg Config) (*cli.Command, error) {
 	if err != nil {
 		return nil, err
 	}
-	// A mount action shadows the generated leaf at its path: drop the leaf so the
-	// action takes its place (the grant still resolves for the inner call).
 	mountActions, namedActions := splitMountActions(actionDescs)
 	descs = suppressShadowed(descs, mountActions)
-	denies := denyDescriptors(gf)
-	groupCmds := rt.buildGroups(descs, denies)
+	groupCmds := rt.buildGroups(descs, denyDescriptors(gf))
 	groupCmds = rt.mountShadowLeaves(groupCmds, mountActions)
 	if ag := rt.buildActionGroup(namedActions); ag != nil {
 		groupCmds = append(groupCmds, ag)
 	}
-	surface := buildSurface(gf, baseURLDisplay(gf, rt.BaseURL), descs, actionDescs)
+	if fg := rt.buildFetchGroup(fetchDescs); fg != nil {
+		groupCmds = append(groupCmds, fg)
+	}
+	surface := buildSurface(gf, baseURLDisplay(gf, rt.BaseURL), descs, actionDescs, fetchDescs)
 	groupCmds = append(groupCmds, rt.buildDescribeLeaf(gf, surface))
-	root := &cli.Command{
+	return &cli.Command{
 		Name:     gf.Group[len(gf.Group)-1],
 		Usage:    fmt.Sprintf("spec-driven %s verbs", strings.Join(gf.Group, " ")),
 		Commands: groupCmds,
+	}, nil
+}
+
+func buildFetchOnly(rt *runtime, gf *guardfile.Guardfile, fetchDescs []fetchDescriptor) (*cli.Command, error) {
+	if len(fetchDescs) == 0 {
+		return nil, fmt.Errorf("specverb: Guardfile mounted no verbs (no `can` grants resolved)")
 	}
-	return root, nil
+	groupCmds := []*cli.Command{}
+	if fg := rt.buildFetchGroup(fetchDescs); fg != nil {
+		groupCmds = append(groupCmds, fg)
+	}
+	surface := buildSurface(gf, baseURLDisplay(gf, rt.BaseURL), nil, nil, fetchDescs)
+	groupCmds = append(groupCmds, rt.buildDescribeLeaf(gf, surface))
+	return &cli.Command{
+		Name:     gf.Group[len(gf.Group)-1],
+		Usage:    fmt.Sprintf("%s verbs", strings.Join(gf.Group, " ")),
+		Commands: groupCmds,
+	}, nil
 }
 
 // newRuntime assembles the per-tree runtime: the urfave/cli-free opcore core

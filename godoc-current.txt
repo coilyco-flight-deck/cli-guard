@@ -141,275 +141,6 @@ func RedactPolicy() audit.RedactPolicy
     identifier regex list suitable for any consumer wrapping aws,
 
 
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/dispatch
-
-package dispatch // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/dispatch"
-
-Package dispatch hosts the reusable dispatch subsystem: fire `claude` against a
-real open GitHub issue, in the matching local checkout,
-
-TYPES
-
-type Backend interface {
-	// Name labels the backend in output and the audit Event
-	// (e.g. "worktree", "container").
-	Name() string
-
-	// Reserve claims capacity for one dispatch of ref before provisioning,
-	// returning a Reservation the caller releases if the launch aborts.
-	Reserve(ctx context.Context, ref *IssueRef) (Reservation, error)
-
-	// Prepare returns (and, unless dryRun, creates) the working directory
-	// the worker runs in. repoPath is the canonical local checkout.
-	Prepare(ctx context.Context, repoPath string, ref *IssueRef, title string, dryRun bool) (string, error)
-
-	// Spawn launches the detached worker described by plan and returns its
-	// pid (or a backend handle's pid-equivalent) for status + crash watch.
-	Spawn(ctx context.Context, plan SpawnPlan) (int, error)
-
-	// Reap removes finished artifacts (merged worktrees, exited containers)
-	// and returns the removed ids. Best-effort: must never block or fail hard.
-	Reap(ctx context.Context) ([]string, error)
-}
-    Backend abstracts where and how a detached dispatch runs: reserve capacity,
-    prepare a working dir, spawn the worker, reap finished work.
-
-type Config struct {
-	// Runner executes subprocesses (gh, git, open). Required.
-	Runner *shell.Runner
-
-	// Wrap applies the consumer's verb pipeline (argv validation, audit
-	// logging) to a verb.Spec the package builds.
-	Wrap func(verb.Spec) cli.ActionFunc
-
-	// AllowedOwner is the primary org dispatch accepts issue refs from, and the
-	// owner named in help and status text. This is the security claim, not a knob.
-	AllowedOwner string
-
-	// AllowedOwners is an optional set of additional owners dispatch accepts
-	// alongside AllowedOwner. Empty means single-owner (AllowedOwner only).
-	AllowedOwners []string
-
-	// Preflight is the consumer's pluggable pre-flight verdict stage, run
-	// after the owner/open checks. Nil GOes; see runPreflight and Verdict.
-	Preflight func(ctx context.Context, ref *IssueRef, issue *Issue) (PreflightResult, error)
-
-	// ForgejoBaseURL enables Forgejo issue refs when set (scheme://host).
-	// Requires FetchForgejoIssue.
-	ForgejoBaseURL string
-
-	// FetchForgejoIssue resolves a Forgejo issue. 404-shaped errors
-	// (message contains "404") fall back to GitHub for shortform refs.
-	FetchForgejoIssue func(ctx context.Context, owner, repo string, number int) (*Issue, error)
-
-	// IssueFetcher overrides the default gh resolver for GitHub and shortform
-	// refs. Unset keeps gh (GitHub is the right default for a reusable library).
-	IssueFetcher func(ctx context.Context, owner, repo string, number int) (*Issue, error)
-
-	// RepoPath resolves a repo name to its expected local checkout. The
-	// consumer owns the workspace layout. Required.
-	RepoPath func(repo string) (string, error)
-
-	// WorktreeRoot is the parent directory under which each interactive
-	// dispatch gets its own git worktree. Required.
-	WorktreeRoot func() (string, error)
-
-	// LogRoot is the parent directory for headless dispatch log files.
-	// Required.
-	LogRoot func() (string, error)
-
-	// BinaryName is the host CLI's name, used only to format help text so
-	// it reads correctly per consumer ("<bin> dispatch ..." vs
-	BinaryName string
-
-	// ClaudeConfigPath resolves the Claude Code config file holding
-	// per-folder trust state. Optional; defaults to ~/.claude.json.
-	ClaudeConfigPath func() (string, error)
-
-	// Notify, when set, is called once per completed dispatch with a
-	// summary Event. The consumer wires ntfy, a done banner, or any other
-	Notify func(Event)
-
-	// Seams below are pluggable so tests avoid spawning real processes or
-	// shelling out to git. Production leaves them nil and New installs the
-	SpawnDetached    func(repoPath, logPath, bin string, argv, env []string) (int, error)
-	OpenLaunch       func(ctx context.Context, runner *shell.Runner, url string) error
-	WorktreeAdd      func(ctx context.Context, runner *shell.Runner, repoPath, branch, worktreePath string) error
-	WorktreeReapable func(ctx context.Context, runner *shell.Runner, repoPath, branch string) bool
-	WorktreeRemove   func(ctx context.Context, runner *shell.Runner, repoPath, worktreePath, branch string) error
-
-	// Backend places and launches detached workers. Nil installs the
-	// worktree backend; a container backend lifts the WorktreeRoot need.
-	Backend Backend
-
-	// SpawnForeground runs claude -p in the foreground, blocking until the
-	// child exits, returning its exit code. Defaults to spawnForegroundClaude.
-	SpawnForeground func(ctx context.Context, repoPath, bin string, argv, env []string) (int, error)
-
-	// Getwd resolves the in-place checkout the CI surface runs against - the
-	// runner workspace clone. Defaults to os.Getwd.
-	Getwd func() (string, error)
-
-	// SpawnHealthWindow bounds the immediate-crash watch. Zero
-	// applies defaultSpawnHealthWindow; negative disables the check.
-	SpawnHealthWindow time.Duration
-
-	// ProcessAlive reports whether pid is live. Seam for the health check;
-	// defaults to processRunning (the signal-0 probe).
-	ProcessAlive func(pid int) bool
-}
-    Config carries the host-specific seams the dispatch package refuses to
-    hard-code. Required fields are noted; everything else has a documented
-
-type Conflict struct {
-	PID    int    `json:"pid"`
-	Ref    string `json:"ref"`
-	Claim  string `json:"claim"`
-	Path   string `json:"path"`
-	Reason string `json:"reason"`
-}
-    Conflict is one (sidequest, claim) pair overlapping the query.
-
-type Dispatcher struct {
-	// Has unexported fields.
-}
-    Dispatcher is a configured dispatch subsystem. Build one with New and hang
-    Command off the host CLI's command tree.
-
-func New(cfg Config) (*Dispatcher, error)
-    New validates cfg, fills defaults, and returns a Dispatcher. It errors
-    rather than panicking so the host CLI can fail loud at startup.
-
-func (d *Dispatcher) Command() *cli.Command
-    Command returns the dispatch umbrella verb. It refuses bare invocation and
-    requires a surface subverb (headless | interactive | consult | cascade).
-
-func (d *Dispatcher) ParseIssueRef(s string) (*IssueRef, error)
-    ParseIssueRef parses any supported reference form into an IssueRef, so a
-    consumer's Preflight or Backend resolves refs exactly as dispatch does.
-
-type Event struct {
-	Mode  string // "headless" or "interactive"
-	Ref   string // owner/repo#N
-	Title string
-	URL   string
-	Cwd   string
-	PID   int // headless only; 0 otherwise
-}
-    Event is the summary handed to Config.Notify when a dispatch completes.
-
-type Issue struct {
-	Number int    `json:"number"`
-	Title  string `json:"title"`
-	Body   string `json:"body"`
-	State  string `json:"state"`
-	URL    string `json:"html_url"`
-	// Labels holds the issue's label names, populated by each fetcher (label
-	// JSON is objects, not strings, so json:"-"). Drives the ceiling gate.
-	Labels []string `json:"-"`
-}
-    Issue is the platform-neutral fetch result. GitHub and Forgejo share the
-    same JSON field names so one struct covers both.
-
-type IssueRef struct {
-	Owner    string
-	Repo     string
-	Number   int
-	Platform Platform
-}
-    IssueRef is the parsed shape of an issue reference. Empty Platform means
-    shortform - resolveDispatchIssue picks a forge. Shared core.
-
-func (i IssueRef) String() string
-
-type Platform string
-    Platform tags which forge an issue ref resolves against.
-
-const (
-	PlatformGitHub  Platform = "github"
-	PlatformForgejo Platform = "forgejo"
-)
-type PreflightResult struct {
-	Verdict Verdict
-	Reason  string
-}
-    PreflightResult is what Config.Preflight returns: a Verdict plus an optional
-    human-readable reason folded into the refusal message.
-
-type Registry struct {
-	// Has unexported fields.
-}
-    Registry is the public read-only view over the sidequest surface. Downstream
-    hosts use this rather than shelling out to each other.
-
-func NewRegistry(logRoot string) *Registry
-    NewRegistry binds a Registry to a host-supplied LogRoot.
-
-func (r *Registry) Active() ([]Sidequest, error)
-    Active returns every active sidequest (alive PID), oldest first.
-
-func (r *Registry) Conflicts(absPath string) ([]Conflict, error)
-    Conflicts returns every (sidequest, claim) pair overlapping absPath.
-
-type Reservation interface {
-	// ID identifies the reservation (container name, slot id) in output and
-	// audit. The worktree backend returns "".
-	ID() string
-
-	// Release frees the reservation. dispatch calls it on a failed launch;
-	// a successful spawn leaves it for Reap. Safe to call once.
-	Release() error
-}
-    Reservation is a backend's claim on capacity for one dispatch, taken by
-    Reserve and released if the launch aborts. Worktree's is a no-op.
-
-type Sidequest struct {
-	PID           int       `json:"pid"`
-	Ref           string    `json:"ref"`
-	URL           string    `json:"url,omitempty"`
-	StartedAt     time.Time `json:"started_at"`
-	ParentSession string    `json:"parent_session,omitempty"`
-	PathsClaimed  []string  `json:"paths_claimed,omitempty"`
-	LogPath       string    `json:"log_path"`
-}
-    Sidequest is one active headless dispatch as exposed to consumers.
-
-type SpawnPlan struct {
-	// Ref is the resolved, owner-checked issue reference.
-	Ref *IssueRef
-	// Issue is the fetched issue (title, body, URL, state).
-	Issue *Issue
-	// RepoPath is the canonical local checkout the worker lands into.
-	RepoPath string
-	// Cwd is the working directory returned by Backend.Prepare.
-	Cwd string
-	// Bin is the resolved claude binary the worker should exec.
-	Bin string
-	// Argv is the claude argv (prompt, permission mode, allowed tools).
-	Argv []string
-	// Env is the child environment, including any per-surface extras.
-	Env []string
-	// LogPath is the per-dispatch log file the worker's stdio lands in.
-	LogPath string
-	// Reservation is the slot Backend.Reserve claimed for this dispatch.
-	Reservation Reservation
-}
-    SpawnPlan carries everything Backend.Spawn needs to launch the detached
-    worker. A backend reads the fields it needs and ignores the rest.
-
-type Verdict string
-    Verdict is a consumer pre-flight outcome.
-
-const (
-	// VerdictGo proceeds with the dispatch.
-	VerdictGo Verdict = "go"
-	// VerdictNoGo refuses the dispatch outright (consumer veto).
-	VerdictNoGo Verdict = "no-go"
-	// VerdictWrongRepo refuses because the ref targets a repo this host
-	// does not serve - distinct from NO-GO so a caller can route it.
-	VerdictWrongRepo Verdict = "wrong-repo"
-)
-
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/doctor
 
 package doctor // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/doctor"
@@ -1721,7 +1452,7 @@ func Invalidate() error
 package ghratelimit // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/ghratelimit"
 
 Package ghratelimit retries gh-CLI calls that fail with a GitHub rate-limit
-error. v1 of cli-guard#66: pattern-match the failure mode
+error. v1 pattern-matches the failure mode.
 
 CONSTANTS
 
@@ -1887,6 +1618,38 @@ type DocLink struct {
     from the generated reference doc to a hand-written companion doc. See
     docs/doc-link.md.
 
+type Fetch struct {
+	Name     string
+	Leaf     string
+	Describe string
+	Method   string
+	Path     string
+	Output   string
+	Env      []FetchEnv
+	Headers  []FetchHeader
+	Whens    []FetchWhen
+}
+    Fetch is one HTTP overlay leaf: a fixed method/path pair plus env-backed
+    headers and simple glob guards on the positional path inputs.
+
+type FetchEnv struct {
+	Name  string
+	Value ValueChain
+}
+    FetchEnv is one named value source used to fill fetch header templates.
+
+type FetchHeader struct {
+	Name  string
+	Value string
+}
+    FetchHeader is one literal header name plus a template value.
+
+type FetchWhen struct {
+	Selector string
+	Globs    []string
+}
+    FetchWhen is one positional guard: the selector and globs it must match.
+
 type Grant struct {
 	Modal      string
 	Verb       string
@@ -1940,6 +1703,7 @@ type Guardfile struct {
 	Grants       []Grant
 	Restrict     []Restriction
 	Actions      []Action
+	Fetches      []Fetch
 	DocLinks     []DocLink // `doc-link` footer pointers rendered in the generated reference doc
 }
     Guardfile is the parsed form of one wrap block.
@@ -2198,7 +1962,7 @@ Package opcore is the urfave/cli-free engine core of the spec-driven verb
 design: the per-operation descriptor, the request runtime, and the self-guarding
 Operation.Execute entrypoint. specverb projects this core onto a urfave/cli
 tree; a non-CLI consumer (ward-mcp) drives Operation.Execute directly and is
-still fully gated. See docs/specverb.md and cli-guard#196.
+still fully gated. See docs/specverb.md for the projection shape.
 
 CONSTANTS
 
@@ -2225,6 +1989,10 @@ var ReservedFlagNames = map[string]bool{
 
 
 FUNCTIONS
+
+func ChainSources(chain guardfile.ValueChain) []valuesource.Source
+    ChainSources lowers a guardfile.ValueChain to the []valuesource.Source the
+    shared resolver walks, keeping guardfile free of the resolution layer.
 
 func CheckFlagCollisions(desc Descriptor) error
     CheckFlagCollisions fails closed when a promoted input shadows a reserved
@@ -2288,7 +2056,7 @@ type Args struct {
 	Body  map[string]any
 }
     Args is the operator input to one Operation, split by URL location: Path and
-    Query values reach the URL (the injection surface); Body does not. See #136.
+    Query values reach the URL (the injection surface); Body does not.
 
 type Descriptor struct {
 	VerbName    string         // dotted audit name, e.g. ward.ops.forgejo.repo.create
@@ -2297,7 +2065,7 @@ type Descriptor struct {
 	Method      string         // HTTP method
 	Path        string         // path template, e.g. /repos/{owner}/{repo}
 	PathParams  []string       // ordered positional args drawn from the path
-	BodyFlags   []Field        // request-body fields promoted to flags
+	BodyFlags   []Field        // request-body fields, including nested object/array shapes
 	QueryFlags  []Field        // scalar query params promoted to flags
 	FormFlags   []Field        // formData params; "file" types take a path
 	FixedBody   map[string]any // exact body for state-toggle leaves; no body flags mount
@@ -2319,13 +2087,16 @@ func (d Descriptor) Label() string
 
 type Field struct {
 	Name     string // json field / query param name, doubling as the flag name
-	Type     string // swagger type: string|boolean|integer|number|array
-	Items    string // scalar element type when Type is "array"
-	Required bool   // required in the schema; enforced at request assembly
+	Type     string // swagger type: string|boolean|integer|number|array|object
+	Items    string // scalar element type when Type is "array" and Item is nil
+	Item     *Field // nested element schema when Type is "array" and Item is object/array
+	Fields   []Field
+	Raw      bool
+	Required bool // required in the schema; enforced at request assembly
 	Desc     string
 }
-    Field is one spec input promoted to a typed CLI flag: a request-body field
-    (scalar or array-of-scalar) or a scalar query parameter.
+    Field is one spec input. The flat cases lower to CLI flags, while a body
+    field may also carry nested object/array shape for neutral schema emission.
 
 func (f Field) TypeLabel() string
     TypeLabel renders the flag's type for help and the reference doc.
@@ -2335,7 +2106,7 @@ type Operation struct {
 	RT   *Runtime
 }
     Operation is one resolved leaf plus the runtime that fires it: the unit a
-    non-CLI consumer (ward-mcp) drives via the self-guarding Execute. See #196.
+    non-CLI consumer (ward-mcp) drives via the self-guarding Execute.
 
 func (o Operation) Execute(ctx context.Context, a Args) (Response, error)
     Execute runs the leaf under the full security floor (gate, restrict,
@@ -2354,11 +2125,15 @@ func (o Operation) Resolve(ctx context.Context, a Args, dry bool) (Request, erro
 type Property struct {
 	Type        string // string|boolean|integer|number|array
 	Items       string // element type when Type==array
+	Item        *Property
+	Properties  map[string]Property
+	Required    []string
+	Raw         bool
 	Location    string // path|query|body|form (neutral hint)
 	Description string
 }
     Property is one input in a Schema: its type (or array element type),
-    the neutral where-it-goes hint, and its help text.
+    the neutral where-it-goes hint, its help text, and any nested shape.
 
 type Provider = valuesource.Provider
     Provider resolves the value at address for one named value source:
@@ -2403,6 +2178,10 @@ func NewRuntime(c RuntimeConfig) *Runtime
     NewRuntime assembles a Runtime, defaulting the base-url scheme and the HTTP
     client; the wrap pipeline and step runner are CLI-layer concerns layered on
     top.
+
+func (rt *Runtime) Authorize(ctx context.Context, req *http.Request) error
+    Authorize applies the runtime's configured auth to req. Blank auth is a
+    no-op.
 
 func (rt *Runtime) BaseForRequest(ctx context.Context, dry bool) (string, error)
     BaseForRequest returns the request base-url: the static base, or (for a
@@ -2643,6 +2422,41 @@ type DenyInfo struct {
     its CLI placement and the teaching message an operator sees when they reach
     for it.
 
+type FetchEnvInfo struct {
+	Name   string `json:"name"`
+	Source string `json:"source"`
+}
+    FetchEnvInfo is one fetch env source, rendered as the value chain rather
+    than the resolved secret.
+
+type FetchHeaderInfo struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+    FetchHeaderInfo is one fetch header, rendered with its template intact.
+
+type FetchInfo struct {
+	Name     string            `json:"name"`               // dotted audit name, e.g. ward.ops.forgejo.fetch.actions-logs
+	Leaf     string            `json:"leaf"`               // CLI leaf, e.g. actions-logs
+	Title    string            `json:"title"`              // author-supplied fetch label
+	Describe string            `json:"describe,omitempty"` // optional human note
+	Method   string            `json:"method"`             // HTTP method
+	Path     string            `json:"path"`               // path template
+	Output   string            `json:"output"`             // raw
+	Params   []ParamInfo       `json:"params,omitempty"`   // positional path args, in order
+	Env      []FetchEnvInfo    `json:"env,omitempty"`      // env value sources, never resolved values
+	Headers  []FetchHeaderInfo `json:"headers,omitempty"`  // literal headers with env templates
+	Whens    []FetchWhenInfo   `json:"whens,omitempty"`    // glob guards on the positional inputs
+}
+    FetchInfo is one mounted HTTP overlay: the fixed method/path, output mode,
+    env-backed headers, and the positional guards that gate invocation.
+
+type FetchWhenInfo struct {
+	Selector string   `json:"selector"`
+	Globs    []string `json:"globs"`
+}
+    FetchWhenInfo is one fetch guard clause.
+
 type ParamInfo struct {
 	Name     string `json:"name"`
 	Kind     string `json:"kind"`           // "path" | "query" | "body" | "form"
@@ -2672,6 +2486,7 @@ type Surface struct {
 	BaseURL     string              `json:"base_url"`              // resolved request base, scheme defaulted
 	Auth        AuthInfo            `json:"auth"`                  // how the engine authenticates
 	Verbs       []VerbInfo          `json:"verbs"`                 // every mounted leaf, in mount order
+	Fetches     []FetchInfo         `json:"fetches,omitempty"`     // HTTP fetch overlays, in declaration order
 	Actions     []ActionInfo        `json:"actions,omitempty"`     // complex actions, in declaration order
 	Denied      []DenyInfo          `json:"denied,omitempty"`      // blocked classes, in declaration order
 	Restrict    []RestrictionInfo   `json:"restrict,omitempty"`    // wrap-level scope allowlists
@@ -3569,9 +3384,8 @@ legible. See docs/fleetconfig.md.
 CONSTANTS
 
 const SchemaVersion = 2
-    SchemaVersion is the fleet-config dialect this package parses. A `fleet`
-    block must declare exactly this version; a mismatch fails closed. See
-    docs/fleetconfig.md.
+    SchemaVersion is the fleet-config dialect this package parses. `agents` must
+    declare exactly this version, and a mismatch fails closed.
 
 
 TYPES
@@ -3624,7 +3438,7 @@ type Fleet struct {
 	Description string
 
 	// SchemaVersion is the declared dialect version (== SchemaVersion). Zero in
-	// an operator-local source, which carries no `fleet` block.
+	// an operator-local source, which carries no embedded roster block.
 	SchemaVersion int
 
 	// Defaults are the fleet-wide fallbacks: the default agent and the commit
@@ -3634,7 +3448,7 @@ type Fleet struct {
 	// Agents is the roster, in source order. Empty in an operator-local source.
 	Agents []Agent
 
-	// Roles is the per-role capability roster (ward#578): each startup role names
+	// Roles is the per-role capability roster: each startup role names
 	// the guardfile set it holds. Empty when no `roles` block is present.
 	Roles []Role
 
@@ -3652,26 +3466,25 @@ func Parse(src []byte) (Fleet, error)
 func ParseSource(src []byte, source Source) (Fleet, error)
     ParseSource validates a fleet config under the given source's accepted
     subset. It fails closed on any out-of-subset node or malformed field.
-    See docs/fleetconfig.md.
 
 type Guardfiles struct {
 	List   []string // flat list of guardfile names; nil when Prefix is set
 	Prefix string   // a name prefix selecting a set; "" when List is used
 }
     Guardfiles is a role's guardfile set: EITHER a flat List of names OR a
-    single Prefix selecting by name prefix, mutually exclusive; both zero means
-    none (ward#578).
+    legacy Prefix selecting by name prefix, mutually exclusive; both zero means
+    none.
 
 type Role struct {
 	Name       string     // block name, e.g. `role advisor` -> "advisor"
-	Guardfiles Guardfiles // the guardfile set this role holds (list or prefix)
+	Guardfiles Guardfiles // the guardfile set this role holds (list or legacy prefix)
 
 	// AgentConfig is the sparse per-agent override overlay, keyed by agent name;
-	// nil when the role sets none. See docs/fleetconfig.md (cli-guard#192).
+	// nil when the role sets none. See docs/fleetconfig.md.
 	AgentConfig map[string]RoleAgentOverride
 }
-    Role is one entry in the per-role capability roster (ward#578): a name, the
-    guardfile set it holds, and an optional per-agent overlay (cli-guard#192).
+    Role is one entry in the per-role capability roster: a name, the guardfile
+    set it holds, and an optional per-agent overlay.
 
 type RoleAgentOverride struct {
 	Model           string // model id override
@@ -3680,8 +3493,7 @@ type RoleAgentOverride struct {
 	Verbosity       string // verbosity override
 }
     RoleAgentOverride is a role's sparse overlay on a top-level `agent` node:
-    only the launch knobs a role may retune. See docs/fleetconfig.md
-    (cli-guard#192).
+    only the launch knobs a role may retune. See docs/fleetconfig.md.
 
 type Source int
     Source selects which subset of the one grammar a parse accepts. One parser,
@@ -3689,11 +3501,11 @@ type Source int
 
 const (
 	// Embedded is the fleet config shipped inside a binary: it accepts the full
-	// schema (the `fleet` block plus an optional `director` seed).
+	// schema (the `agents` block plus an optional `director` seed).
 	Embedded Source = iota
 
 	// OperatorLocal is a per-host operator file: it accepts only the narrow
-	// per-host node set (`director`) and rejects the embed-only `fleet` block.
+	// per-host node set (`director`) and rejects the embed-only roster block.
 	OperatorLocal
 )
 func (s Source) String() string
@@ -3730,10 +3542,8 @@ func Unlock(f *os.File) error
 package issueref // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/issueref"
 
 Package issueref parses an issue reference into its owner / repo / number parts.
-It is the standalone, dependency-free form of the parse a dispatcher does
-(cli/dispatch keeps a Dispatcher-bound variant for its own flow); any consumer
-that just needs to turn a ref string into parts can call Parse without wiring a
-whole dispatcher.
+Any consumer that just needs to turn a ref string into parts can call Parse
+without extra wiring.
 
 Three forms parse:
 
@@ -4106,9 +3916,8 @@ func Resolve(ctx context.Context, providers map[string]Provider, provider, addre
     logged.
 
 func ResolveFirst(ctx context.Context, providers map[string]Provider, sources []Source) (string, error)
-    ResolveFirst returns the first source resolving to a non-empty value with
-    no error, else a combined error naming each tried source - never a value
-    (#176).
+    ResolveFirst returns the first source resolving to a non-empty value with no
+    error, else a combined error naming each tried source - never a value.
 
 
 TYPES

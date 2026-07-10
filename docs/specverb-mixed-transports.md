@@ -22,4 +22,4 @@ A spec member's reference doc comes from its committed spec lock (`specverb.Desc
 
 See [kdl-specs.md](kdl-specs.md) for the driver lifecycle and [execverb.md](execverb.md) for the exec dialect.
 
-Origin: [cli-guard#130](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/130).
+Origin: the mixed-transport split.

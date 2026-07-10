@@ -1,7 +1,7 @@
 # Forgejo-canonical CI gate. Mirrors the pre-commit suite (vet, build, test,
 # golangci-lint, godoc-current, go mod tidy, secret scan) so the gate is enforced
 # on the canonical remote inside the pinned dev-base image. The GitHub mirror's
-# .github/workflows/ci.yml stays the PR-gated twin. See #165.
+# .github/workflows/ci.yml stays the PR-gated twin.
 #
 # The pinned dev-base image already carries Go, golangci-lint, and trufflehog,
 # so the jobs run the same toolchain a dispatched agent lands in. Pin the image
@@ -20,7 +20,7 @@ permissions:
 jobs:
   test:
     runs-on: docker
-    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:v0.195.0
+    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:latest
     steps:
       - uses: actions/checkout@v6
         with:
@@ -39,17 +39,137 @@ jobs:
           go mod tidy
           git diff --exit-code -- go.mod go.sum
 
+      - name: Alert Telegram on main failure
+        if: ${{ failure() && github.ref == 'refs/heads/main' }}
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_RED_CHAT_ID }}
+          REPO: ${{ github.repository }}
+          WORKFLOW: ${{ github.workflow }}
+          JOB: ${{ github.job }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          API_BASE: https://api.telegram.org
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          def build_message(repo, workflow, job, ref, sha, run_url):
+              return "\n".join([
+                  "CI failed on main",
+                  f"repo: {repo}",
+                  f"workflow: {workflow}",
+                  f"job: {job}",
+                  f"ref: {ref}",
+                  f"sha: {sha}",
+                  f"run: {run_url}",
+              ])
+
+          def main():
+              bot_token = os.environ["BOT_TOKEN"]
+              chat_id = os.environ["CHAT_ID"]
+              message = build_message(
+                  os.environ["REPO"],
+                  os.environ["WORKFLOW"],
+                  os.environ["JOB"],
+                  os.environ["REF"],
+                  os.environ["SHA"],
+                  os.environ["RUN_URL"],
+              )
+              payload = urllib.parse.urlencode(
+                  {
+                      "chat_id": chat_id,
+                      "text": message,
+                      "disable_web_page_preview": "true",
+                  }
+              ).encode("utf-8")
+              url = f"{os.environ['API_BASE'].rstrip('/')}/bot{bot_token}/sendMessage"
+              req = urllib.request.Request(url, data=payload, method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=15) as resp:
+                      resp.read()
+              except urllib.error.URLError as exc:
+                  print(f"telegram alert failed: {exc}")
+                  raise SystemExit(1)
+
+          main()
+          PY
   lint:
     runs-on: docker
-    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:v0.195.0
+    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:latest
     steps:
       - uses: actions/checkout@v6
       - name: golangci-lint
         run: golangci-lint run --timeout=5m ./...
 
+      - name: Alert Telegram on main failure
+        if: ${{ failure() && github.ref == 'refs/heads/main' }}
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_RED_CHAT_ID }}
+          REPO: ${{ github.repository }}
+          WORKFLOW: ${{ github.workflow }}
+          JOB: ${{ github.job }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          API_BASE: https://api.telegram.org
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          def build_message(repo, workflow, job, ref, sha, run_url):
+              return "\n".join([
+                  "CI failed on main",
+                  f"repo: {repo}",
+                  f"workflow: {workflow}",
+                  f"job: {job}",
+                  f"ref: {ref}",
+                  f"sha: {sha}",
+                  f"run: {run_url}",
+              ])
+
+          def main():
+              bot_token = os.environ["BOT_TOKEN"]
+              chat_id = os.environ["CHAT_ID"]
+              message = build_message(
+                  os.environ["REPO"],
+                  os.environ["WORKFLOW"],
+                  os.environ["JOB"],
+                  os.environ["REF"],
+                  os.environ["SHA"],
+                  os.environ["RUN_URL"],
+              )
+              payload = urllib.parse.urlencode(
+                  {
+                      "chat_id": chat_id,
+                      "text": message,
+                      "disable_web_page_preview": "true",
+                  }
+              ).encode("utf-8")
+              url = f"{os.environ['API_BASE'].rstrip('/')}/bot{bot_token}/sendMessage"
+              req = urllib.request.Request(url, data=payload, method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=15) as resp:
+                      resp.read()
+              except urllib.error.URLError as exc:
+                  print(f"telegram alert failed: {exc}")
+                  raise SystemExit(1)
+
+          main()
+          PY
   secrets:
     runs-on: docker
-    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:v0.195.0
+    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:latest
     steps:
       - uses: actions/checkout@v6
         with:
@@ -62,3 +182,63 @@ jobs:
           trufflehog filesystem . \
             --no-verification --no-update --fail \
             --exclude-paths=/tmp/trufflehog-exclude
+      - name: Alert Telegram on main failure
+        if: ${{ failure() && github.ref == 'refs/heads/main' }}
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_RED_CHAT_ID }}
+          REPO: ${{ github.repository }}
+          WORKFLOW: ${{ github.workflow }}
+          JOB: ${{ github.job }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          API_BASE: https://api.telegram.org
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          def build_message(repo, workflow, job, ref, sha, run_url):
+              return "\n".join([
+                  "CI failed on main",
+                  f"repo: {repo}",
+                  f"workflow: {workflow}",
+                  f"job: {job}",
+                  f"ref: {ref}",
+                  f"sha: {sha}",
+                  f"run: {run_url}",
+              ])
+
+          def main():
+              bot_token = os.environ["BOT_TOKEN"]
+              chat_id = os.environ["CHAT_ID"]
+              message = build_message(
+                  os.environ["REPO"],
+                  os.environ["WORKFLOW"],
+                  os.environ["JOB"],
+                  os.environ["REF"],
+                  os.environ["SHA"],
+                  os.environ["RUN_URL"],
+              )
+              payload = urllib.parse.urlencode(
+                  {
+                      "chat_id": chat_id,
+                      "text": message,
+                      "disable_web_page_preview": "true",
+                  }
+              ).encode("utf-8")
+              url = f"{os.environ['API_BASE'].rstrip('/')}/bot{bot_token}/sendMessage"
+              req = urllib.request.Request(url, data=payload, method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=15) as resp:
+                      resp.read()
+              except urllib.error.URLError as exc:
+                  print(f"telegram alert failed: {exc}")
+                  raise SystemExit(1)
+
+          main()
+          PY

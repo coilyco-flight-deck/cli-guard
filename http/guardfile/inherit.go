@@ -19,8 +19,8 @@ import (
 // inheritNode is the directive's node name.
 const inheritNode = "inherit"
 
-// restrictNode is the scope-gate node name. Unlike cli-guard#160, `restrict` now
-// inherits (deduped by param, child wins); see specverb-inherit.md.
+// restrictNode is the scope-gate node name. Child-local `restrict` now
+// inherits (deduped by param, child wins). See docs/specverb-inherit.md.
 const restrictNode = "restrict"
 
 // singletonNodes are the wrap-body fields a child inherits only when it declares

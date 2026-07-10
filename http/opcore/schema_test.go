@@ -147,3 +147,54 @@ func TestJSONSchemaNoRequiredOmitsKey(t *testing.T) {
 		t.Errorf("required key should be absent when nothing is required")
 	}
 }
+
+func TestJSONSchemaNestedBodyShape(t *testing.T) {
+	d := opcore.Descriptor{
+		Method: http.MethodPost,
+		Path:   "/query",
+		BodyFlags: []opcore.Field{
+			{Name: "start", Type: "integer", Required: true},
+			{Name: "requestType", Type: "string", Required: true},
+			{Name: "variables", Type: "object", Raw: true},
+			{Name: "formatOptions", Type: "object", Raw: true},
+			{Name: "compositeQuery", Type: "object", Raw: true, Required: true},
+			{Name: "filters", Type: "object", Fields: []opcore.Field{
+				{Name: "min", Type: "number", Required: true},
+				{Name: "max", Type: "number"},
+			}},
+			{Name: "labels", Type: "array", Items: "string"},
+			{Name: "payloads", Type: "array", Raw: true},
+		},
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(d.InputSchema().JSONSchema(), &doc); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	props := doc["properties"].(map[string]any)
+	filters := props["filters"].(map[string]any)
+	nested := filters["properties"].(map[string]any)
+	if nested["min"].(map[string]any)["type"] != "number" {
+		t.Fatalf("nested min type = %v", nested["min"])
+	}
+	req := filters["required"].([]any)
+	if len(req) != 1 || req[0].(string) != "min" {
+		t.Fatalf("nested required = %v, want [min]", req)
+	}
+	if got := props["compositeQuery"].(map[string]any)["x-opcore-raw"]; got != true {
+		t.Fatalf("raw marker = %v, want true", got)
+	}
+	if got := props["payloads"].(map[string]any)["x-opcore-raw"]; got != true {
+		t.Fatalf("raw array marker = %v, want true", got)
+	}
+	if _, ok := props["payloads"].(map[string]any)["items"]; ok {
+		t.Fatalf("raw array should not emit items: %v", props["payloads"])
+	}
+	wantReq := map[string]bool{"start": true, "requestType": true, "compositeQuery": true}
+	gotReq := map[string]bool{}
+	for _, r := range doc["required"].([]any) {
+		gotReq[r.(string)] = true
+	}
+	if !reflect.DeepEqual(gotReq, wantReq) {
+		t.Fatalf("required = %v, want %v", gotReq, wantReq)
+	}
+}

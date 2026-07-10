@@ -28,9 +28,8 @@ then operates on the merged set unchanged.
   dangerous class once and that denial holds at every higher tier unless a tier
   `override`s it — see [precedence](specverb-override.md).
 - **`restrict` inherits**, deduped by param (a child restating the same param
-  wins). This **supersedes cli-guard#160**, where `restrict` was child-local and
-  every forgejo tier restated `restrict owner matches "coily*"`; now the base
-  declares it once.
+  wins). This supersedes the earlier child-local shape, where every Forgejo tier
+  restated `restrict owner matches "coily*"`; now the base declares it once.
 - **Singletons** (`spec`, `base-url`, `auth`) are inherited only when the child
   declares none of its own — **the child wins**. Among parents, the first to
   supply a singleton wins.
@@ -44,7 +43,7 @@ An inherited `never` beats a plain `can`; only an `override` in a higher tier
 crosses it. That rule, the `override` keyword, and the build-time guardrails live
 in [specverb-override.md](specverb-override.md).
 
-## Composes with wildcards (#159)
+## Composes with wildcards
 
 Inherited grants keep their wildcard flag, so a tier expressed as `can <verb>
 "*"` expands per-resource through the merged set exactly as a hand-written
@@ -61,7 +60,6 @@ wildcard would. See [specverb-wildcard.md](specverb-wildcard.md).
 
 ## Why
 
-ward#240 builds three forgejo binaries — read, write, admin — from one chain of
+ward builds three Forgejo binaries - read, write, admin - from one chain of
 guardfiles instead of three hand-maintained copies. The read tier is the base;
-write and admin layer their extra sentences on top. See
-[cli-guard#160](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/160).
+write and admin layer their extra sentences on top.

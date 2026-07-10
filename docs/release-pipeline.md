@@ -31,6 +31,6 @@ Downstream bumps belong to the consumers, pulled along the dependency arrow:
 ward watches cli-guard's tags and opens its own self-bump PR.
 That keeps every cross-repo write pointing from a consumer toward what it
 depends on. The tree-direction rule is being made enforceable as a linter in
-[agentic-os-kai#626](https://forgejo.coilysiren.me/coilyco-bridge/agentic-os-kai/issues/626).
+the consumer self-bump policy.
 
 See [cli-guard release automation](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard).

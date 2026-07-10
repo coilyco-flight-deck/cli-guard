@@ -2,7 +2,7 @@
 
 Every `.kdl` spec may carry a first-class top-level `description "..."` node: the
 durable "what this spec is and does" prose, sibling of the root block, present on
-all three dialects (fleetconfig's `fleet`, the http/guardfile `wrap`, and the
+all three dialects (fleetconfig's `agents`, the http/guardfile `wrap`, and the
 exec-dialect `wrap`). It is **queryable contract data, not a comment header** -
 the sanctioned home for standing context the `code-comments` header exemption
 used to carry.
@@ -36,7 +36,7 @@ convention.
 - **fleetconfig** parses it into `Fleet.Description` for the consumer (e.g.
   `ward-kdl`) to surface.
 
-Origin: [cli-guard#179](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/179).
+Origin: the KDL description node.
 
 ## See also
 

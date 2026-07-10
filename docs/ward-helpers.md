@@ -45,8 +45,7 @@ a dev or unparseable build. `LooksReleased` screens the `dev` / blank build.
 forms parse: `owner/repo#N`, a bare `#N` / `N` (owner/repo left empty for the
 caller to fill from context), and a `<baseURL>/owner/repo/issues/N` Forgejo
 URL with a tolerated trailing slash / `?query` / `#fragment`. `baseURL` may be
-empty to disable URL parsing. The Dispatcher-bound parse in `cli/dispatch`
-keeps its own variant for its flow; this is the dependency-free form.
+empty to disable URL parsing. This is the dependency-free form.
 
 ## `pkg/ownertrust` - owner allow-list gate
 

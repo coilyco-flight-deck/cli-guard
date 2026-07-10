@@ -13,10 +13,14 @@ type Schema struct {
 }
 
 // Property is one input in a Schema: its type (or array element type), the
-// neutral where-it-goes hint, and its help text.
+// neutral where-it-goes hint, its help text, and any nested shape.
 type Property struct {
 	Type        string // string|boolean|integer|number|array
 	Items       string // element type when Type==array
+	Item        *Property
+	Properties  map[string]Property
+	Required    []string
+	Raw         bool
 	Location    string // path|query|body|form (neutral hint)
 	Description string
 }
@@ -39,12 +43,7 @@ func (d Descriptor) InputSchema() Schema {
 	}
 	add := func(fields []Field, loc string) {
 		for _, f := range fields {
-			s.Properties[f.Name] = Property{
-				Type:        f.Type,
-				Items:       f.Items,
-				Location:    loc,
-				Description: f.Desc,
-			}
+			s.Properties[f.Name] = f.toProperty(loc)
 			if f.Required {
 				s.Required = append(s.Required, f.Name)
 			}
@@ -56,23 +55,37 @@ func (d Descriptor) InputSchema() Schema {
 	return s
 }
 
+// toProperty lowers one Field into the neutral Schema tree.
+func (f Field) toProperty(loc string) Property {
+	p := Property{
+		Type:        f.Type,
+		Items:       f.Items,
+		Location:    loc,
+		Description: f.Desc,
+		Raw:         f.Raw,
+	}
+	if f.Item != nil {
+		item := f.Item.toProperty("")
+		p.Item = &item
+	}
+	if len(f.Fields) > 0 {
+		p.Properties = map[string]Property{}
+		for _, child := range f.Fields {
+			p.Properties[child.Name] = child.toProperty("")
+			if child.Required {
+				p.Required = append(p.Required, child.Name)
+			}
+		}
+	}
+	return p
+}
+
 // JSONSchema emits the Schema as a generic draft-07 object, never an MCP tool
 // type (that wrapper lives in ward-mcp). The neutral Location hint is omitted.
 func (s Schema) JSONSchema() []byte {
 	props := map[string]any{}
 	for name, p := range s.Properties {
-		entry := map[string]any{"type": p.Type}
-		if p.Description != "" {
-			entry["description"] = p.Description
-		}
-		if p.Type == "array" {
-			items := p.Items
-			if items == "" {
-				items = "string"
-			}
-			entry["items"] = map[string]any{"type": items}
-		}
-		props[name] = entry
+		props[name] = p.jsonSchema()
 	}
 	doc := map[string]any{
 		"$schema":    "http://json-schema.org/draft-07/schema#",
@@ -86,4 +99,45 @@ func (s Schema) JSONSchema() []byte {
 	}
 	out, _ := json.MarshalIndent(doc, "", "  ")
 	return out
+}
+
+// jsonSchema emits one Property as a draft-07 fragment.
+func (p Property) jsonSchema() map[string]any {
+	entry := map[string]any{"type": p.Type}
+	if p.Description != "" {
+		entry["description"] = p.Description
+	}
+	if p.Raw {
+		entry["x-opcore-raw"] = true
+	}
+	switch p.Type {
+	case "array":
+		switch {
+		case p.Item != nil:
+			entry["items"] = p.Item.jsonSchema()
+		case p.Raw:
+			// raw arrays are open-ended subtrees, so the schema leaves items
+			// unconstrained instead of defaulting to string.
+		default:
+			items := p.Items
+			if items == "" {
+				items = "string"
+			}
+			entry["items"] = map[string]any{"type": items}
+		}
+	case "object":
+		if len(p.Properties) > 0 {
+			props := map[string]any{}
+			for name, child := range p.Properties {
+				props[name] = child.jsonSchema()
+			}
+			entry["properties"] = props
+			if len(p.Required) > 0 {
+				required := append([]string(nil), p.Required...)
+				sort.Strings(required)
+				entry["required"] = required
+			}
+		}
+	}
+	return entry
 }

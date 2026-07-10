@@ -15,7 +15,7 @@ A promoted spec input that would shadow a reserved engine flag (`--dry-run`, `--
 
 ## The shell-metachar gate is location-aware
 
-The argv gate (`verb.Wrap` → `policy.ValidateArg`) refuses shell metacharacters, but only on the inputs that compose into the request **URL** - the injection surface. **Path params** (positionals) and **query flags** stay gated; **body fields**, **form fields**, and the `--body-file` path are JSON/multipart-encoded into the HTTP body and never reach a shell or the URL, so they are exempt. Gating them was a false positive that mangled legitimate free text (descriptions, commit messages, issue bodies). Complex-action inputs are gated by the same rule: an input is gated when any leaf binds it to a path or query param, exempt when it flows only into a body. See [#136](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/136).
+The argv gate (`verb.Wrap` → `policy.ValidateArg`) refuses shell metacharacters, but only on the inputs that compose into the request **URL** - the injection surface. **Path params** (positionals) and **query flags** stay gated; **body fields**, **form fields**, and the `--body-file` path are JSON/multipart-encoded into the HTTP body and never reach a shell or the URL, so they are exempt. Gating them was a false positive that mangled legitimate free text (descriptions, commit messages, issue bodies). Complex-action inputs are gated by the same rule: an input is gated when any leaf binds it to a path or query param, exempt when it flows only into a body.
 
 ## Firing
 
@@ -23,3 +23,14 @@ The argv gate (`verb.Wrap` → `policy.ValidateArg`) refuses shell metacharacter
 - **`--dry-run`** prints the resolved request with the secret redacted and fires nothing.
 - Live responses render through the `respfmt` `--query`/`--output` rail; an empty 2xx prints an `ok:` confirmation line.
 - The default client refuses redirects for mutating methods, so a renamed or transferred target cannot silently swallow a write.
+
+## Fetch overlays
+
+Fetch overlays are the raw-stdout sibling of the spec-driven leaf path:
+
+- The method and path are fixed in the Guardfile.
+- Path placeholders still become positional args in `{placeholder}` order.
+- Env-backed header templates resolve through the same value-provider registry.
+- The live response body prints raw, without the `respfmt` rail.
+- A non-2xx response fails closed with the status line and trimmed body.
+- The same client floor applies, so `GET` and `HEAD` may follow redirects while mutating methods refuse silent redirects.

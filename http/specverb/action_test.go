@@ -19,7 +19,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// ciWatchGuardfile is the cli-guard#140 first use case: a poll-until-terminal
+// ciWatchGuardfile is the first use case: a poll-until-terminal
 // action over the granted ListActionTasks leaf, with a fail-when predicate.
 func ciWatchGuardfile(t *testing.T) *guardfile.Guardfile {
 	t.Helper()
@@ -229,7 +229,7 @@ func TestActionGrantedOnlyFailsClosed(t *testing.T) {
 }
 
 // metacharActionGuardfile declares a one-call action whose `repo` binds a path
-// (owner-repo) and `title` a body field, to exercise the metachar gate. See #136.
+// (owner-repo) and `title` a body field, to exercise the metachar gate.
 func metacharActionGuardfile(t *testing.T) *guardfile.Guardfile {
 	t.Helper()
 	gf, err := guardfile.Parse([]byte(`wrap ward ops forgejo {
@@ -253,7 +253,7 @@ func metacharActionGuardfile(t *testing.T) *guardfile.Guardfile {
 }
 
 // TestActionBodyInputExemptFromMetacharGate proves a body-only action input
-// (`title`) is gate-exempt while the path-bound `repo` is unaffected. See #136.
+// (`title`) is gate-exempt while the path-bound `repo` is unaffected.
 func TestActionBodyInputExemptFromMetacharGate(t *testing.T) {
 	var gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

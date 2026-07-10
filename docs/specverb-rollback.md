@@ -5,8 +5,8 @@ bounded sequence of granted leaves. On its own a `call` sequence is forward-only
 a mid-sequence failure aborts and nothing undoes the completed steps. These
 primitives close that gap so a `wrap`-block action can express a health-gated ops
 pipeline without a compiled state machine. Filed as
-[cli-guard#187](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/187);
-`ward ops eco {test,promote}` (ward#585) is the first consumer.
+the rollback path;
+`ward ops eco {test,promote}` is the first consumer.
 
 Three primitives, all deny-by-default and per-call audited:
 

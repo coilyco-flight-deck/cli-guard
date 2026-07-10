@@ -4,7 +4,7 @@
 Where the OpenAPI source resolves a `Descriptor` against a spec, the inline source
 **states** it directly from KDL, so a non-CLI consumer (ward-mcp) never couples to
 the CLI projection. Both sources feed the one `opcore.Descriptor` type, so every
-downstream projection is source-blind. See [specverb.md](specverb.md) and cli-guard#196.
+downstream projection is source-blind. See [specverb.md](specverb.md) and the opcore docs.
 
 ## Grammar
 
@@ -26,6 +26,15 @@ wrap ward mcp forgejo {
         query "state"                            // -> query Fields (typed string)
         body "title" "body"                      // -> body Fields (typed string)
     }
+    can query issue {
+        path "/query"
+        body {
+            field "start" type="integer" required=true
+            field "requestType" type="string" required=true
+            object "variables" raw=true
+            object "compositeQuery" raw=true required=true
+        }
+    }
     can close issue {
         path "/repos/{owner}/{repo}/issues/{index}"
         set state="closed"                       // -> FixedBody; no body flags mount alongside
@@ -43,8 +52,11 @@ wrap ward mcp forgejo {
   add→POST, set→PUT). No operationId, no spec resolution.
 * **path params** - inferred from the `{template}` in author order via
   `opcore.PathParamsInOrder`.
-* **query / body** - flat field-name lists promote to `Field{Type:"string"}`. An
-  inline field carries no schema, so it types as a plain string.
+* **query / body** - flat `query`/`body` field-name lists still promote to
+  `Field{Type:"string"}`. `body { ... }` adds nested schema blocks with
+  `field`/`object`/`array`, `required=true`, and `raw=true` on object or array
+  fields. A flat inline field still carries no schema, so it types as a plain
+  string.
 * **set** - `set k=v...` becomes the leaf's `FixedBody`, keeping each value's
   KDL-native type (a boolean stays a boolean). A `set` toggle owns its body, so no
   body flags mount alongside it.
