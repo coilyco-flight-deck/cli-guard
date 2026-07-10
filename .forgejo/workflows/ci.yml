@@ -20,7 +20,7 @@ permissions:
 jobs:
   test:
     runs-on: docker
-    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:v0.195.0
+    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:latest
     steps:
       - uses: actions/checkout@v6
         with:
@@ -101,7 +101,7 @@ jobs:
           PY
   lint:
     runs-on: docker
-    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:v0.195.0
+    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:latest
     steps:
       - uses: actions/checkout@v6
       - name: golangci-lint
@@ -169,7 +169,7 @@ jobs:
           PY
   secrets:
     runs-on: docker
-    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:v0.195.0
+    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:latest
     steps:
       - uses: actions/checkout@v6
         with:
