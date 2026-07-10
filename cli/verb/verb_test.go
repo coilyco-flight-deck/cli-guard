@@ -62,7 +62,7 @@ func TestWrap_RejectsShellMetacharInArg(t *testing.T) {
 		t.Errorf("err = %v, want ErrShellMeta", err)
 	}
 	// The shell-meta gate must attach a Reasoner why-line so a consumer
-	// envelope needs no fallback map (coilyco-flight-deck/cli-guard#2).
+	// envelope needs no fallback map.
 	var rsn exitcode.Reasoner
 	if !errors.As(err, &rsn) || rsn.Reason() == "" {
 		t.Errorf("policy_denied carried no Reason(); want the shell-meta invariant why-line")
@@ -128,7 +128,7 @@ func TestWrap_WritesAuditRecord(t *testing.T) {
 	}
 }
 
-// TestWrap_RecordsCWDFields pins coilysiren/cli-guard#41: every audit
+// TestWrap_RecordsCWDFields pins the audit CWD field: every audit
 // row carries CWDSubprocess (always populated from os.Getwd at record
 func TestWrap_RecordsCWDFields(t *testing.T) {
 	w := newTestWriter(t)

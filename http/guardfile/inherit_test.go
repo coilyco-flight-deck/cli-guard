@@ -100,7 +100,7 @@ func TestInheritWildcardComposes(t *testing.T) {
 		t.Fatalf("ParseFile: %v", err)
 	}
 	// The parent's wildcard grants survive the merge as wildcard grants, so the
-	// engine's #159 expansion runs over them unchanged.
+	// wildcard expansion runs over them unchanged.
 	var wildcards int
 	for _, g := range gf.Grants {
 		if g.Resource == "*" && !g.Wildcard {

@@ -39,4 +39,4 @@ Unknown nodes fail closed. Per-operation grants guard a kwarg (`deny-when secret
 
 `kdl-specs` merges exec consumers into a spec binary; `execverb.Describe` gives doc parity. See [mixed transports](specverb-mixed-transports.md).
 
-Design: [#130](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/130), part of the security-pure-engine refactor #123; `sealed` is #173.
+Design: the security-pure-engine refactor. `sealed` is the single-resource variant.

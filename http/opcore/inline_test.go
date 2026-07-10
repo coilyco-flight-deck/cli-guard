@@ -33,6 +33,25 @@ const inlineSrc = `wrap ward mcp forgejo {
     }
 }`
 
+const nestedInlineSrc = `wrap ward mcp forgejo {
+    auth bearer {
+        value env "FORGEJO_TOKEN"
+    }
+    can query issue {
+        path "/query"
+        body {
+            field "start" type="integer" required=true
+            field "requestType" type="string" required=true
+            object "variables" raw=true
+            field "labels" type="array" items="string"
+            object "compositeQuery" required=true {
+                field "start" type="integer" required=true
+                field "end" type="integer" required=true
+            }
+        }
+    }
+}`
+
 func parseInline(t *testing.T, src string) ([]opcore.Descriptor, opcore.RuntimeConfig) {
 	t.Helper()
 	descs, cfg, err := opcore.ParseInline([]byte(src))
@@ -93,6 +112,29 @@ func TestParseInlineBodyAndQueryFields(t *testing.T) {
 	}
 }
 
+func TestParseInlineNestedBodySchema(t *testing.T) {
+	descs, _ := parseInline(t, nestedInlineSrc)
+	query := descByLeaf(t, descs, "query")
+	wantBody := []opcore.Field{
+		{Name: "start", Type: "integer", Required: true},
+		{Name: "requestType", Type: "string", Required: true},
+		{Name: "variables", Type: "object", Raw: true},
+		{Name: "labels", Type: "array", Items: "string"},
+		{
+			Name:     "compositeQuery",
+			Type:     "object",
+			Required: true,
+			Fields: []opcore.Field{
+				{Name: "start", Type: "integer", Required: true},
+				{Name: "end", Type: "integer", Required: true},
+			},
+		},
+	}
+	if !reflect.DeepEqual(query.BodyFlags, wantBody) {
+		t.Errorf("query body = %+v, want %+v", query.BodyFlags, wantBody)
+	}
+}
+
 func TestParseInlineSetToFixedBody(t *testing.T) {
 	descs, _ := parseInline(t, inlineSrc)
 	closeOp := descByLeaf(t, descs, "close")
@@ -102,6 +144,26 @@ func TestParseInlineSetToFixedBody(t *testing.T) {
 	// A `set` toggle owns its body: no body flags mount alongside it.
 	if closeOp.BodyFlags != nil {
 		t.Errorf("close body flags = %v, want nil (the set toggle owns the body)", closeOp.BodyFlags)
+	}
+}
+
+func TestParseInlineBodyBlockRejectsMixingShorthandAndBlock(t *testing.T) {
+	_, _, err := opcore.ParseInline([]byte(`wrap x {
+        auth bearer { value env "T" }
+        can create issue { path "/issues"; body "title" { field "nested" type="string" } }
+    }`))
+	if err == nil {
+		t.Fatal("mixing flat body shorthand and a body block should fail closed")
+	}
+}
+
+func TestParseInlineRawBodyFieldRequiresObjectOrArray(t *testing.T) {
+	_, _, err := opcore.ParseInline([]byte(`wrap x {
+        auth bearer { value env "T" }
+        can create issue { path "/issues"; body { field "title" type="string" raw=true } }
+    }`))
+	if err == nil {
+		t.Fatal("raw=true on a scalar field should fail closed")
 	}
 }
 

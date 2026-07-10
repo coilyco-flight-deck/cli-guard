@@ -1,5 +1,5 @@
 // Package ghratelimit retries gh-CLI calls that fail with a GitHub
-// rate-limit error. v1 of cli-guard#66: pattern-match the failure mode
+// rate-limit error. v1 pattern-matches the failure mode.
 package ghratelimit
 
 import (
@@ -19,7 +19,7 @@ var Sleeper = time.Sleep
 const MaxRetries = 3
 
 // backoffSchedule is the per-attempt sleep before the *next* call. Index
-// 0 is the wait before retry #1 (i.e. after the initial call failed),
+// 0 is the wait before retry 1 (i.e. after the initial call failed),
 var backoffSchedule = []time.Duration{
 	2 * time.Second,
 	8 * time.Second,
@@ -50,7 +50,7 @@ func Retry(fetch func() ([]byte, error)) ([]byte, error) {
 }
 
 // backoffFor returns the sleep before retry attempt+1. Cap matches the
-// issue spec (60s) so a single secondary-limit cooldown can't stall the
+// shared rate-limit spec (60s) so a single secondary-limit cooldown can't stall the
 func backoffFor(attempt int) time.Duration {
 	const maxBackoff = 60 * time.Second
 	if attempt < 0 || attempt >= len(backoffSchedule) {

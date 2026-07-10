@@ -9,7 +9,7 @@ carries a non-nil `sandbox.Spec`; read-only `Capture` calls are never jailed.
 ## When the environment can't jail
 
 Creating the namespace needs privileges some environments deny. Two failure
-modes were hit in the field ([ward#108](https://forgejo.coilysiren.me/coilyco-flight-deck/ward/issues/108)):
+modes were hit in the field:
 
 - **Mode 1 - clone denied.** `CLONE_NEWUSER` is blocked (a container without
   userns, some restricted agent shells), so the jailed child never starts:

@@ -35,7 +35,7 @@ func TestFrom_FindsCodedDeepInChain(t *testing.T) {
 	}
 }
 
-// TestCodedError_WithReason pins coilysiren/cli-guard#40: Reason() is
+// TestCodedError_WithReason pins the Reason() contract: Reason() is
 // the optional second-line companion to HintText() and is empty by
 func TestCodedError_WithReason(t *testing.T) {
 	c := exitcode.New(exitcode.PolicyDenied, "policy_denied", errors.New("x"), "do this")

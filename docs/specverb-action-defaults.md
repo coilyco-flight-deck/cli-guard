@@ -6,7 +6,7 @@ JMESPath against that response, and binds the result before the loop starts.
 
 This makes the natural ergonomic - `ci-watch owner/repo` with no `--run`,
 resolving "the latest run in the listing" - expressible without a hand-rolled
-pre-flight in the consumer. It is the cli-guard half of ward#90's "decide where
+pre-flight in the consumer. It is the cli-guard half of the "decide where
 defaulting belongs": here, in the action engine, since a pure spec-leaf cannot
 host a resolver.
 
@@ -36,4 +36,4 @@ input run { flag; default "max([].run_number)"; help "latest run if --run absent
 - Supplying the input on the CLI skips the pre-flight entirely - the explicit
   value wins.
 
-Reference: cli-guard#142, ward#90.
+Reference: the action-defaults and ward decision notes.

@@ -1,6 +1,6 @@
 # Precedence and `override` — fail-closed tiering
 
-The load-bearing rule of tiered guardfiles (cli-guard#169), layered over
+The load-bearing rule of tiered guardfiles, layered over
 [`inherit`](specverb-inherit.md):
 
 > **An inherited `never` beats a plain `can`. The only construct that beats an
@@ -15,7 +15,7 @@ re-grants specific ones by name.
 
 A higher tier may write `can delete "*"` and an inherited `never delete issue`
 still carves `issue` out — that per-resource carve-out is denied silently, by
-design (cli-guard#159). Deny is sticky upward; nothing but a named `override`
+design. Deny is sticky upward; nothing but a named `override`
 reverses it.
 
 ## The `override` keyword

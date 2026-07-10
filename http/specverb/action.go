@@ -309,7 +309,7 @@ func (rt *runtime) buildActionLeaf(ad actionDescriptor) *cli.Command {
 }
 
 // actionArgsFunc feeds the shell-metachar gate, location-aware: only inputs whose
-// value reaches a URL path/query are gated (the injection surface). See #136.
+// value reaches a URL path/query are gated (the injection surface).
 func actionArgsFunc(ad actionDescriptor) func(*cli.Command) (map[string]string, []string) {
 	urlBound := urlBoundInputs(ad)
 	return func(c *cli.Command) (map[string]string, []string) {
@@ -339,7 +339,7 @@ func actionArgsFunc(ad actionDescriptor) func(*cli.Command) (map[string]string, 
 }
 
 // urlBoundInputs returns input names whose value binds to a URL location (path or
-// query, incl. owner-repo sugar) in any leaf; body-only inputs are absent. See #136.
+// query, incl. owner-repo sugar) in any leaf; body-only inputs are absent.
 func urlBoundInputs(ad actionDescriptor) map[string]bool {
 	bound := map[string]bool{}
 	mark := func(leaf opDescriptor, args []guardfile.ArgBind) {

@@ -126,7 +126,7 @@ func argsUsage(params []string) string {
 }
 
 // argsFuncFor extracts the user strings for the shell-metachar gate, location-aware:
-// only path/query reach the URL (the injection surface); body/form are exempt. See #136.
+// only path/query reach the URL (the injection surface); body/form are exempt.
 func argsFuncFor(desc opDescriptor) func(*cli.Command) (map[string]string, []string) {
 	return func(c *cli.Command) (map[string]string, []string) {
 		named := map[string]string{}

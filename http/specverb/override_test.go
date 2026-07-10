@@ -38,7 +38,7 @@ func tierChain(t *testing.T, base, higher string) (*guardfile.Guardfile, []byte)
 }
 
 // TestOverrideCrossesInheritedNever proves `override can delete repo` lifts the
-// inherited `never delete "*"` for repo: a live op leaf that fires the wire (#3).
+// inherited `never delete "*"` for repo: a live op leaf that fires the wire.
 func TestOverrideCrossesInheritedNever(t *testing.T) {
 	gf, spec := tierChain(t, "\tcan get \"*\"\n\tnever delete \"*\"", "\toverride can delete repo")
 	leaves := leafSet(t, gf, spec)
@@ -108,7 +108,7 @@ func TestOverrideAbsentFromDeniedSurface(t *testing.T) {
 }
 
 // TestWildcardCanCannotCrossInheritedNever proves a wildcard `can create "*"` does
-// not cross an inherited `never create issue`: issue stays denied, others mount (#2).
+// not cross an inherited `never create issue`: issue stays denied, others mount.
 func TestWildcardCanCannotCrossInheritedNever(t *testing.T) {
 	gf, spec := tierChain(t, "\tnever create issue", "\tcan create \"*\"")
 	leaves := leafSet(t, gf, spec)
@@ -122,7 +122,7 @@ func TestWildcardCanCannotCrossInheritedNever(t *testing.T) {
 }
 
 // TestInheritedRestrictGatesHigherTier proves a base `restrict` now gates an
-// un-restating higher tier end to end: an out-of-scope owner is denied (#1).
+// un-restating higher tier end to end: an out-of-scope owner is denied.
 func TestInheritedRestrictGatesHigherTier(t *testing.T) {
 	gf, spec := tierChain(t,
 		"\trestrict owner matches \"coilyco-*\"\n\tcan get \"*\"",

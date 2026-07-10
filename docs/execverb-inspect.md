@@ -27,4 +27,4 @@ wrap ward-kdl inspect {
 - **Host tier** - mutating OS primitives (`systemctl`, `launchctl`) keep one wrap each, so their grants stay explicit.
 - **Excluded** - mixed read/write surfaces (`git`, `kubectl`, `aws`) stay declared `can run` verbs behind per-operation guards.
 
-Design: [#157](https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/157).
+Design: the inspect-list sugar documented above.

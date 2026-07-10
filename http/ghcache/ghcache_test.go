@@ -374,7 +374,7 @@ func TestGetJSON_FetchErrorNotCached(t *testing.T) {
 }
 
 func TestGetJSON_BurstCollapsesToOneFetch(t *testing.T) {
-	// Tier-3 acceptance criterion from cli-guard#56: 100 repeat dispatch
+	// Tier-3 acceptance criterion: 100 repeat dispatches
 	// calls against the same issue should produce 1 fetch + 99 hits.
 	reset(t)
 	calls := 0

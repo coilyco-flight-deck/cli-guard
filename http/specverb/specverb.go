@@ -43,7 +43,7 @@ type Config struct {
 }
 
 // opDescriptor is the per-operation payload; it now lives urfave/cli-free in
-// opcore, aliased here so every reference stays mechanical. See cli-guard#196.
+// opcore, aliased here so every reference stays mechanical.
 type opDescriptor = opcore.Descriptor
 
 // fieldFlag is one spec input promoted to a typed CLI flag; moved to opcore
