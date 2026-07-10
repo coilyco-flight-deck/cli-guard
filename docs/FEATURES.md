@@ -20,7 +20,6 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 - **shim** - PATH shim per protected binary. See [deny-by-structure.md](deny-by-structure.md).
 - **doctor** - Verify the deny-by-structure floor.
 - **sudo** - Policy-free sudo plumbing over any stdin transport.
-- **dispatch** - Fire `claude` at an open issue; swap resolver, backend, verdict.
 - **profiles** / **profile** / **decision** - Profile registry, axes, per-call evaluator.
 - **cmd/cli-guard-hook** - PreToolUse binary for shell-only consumers.
 

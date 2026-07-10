@@ -1,8 +1,6 @@
 // Package issueref parses an issue reference into its owner / repo /
-// number parts. It is the standalone, dependency-free form of the parse a
-// dispatcher does (cli/dispatch keeps a Dispatcher-bound variant for its
-// own flow); any consumer that just needs to turn a ref string into parts
-// can call Parse without wiring a whole dispatcher.
+// number parts. Any consumer that just needs to turn a ref string into
+// parts can call Parse without extra wiring.
 //
 // Three forms parse:
 //

@@ -12,10 +12,8 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/dispatch"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/gittree"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/passthrough"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/repocfg"
@@ -584,7 +582,7 @@ What the wrapper does NOT buy:
       readonly-vs-mutator gating is delegated to the lockdown deny
       list, which fires before the consumer ever runs.
 
-Why per-CLI subcommand trees were ripped: generator-
+Why per-CLI subcommand trees were ripped (issue #27): generator-
 driven trees that wrapped aws/gh/kubectl earned their cost only via
 the readonly-vs-mutator gate already handled by the lockdown deny
 list. The remaining benefits (help mirroring, tab completion below
@@ -874,55 +872,5 @@ catalog is the catalog.`,
 				},
 			},
 		},
-	}
-}
-
-// Dispatch is the tree for examples/dispatch. runner and writer may be
-// nil for doc rendering since Actions are not executed. The Config wired
-func Dispatch(runner *shell.Runner, writer *audit.Writer) *cli.Command {
-	if runner == nil {
-		runner = &shell.Runner{}
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = os.TempDir()
-	}
-	owner := "example-org"
-	d, derr := dispatch.New(dispatch.Config{
-		Runner:       runner,
-		Wrap:         func(s verb.Spec) cli.ActionFunc { return verb.Wrap(s, writer) },
-		AllowedOwner: owner,
-		BinaryName:   "dispatch-demo",
-		RepoPath: func(repo string) (string, error) {
-			return filepath.Join(home, "projects", owner, repo), nil
-		},
-		WorktreeRoot: func() (string, error) {
-			return filepath.Join(home, "projects", owner, ".dispatch-worktrees"), nil
-		},
-		LogRoot: func() (string, error) {
-			return filepath.Join(home, "projects", owner, ".dispatch-logs"), nil
-		},
-	})
-	if derr != nil {
-		panic("treebuilders: dispatch.New: " + derr.Error())
-	}
-	return &cli.Command{
-		Name:    "dispatch-demo",
-		Usage:   "fire claude against a real open issue, headless or interactive",
-		Version: "v0.0.0",
-		Description: `dispatch-demo wires the cli-guard dispatch subsystem into a host CLI.
-The dispatch package resolves a GitHub issue reference, refuses anything
-outside the configured org or any non-open issue, and hands off to a
-detached headless run or an interactive Warp tab.
-
-The package owns the verb logic; this demo supplies the host-specific
-seams - allowed org, workspace layout, verb pipeline - through
-dispatch.Config. Consumers wire their own.
-
-Try the dry-run paths, which resolve and print without spawning claude:
-
-    dispatch-demo dispatch headless    --dry-run https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/1
-    dispatch-demo dispatch interactive --dry-run https://forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/issues/1`,
-		Commands: []*cli.Command{d.Command()},
 	}
 }
