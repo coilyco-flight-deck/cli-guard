@@ -1895,6 +1895,38 @@ type DocLink struct {
     from the generated reference doc to a hand-written companion doc. See
     docs/doc-link.md.
 
+type Fetch struct {
+	Name     string
+	Leaf     string
+	Describe string
+	Method   string
+	Path     string
+	Output   string
+	Env      []FetchEnv
+	Headers  []FetchHeader
+	Whens    []FetchWhen
+}
+    Fetch is one HTTP overlay leaf: a fixed method/path pair plus env-backed
+    headers and simple glob guards on the positional path inputs.
+
+type FetchEnv struct {
+	Name  string
+	Value ValueChain
+}
+    FetchEnv is one named value source used to fill fetch header templates.
+
+type FetchHeader struct {
+	Name  string
+	Value string
+}
+    FetchHeader is one literal header name plus a template value.
+
+type FetchWhen struct {
+	Selector string
+	Globs    []string
+}
+    FetchWhen is one positional guard: the selector and globs it must match.
+
 type Grant struct {
 	Modal      string
 	Verb       string
@@ -1948,6 +1980,7 @@ type Guardfile struct {
 	Grants       []Grant
 	Restrict     []Restriction
 	Actions      []Action
+	Fetches      []Fetch
 	DocLinks     []DocLink // `doc-link` footer pointers rendered in the generated reference doc
 }
     Guardfile is the parsed form of one wrap block.
@@ -2234,6 +2267,10 @@ var ReservedFlagNames = map[string]bool{
 
 FUNCTIONS
 
+func ChainSources(chain guardfile.ValueChain) []valuesource.Source
+    ChainSources lowers a guardfile.ValueChain to the []valuesource.Source the
+    shared resolver walks, keeping guardfile free of the resolution layer.
+
 func CheckFlagCollisions(desc Descriptor) error
     CheckFlagCollisions fails closed when a promoted input shadows a reserved
     engine flag or another input on the same leaf. Shared by both descriptor
@@ -2418,6 +2455,10 @@ func NewRuntime(c RuntimeConfig) *Runtime
     NewRuntime assembles a Runtime, defaulting the base-url scheme and the HTTP
     client; the wrap pipeline and step runner are CLI-layer concerns layered on
     top.
+
+func (rt *Runtime) Authorize(ctx context.Context, req *http.Request) error
+    Authorize applies the runtime's configured auth to req. Blank auth is a
+    no-op.
 
 func (rt *Runtime) BaseForRequest(ctx context.Context, dry bool) (string, error)
     BaseForRequest returns the request base-url: the static base, or (for a
@@ -2658,6 +2699,41 @@ type DenyInfo struct {
     its CLI placement and the teaching message an operator sees when they reach
     for it.
 
+type FetchEnvInfo struct {
+	Name   string `json:"name"`
+	Source string `json:"source"`
+}
+    FetchEnvInfo is one fetch env source, rendered as the value chain rather
+    than the resolved secret.
+
+type FetchHeaderInfo struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+    FetchHeaderInfo is one fetch header, rendered with its template intact.
+
+type FetchInfo struct {
+	Name     string            `json:"name"`               // dotted audit name, e.g. ward.ops.forgejo.fetch.actions-logs
+	Leaf     string            `json:"leaf"`               // CLI leaf, e.g. actions-logs
+	Title    string            `json:"title"`              // author-supplied fetch label
+	Describe string            `json:"describe,omitempty"` // optional human note
+	Method   string            `json:"method"`             // HTTP method
+	Path     string            `json:"path"`               // path template
+	Output   string            `json:"output"`             // raw
+	Params   []ParamInfo       `json:"params,omitempty"`   // positional path args, in order
+	Env      []FetchEnvInfo    `json:"env,omitempty"`      // env value sources, never resolved values
+	Headers  []FetchHeaderInfo `json:"headers,omitempty"`  // literal headers with env templates
+	Whens    []FetchWhenInfo   `json:"whens,omitempty"`    // glob guards on the positional inputs
+}
+    FetchInfo is one mounted HTTP overlay: the fixed method/path, output mode,
+    env-backed headers, and the positional guards that gate invocation.
+
+type FetchWhenInfo struct {
+	Selector string   `json:"selector"`
+	Globs    []string `json:"globs"`
+}
+    FetchWhenInfo is one fetch guard clause.
+
 type ParamInfo struct {
 	Name     string `json:"name"`
 	Kind     string `json:"kind"`           // "path" | "query" | "body" | "form"
@@ -2687,6 +2763,7 @@ type Surface struct {
 	BaseURL     string              `json:"base_url"`              // resolved request base, scheme defaulted
 	Auth        AuthInfo            `json:"auth"`                  // how the engine authenticates
 	Verbs       []VerbInfo          `json:"verbs"`                 // every mounted leaf, in mount order
+	Fetches     []FetchInfo         `json:"fetches,omitempty"`     // HTTP fetch overlays, in declaration order
 	Actions     []ActionInfo        `json:"actions,omitempty"`     // complex actions, in declaration order
 	Denied      []DenyInfo          `json:"denied,omitempty"`      // blocked classes, in declaration order
 	Restrict    []RestrictionInfo   `json:"restrict,omitempty"`    // wrap-level scope allowlists

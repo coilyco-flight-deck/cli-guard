@@ -205,6 +205,38 @@ type Action struct {
 // IsMount reports whether the action shadows a leaf path (two-arg form).
 func (a Action) IsMount() bool { return a.MountResource != "" }
 
+// Fetch is one HTTP overlay leaf: a fixed method/path pair plus env-backed
+// headers and simple glob guards on the positional path inputs.
+type Fetch struct {
+	Name     string
+	Leaf     string
+	Describe string
+	Method   string
+	Path     string
+	Output   string
+	Env      []FetchEnv
+	Headers  []FetchHeader
+	Whens    []FetchWhen
+}
+
+// FetchEnv is one named value source used to fill fetch header templates.
+type FetchEnv struct {
+	Name  string
+	Value ValueChain
+}
+
+// FetchHeader is one literal header name plus a template value.
+type FetchHeader struct {
+	Name  string
+	Value string
+}
+
+// FetchWhen is one positional guard: the selector and globs it must match.
+type FetchWhen struct {
+	Selector string
+	Globs    []string
+}
+
 // Guardfile is the parsed form of one wrap block.
 type Guardfile struct {
 	// Description is the optional top-level `description "..."` prose (sibling of
@@ -221,6 +253,7 @@ type Guardfile struct {
 	Grants       []Grant
 	Restrict     []Restriction
 	Actions      []Action
+	Fetches      []Fetch
 	DocLinks     []DocLink // `doc-link` footer pointers rendered in the generated reference doc
 }
 
@@ -338,6 +371,13 @@ func (gf *Guardfile) applyListNode(n *kdl.Node, name string) error {
 			return err
 		}
 		gf.Actions = append(gf.Actions, act)
+		return nil
+	case "fetch":
+		fetch, err := parseFetch(n)
+		if err != nil {
+			return err
+		}
+		gf.Fetches = append(gf.Fetches, fetch)
 		return nil
 	case "doc-link":
 		dl, err := parseDocLink(n)
@@ -482,6 +522,11 @@ func (gf *Guardfile) Providers() []string {
 		add(p.Value)
 	}
 	add(gf.BaseURLValue)
+	for _, f := range gf.Fetches {
+		for _, e := range f.Env {
+			add(e.Value)
+		}
+	}
 	return out
 }
 
@@ -496,11 +541,14 @@ var reservedActionKeywords = map[string]bool{
 
 // validate enforces the required header fields.
 func (gf *Guardfile) validate() error {
-	if gf.Spec == "" {
-		return fmt.Errorf("guardfile: `spec` is required")
-	}
-	if gf.Auth.Scheme == "" {
-		return fmt.Errorf("guardfile: `auth` block is required")
+	hasSpecDriven := gf.Spec != "" || len(gf.Grants) > 0 || len(gf.Actions) > 0 || len(gf.Restrict) > 0
+	if hasSpecDriven {
+		if gf.Spec == "" {
+			return fmt.Errorf("guardfile: `spec` is required")
+		}
+		if gf.Auth.Scheme == "" {
+			return fmt.Errorf("guardfile: `auth` block is required")
+		}
 	}
 	if gf.BaseURL != "" && !gf.BaseURLValue.IsZero() {
 		return fmt.Errorf("guardfile: base-url set both as a string and a `{ value }` block; pick one")
@@ -899,6 +947,265 @@ func applyActionStep(act *Action, c *kdl.Node) error {
 		}
 		return fmt.Errorf("unknown body node %q (fail-closed)", c.Name())
 	}
+}
+
+// parseFetch reads a `fetch <name> { method; path; output; env; header; when }`
+// overlay leaf. It fails closed on missing required fields or unknown nodes.
+func parseFetch(n *kdl.Node) (Fetch, error) {
+	name, err := singleArg(n)
+	if err != nil {
+		return Fetch{}, fmt.Errorf("fetch: %w (name it: `fetch \"actions logs\" { ... }`)", err)
+	}
+	if name == "" {
+		return Fetch{}, fmt.Errorf("guardfile: fetch needs a non-empty name")
+	}
+	f := Fetch{Name: name, Leaf: fetchLeafName(name)}
+	for _, c := range n.Children().Nodes {
+		if err := applyFetchChild(&f, c); err != nil {
+			return Fetch{}, err
+		}
+	}
+	seenEnv := map[string]bool{}
+	for _, env := range f.Env {
+		if seenEnv[env.Name] {
+			return Fetch{}, fmt.Errorf("guardfile: fetch %q: duplicate env %q (fail-closed)", name, env.Name)
+		}
+		seenEnv[env.Name] = true
+	}
+	switch {
+	case f.Method == "":
+		return Fetch{}, fmt.Errorf("guardfile: fetch %q: `method` is required", name)
+	case f.Path == "":
+		return Fetch{}, fmt.Errorf("guardfile: fetch %q: `path` is required", name)
+	case f.Output == "":
+		return Fetch{}, fmt.Errorf("guardfile: fetch %q: `output` is required (use `output \"raw\"`)", name)
+	case f.Output != "raw":
+		return Fetch{}, fmt.Errorf("guardfile: fetch %q: unsupported output %q (want raw; fail-closed)", name, f.Output)
+	}
+	if err := validateFetchTemplates(&f); err != nil {
+		return Fetch{}, err
+	}
+	return f, nil
+}
+
+func applyFetchChild(f *Fetch, c *kdl.Node) error {
+	switch c.Name() {
+	case "describe":
+		return assignFetchString(f.Name, c, func(v string) { f.Describe = v })
+	case "method":
+		return assignFetchString(f.Name, c, func(v string) { f.Method = strings.ToUpper(v) })
+	case "path":
+		return assignFetchString(f.Name, c, func(v string) { f.Path = v })
+	case "output":
+		return assignFetchString(f.Name, c, func(v string) { f.Output = v })
+	case "env":
+		return appendFetchEnv(f, c)
+	case "header":
+		return appendFetchHeader(f, c)
+	case "when":
+		return appendFetchWhen(f, c)
+	default:
+		return fmt.Errorf("guardfile: fetch %q: unknown node %q (want describe | method | path | output | env | header | when; fail-closed)", f.Name, c.Name())
+	}
+}
+
+func assignFetchString(name string, c *kdl.Node, set func(string)) error {
+	v, err := singleArg(c)
+	if err != nil {
+		return fmt.Errorf("guardfile: fetch %q: %w", name, err)
+	}
+	set(v)
+	return nil
+}
+
+func appendFetchEnv(f *Fetch, c *kdl.Node) error {
+	env, err := parseFetchEnv(c)
+	if err != nil {
+		return err
+	}
+	f.Env = append(f.Env, env)
+	return nil
+}
+
+func appendFetchHeader(f *Fetch, c *kdl.Node) error {
+	h, err := parseFetchHeader(c)
+	if err != nil {
+		return err
+	}
+	f.Headers = append(f.Headers, h)
+	return nil
+}
+
+func appendFetchWhen(f *Fetch, c *kdl.Node) error {
+	when, err := parseFetchWhen(c)
+	if err != nil {
+		return err
+	}
+	f.Whens = append(f.Whens, when)
+	return nil
+}
+
+func parseFetchEnv(n *kdl.Node) (FetchEnv, error) {
+	name, err := singleArg(n)
+	if err != nil {
+		return FetchEnv{}, fmt.Errorf("guardfile: fetch env: %w (name it: `env FORGEJO_TOKEN { value ssm \"/path\" }`)", err)
+	}
+	if name == "" {
+		return FetchEnv{}, fmt.Errorf("guardfile: fetch env needs a non-empty name")
+	}
+	env := FetchEnv{Name: name}
+	for _, c := range n.Children().Nodes {
+		if c.Name() != "value" {
+			return FetchEnv{}, fmt.Errorf("guardfile: fetch env %q: unknown node %q (want value; fail-closed)", name, c.Name())
+		}
+		if !env.Value.IsZero() {
+			return FetchEnv{}, fmt.Errorf("guardfile: fetch env %q: duplicate `value` (fail-closed)", name)
+		}
+		vc, err := parseValueChain(c)
+		if err != nil {
+			return FetchEnv{}, fmt.Errorf("guardfile: fetch env %q: %w", name, err)
+		}
+		env.Value = vc
+	}
+	if env.Value.IsZero() {
+		return FetchEnv{}, fmt.Errorf("guardfile: fetch env %q requires `value <provider> \"...\"`", name)
+	}
+	return env, nil
+}
+
+func parseFetchHeader(n *kdl.Node) (FetchHeader, error) {
+	args := n.Arguments()
+	if len(args) != 2 || args[0].String() == "" {
+		return FetchHeader{}, fmt.Errorf("guardfile: fetch header needs `header \"Name\" \"value\"` (got %d arg(s))", len(args))
+	}
+	if args[1].String() == "" {
+		return FetchHeader{}, fmt.Errorf("guardfile: fetch header %q needs a non-empty value", args[0].String())
+	}
+	if len(n.Children().Nodes) > 0 || len(n.Properties()) > 0 {
+		return FetchHeader{}, fmt.Errorf("guardfile: fetch header %q takes only positional args, no children or properties (fail-closed)", args[0].String())
+	}
+	return FetchHeader{Name: args[0].String(), Value: args[1].String()}, nil
+}
+
+func parseFetchWhen(n *kdl.Node) (FetchWhen, error) {
+	args := n.Arguments()
+	if len(args) < 3 {
+		return FetchWhen{}, fmt.Errorf("guardfile: fetch when needs `when <selector> matches <glob...>`")
+	}
+	selector, globs, err := parseFetchWhenArgs(args)
+	if err != nil {
+		return FetchWhen{}, err
+	}
+	if selector == "" {
+		return FetchWhen{}, fmt.Errorf("guardfile: fetch when needs a non-empty selector")
+	}
+	if !validFetchSelector(selector) {
+		return FetchWhen{}, fmt.Errorf("guardfile: fetch when selector %q unsupported (want argN or first input; fail-closed)", selector)
+	}
+	if len(globs) == 0 {
+		return FetchWhen{}, fmt.Errorf("guardfile: fetch when %q needs at least one glob", selector)
+	}
+	for _, g := range globs {
+		if g == "" {
+			return FetchWhen{}, fmt.Errorf("guardfile: fetch when %q has an empty glob (fail-closed)", selector)
+		}
+	}
+	return FetchWhen{Selector: selector, Globs: globs}, nil
+}
+
+func parseFetchWhenArgs(args []kdl.Value) (string, []string, error) {
+	if len(args) >= 4 && args[0].String() == "first" && args[1].String() == "input" && args[2].String() == "matches" {
+		return "arg0", valueStrings(args[3:]), nil
+	}
+	if args[1].String() != "matches" {
+		return "", nil, fmt.Errorf("guardfile: fetch when needs `when <selector> matches <glob...>`")
+	}
+	return args[0].String(), valueStrings(args[2:]), nil
+}
+
+func validFetchSelector(selector string) bool {
+	if selector == "arg0" {
+		return true
+	}
+	if len(selector) < 4 || !strings.HasPrefix(selector, "arg") {
+		return false
+	}
+	for _, r := range selector[3:] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func valueStrings(vals []kdl.Value) []string {
+	out := make([]string, 0, len(vals))
+	for _, v := range vals {
+		out = append(out, v.String())
+	}
+	return out
+}
+
+func validateFetchTemplates(f *Fetch) error {
+	envNames := map[string]bool{}
+	for _, e := range f.Env {
+		envNames[e.Name] = true
+	}
+	for _, h := range f.Headers {
+		if strings.Contains(h.Value, "${") && !strings.Contains(h.Value, "}") {
+			return fmt.Errorf("guardfile: fetch %q: header %q has an unterminated ${...} placeholder", f.Name, h.Name)
+		}
+		for _, name := range fetchTemplateNames(h.Value) {
+			if !envNames[name] {
+				return fmt.Errorf("guardfile: fetch %q: header %q references undeclared env %q (fail-closed)", f.Name, h.Name, name)
+			}
+		}
+	}
+	return nil
+}
+
+func fetchTemplateNames(tpl string) []string {
+	var out []string
+	for start := 0; start < len(tpl); {
+		i := strings.Index(tpl[start:], "${")
+		if i < 0 {
+			break
+		}
+		i += start
+		j := strings.IndexByte(tpl[i+2:], '}')
+		if j < 0 {
+			break
+		}
+		j += i + 2
+		name := tpl[i+2 : j]
+		if name != "" {
+			out = append(out, name)
+		}
+		start = j + 1
+	}
+	return out
+}
+
+func fetchLeafName(name string) string {
+	var b strings.Builder
+	lastDash := false
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastDash = false
+		default:
+			if !lastDash {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	leaf := strings.Trim(b.String(), "-")
+	if leaf == "" {
+		return "fetch"
+	}
+	return leaf
 }
 
 // addPoll parses a poll child and attaches it to act, rejecting a second poll.

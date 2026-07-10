@@ -291,6 +291,89 @@ func TestParseAction(t *testing.T) {
 	}
 }
 
+// TestParseFetch asserts the fetch overlay grammar round-trips: method/path,
+// env-backed header templates, raw output, and the `first input` sugar.
+func TestParseFetch(t *testing.T) {
+	src := []byte(`wrap ward ops forgejo {
+    base-url "https://forgejo.example/api/v1"
+    fetch "actions logs" {
+        method "GET"
+        path "/repos/{owner}/{repo}/actions/runs/{run}/jobs/{job}/attempt/{attempt}/logs"
+        output "raw"
+        env FORGEJO_TOKEN {
+            value ssm "/forgejo/token"
+        }
+        header "Authorization" "token ${FORGEJO_TOKEN}"
+        header "Accept" "text/plain"
+        when first input matches coily*
+    }
+}`)
+	gf, err := Parse(src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(gf.Fetches) != 1 {
+		t.Fatalf("Fetches = %d, want 1", len(gf.Fetches))
+	}
+	want := Fetch{
+		Name:   "actions logs",
+		Leaf:   "actions-logs",
+		Method: "GET",
+		Path:   "/repos/{owner}/{repo}/actions/runs/{run}/jobs/{job}/attempt/{attempt}/logs",
+		Output: "raw",
+		Env: []FetchEnv{{
+			Name:  "FORGEJO_TOKEN",
+			Value: ValueChain{{Provider: "ssm", Address: "/forgejo/token"}},
+		}},
+		Headers: []FetchHeader{
+			{Name: "Authorization", Value: "token ${FORGEJO_TOKEN}"},
+			{Name: "Accept", Value: "text/plain"},
+		},
+		Whens: []FetchWhen{{Selector: "arg0", Globs: []string{"coily*"}}},
+	}
+	if !reflect.DeepEqual(gf.Fetches[0], want) {
+		t.Errorf("Fetch = %+v, want %+v", gf.Fetches[0], want)
+	}
+	gotProviders := gf.Providers()
+	if len(gotProviders) != 1 || gotProviders[0] != "ssm" {
+		t.Errorf("Providers = %v, want [ssm]", gotProviders)
+	}
+}
+
+// TestParseFetchFailsClosed asserts the fetch grammar rejects unknown fields
+// and non-raw output instead of silently dropping them.
+func TestParseFetchFailsClosed(t *testing.T) {
+	base := `wrap ward ops forgejo {
+    base-url "https://forgejo.example/api/v1"
+    fetch "actions logs" {
+        method "GET"
+        path "/repos/{owner}/{repo}/actions/runs/{run}/jobs/{job}/attempt/{attempt}/logs"
+        output "raw"
+        env FORGEJO_TOKEN { value ssm "/forgejo/token" }
+        header "Authorization" "token ${FORGEJO_TOKEN}"
+    }
+}`
+	for name, src := range map[string]string{
+		"unknown child": `wrap ward ops forgejo {
+    base-url "https://forgejo.example/api/v1"
+    fetch "actions logs" {
+        method "GET"
+        path "/repos/{owner}/{repo}/actions/runs/{run}/jobs/{job}/attempt/{attempt}/logs"
+        output "raw"
+        env FORGEJO_TOKEN { value ssm "/forgejo/token" }
+        header "Authorization" "token ${FORGEJO_TOKEN}"
+        nope "x"
+    }
+}`,
+		"bad output": strings.Replace(base, "output \"raw\"", "output \"yaml\"", 1),
+		"bad when":   strings.Replace(base, "header \"Authorization\" \"token ${FORGEJO_TOKEN}\"", "header \"Authorization\" \"token ${MISSING}\"", 1),
+	} {
+		if _, err := Parse([]byte(src)); err == nil {
+			t.Errorf("%s: expected a fail-closed parse error", name)
+		}
+	}
+}
+
 // TestParseInputDefault asserts an `input { default "<jmespath>" }` slot
 // round-trips onto Input.Default, the pre-flight latest-run defaulting binding.
 func TestParseInputDefault(t *testing.T) {
