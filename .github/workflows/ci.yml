@@ -23,6 +23,12 @@ jobs:
       - name: godoc-current.txt up to date
         run: ./scripts/check-godoc-current.sh
 
+      - name: Alert Telegram on main failure
+        if: ${{ failure() && github.ref == 'refs/heads/main' }}
+        uses: coilyco-flight-deck/agentic-os/actions/telegram-alert@main
+        with:
+          bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat-id: ${{ secrets.TELEGRAM_RED_CHAT_ID }}
   lint:
     runs-on: ubuntu-latest
     container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:v0.195.0
@@ -31,6 +37,12 @@ jobs:
       - name: golangci-lint
         run: golangci-lint run --timeout=5m ./...
 
+      - name: Alert Telegram on main failure
+        if: ${{ failure() && github.ref == 'refs/heads/main' }}
+        uses: coilyco-flight-deck/agentic-os/actions/telegram-alert@main
+        with:
+          bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat-id: ${{ secrets.TELEGRAM_RED_CHAT_ID }}
   govulncheck:
     runs-on: ubuntu-latest
     container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:v0.195.0
@@ -41,6 +53,12 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
+      - name: Alert Telegram on main failure
+        if: ${{ failure() && github.ref == 'refs/heads/main' }}
+        uses: coilyco-flight-deck/agentic-os/actions/telegram-alert@main
+        with:
+          bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat-id: ${{ secrets.TELEGRAM_RED_CHAT_ID }}
   docs:
     runs-on: ubuntu-latest
     steps:
@@ -56,3 +74,9 @@ jobs:
         run: pip install -r mkdocs-requirements.txt
       - name: mkdocs build (strict)
         run: mkdocs build --strict
+      - name: Alert Telegram on main failure
+        if: ${{ failure() && github.ref == 'refs/heads/main' }}
+        uses: coilyco-flight-deck/agentic-os/actions/telegram-alert@main
+        with:
+          bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat-id: ${{ secrets.TELEGRAM_RED_CHAT_ID }}
