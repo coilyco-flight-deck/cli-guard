@@ -3703,9 +3703,8 @@ identity stays legible. See docs/fleetconfig.md.
 CONSTANTS
 
 const SchemaVersion = 2
-    SchemaVersion is the fleet-config dialect this package parses. A `fleet`
-    block must declare exactly this version; a mismatch fails closed. See
-    docs/fleetconfig.md.
+    SchemaVersion is the fleet-config dialect this package parses. `agents` must
+    declare exactly this version, and a mismatch fails closed.
 
 
 TYPES
@@ -3758,7 +3757,7 @@ type Fleet struct {
 	Description string
 
 	// SchemaVersion is the declared dialect version (== SchemaVersion). Zero in
-	// an operator-local source, which carries no `fleet` block.
+	// an operator-local source, which carries no embedded roster block.
 	SchemaVersion int
 
 	// Defaults are the fleet-wide fallbacks: the default agent and the commit
@@ -3786,19 +3785,18 @@ func Parse(src []byte) (Fleet, error)
 func ParseSource(src []byte, source Source) (Fleet, error)
     ParseSource validates a fleet config under the given source's accepted
     subset. It fails closed on any out-of-subset node or malformed field.
-    See docs/fleetconfig.md.
 
 type Guardfiles struct {
 	List   []string // flat list of guardfile names; nil when Prefix is set
 	Prefix string   // a name prefix selecting a set; "" when List is used
 }
     Guardfiles is a role's guardfile set: EITHER a flat List of names OR a
-    single Prefix selecting by name prefix, mutually exclusive; both zero means
+    legacy Prefix selecting by name prefix, mutually exclusive; both zero means
     none.
 
 type Role struct {
 	Name       string     // block name, e.g. `role advisor` -> "advisor"
-	Guardfiles Guardfiles // the guardfile set this role holds (list or prefix)
+	Guardfiles Guardfiles // the guardfile set this role holds (list or legacy prefix)
 
 	// AgentConfig is the sparse per-agent override overlay, keyed by agent name;
 	// nil when the role sets none. See docs/fleetconfig.md.
@@ -3822,11 +3820,11 @@ type Source int
 
 const (
 	// Embedded is the fleet config shipped inside a binary: it accepts the full
-	// schema (the `fleet` block plus an optional `director` seed).
+	// schema (the `agents` block plus an optional `director` seed).
 	Embedded Source = iota
 
 	// OperatorLocal is a per-host operator file: it accepts only the narrow
-	// per-host node set (`director`) and rejects the embed-only `fleet` block.
+	// per-host node set (`director`) and rejects the embed-only roster block.
 	OperatorLocal
 )
 func (s Source) String() string
