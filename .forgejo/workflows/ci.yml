@@ -11,7 +11,7 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, release]
   pull_request:
 
 permissions:
@@ -40,7 +40,7 @@ jobs:
           git diff --exit-code -- go.mod go.sum
 
       - name: Alert Telegram on main failure
-        if: ${{ failure() && github.ref == 'refs/heads/main' }}
+        if: ${{ failure() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release') }}
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_RED_CHAT_ID }}
@@ -108,7 +108,7 @@ jobs:
         run: golangci-lint run --timeout=5m ./...
 
       - name: Alert Telegram on main failure
-        if: ${{ failure() && github.ref == 'refs/heads/main' }}
+        if: ${{ failure() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release') }}
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_RED_CHAT_ID }}
@@ -183,7 +183,7 @@ jobs:
             --no-verification --no-update --fail \
             --exclude-paths=/tmp/trufflehog-exclude
       - name: Alert Telegram on main failure
-        if: ${{ failure() && github.ref == 'refs/heads/main' }}
+        if: ${{ failure() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release') }}
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_RED_CHAT_ID }}

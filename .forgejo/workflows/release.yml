@@ -1,36 +1,60 @@
+# Stage 2 of the two-stage release flow (ward#1117): promote.yml gates every
+# main push and fast-forwards `release` when green; this pipeline runs on
+# `release` pushes only, under a concurrency queue (cancel-in-progress: false)
+# so promoted shas release in sequence instead of overlap-and-cancel. A
+# workflow_dispatch re-fires it against the `release` ref on a missed enqueue.
+# The leading `test` job re-runs the repo gate so a promoted push whose checks
+# fail cannot tag or cut a release - Forgejo Actions has no cross-workflow
+# `needs`, so the gate is duplicated here rather than referenced.
+
 name: release
 
 on:
   push:
-    branches: [main]
+    branches: [release]
+  workflow_dispatch:
+
+concurrency:
+  group: release-pipeline
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  test:
     runs-on: docker
+    timeout-minutes: 15
     container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:latest
-    outputs:
-      tag: ${{ steps.tag.outputs.new_tag }}
-      version: ${{ steps.tag.outputs.new_version }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - id: tag
-        uses: coilysiren/agentic-os/actions/tag-bump@main
+      - name: go vet
+        run: go vet ./...
 
-      - id: create
-        if: ${{ steps.tag.outputs.new_tag != '' }}
-        uses: coilysiren/agentic-os/actions/create-release@main
-        with:
-          tag: ${{ steps.tag.outputs.new_tag }}
-          name: ${{ steps.tag.outputs.new_tag }}
-          body: ${{ steps.tag.outputs.changelog }}
-      - name: Alert Telegram on main failure
-        if: ${{ failure() && github.ref == 'refs/heads/main' }}
+      - name: go build
+        run: go build ./...
+
+      - name: go test
+        run: go test -race -count=1 ./...
+
+      - name: godoc-current.txt up to date
+        run: ./scripts/check-godoc-current.sh
+
+      - name: go.mod tidy
+        run: |
+          set -euo pipefail
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: golangci-lint
+        timeout-minutes: 5
+        run: golangci-lint run --timeout=5m ./...
+
+      - name: Alert Telegram on release failure
+        if: ${{ failure() && github.ref == 'refs/heads/release' }}
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_RED_CHAT_ID }}
@@ -51,7 +75,90 @@ jobs:
 
           def build_message(repo, workflow, job, ref, sha, run_url):
               return "\n".join([
-                  "CI failed on main",
+                  "CI failed on release",
+                  f"repo: {repo}",
+                  f"workflow: {workflow}",
+                  f"job: {job}",
+                  f"ref: {ref}",
+                  f"sha: {sha}",
+                  f"run: {run_url}",
+              ])
+
+          def main():
+              bot_token = os.environ["BOT_TOKEN"]
+              chat_id = os.environ["CHAT_ID"]
+              message = build_message(
+                  os.environ["REPO"],
+                  os.environ["WORKFLOW"],
+                  os.environ["JOB"],
+                  os.environ["REF"],
+                  os.environ["SHA"],
+                  os.environ["RUN_URL"],
+              )
+              payload = urllib.parse.urlencode(
+                  {
+                      "chat_id": chat_id,
+                      "text": message,
+                      "disable_web_page_preview": "true",
+                  }
+              ).encode("utf-8")
+              url = f"{os.environ['API_BASE'].rstrip('/')}/bot{bot_token}/sendMessage"
+              req = urllib.request.Request(url, data=payload, method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=15) as resp:
+                      resp.read()
+              except urllib.error.URLError as exc:
+                  print(f"telegram alert failed: {exc}")
+                  raise SystemExit(1)
+
+          main()
+          PY
+
+  release:
+    needs: test
+    runs-on: docker
+    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:latest
+    outputs:
+      tag: ${{ steps.tag.outputs.new_tag }}
+      version: ${{ steps.tag.outputs.new_version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - id: tag
+        uses: coilysiren/agentic-os/actions/tag-bump@main
+
+      - id: create
+        if: ${{ steps.tag.outputs.new_tag != '' }}
+        uses: coilysiren/agentic-os/actions/create-release@main
+        with:
+          tag: ${{ steps.tag.outputs.new_tag }}
+          name: ${{ steps.tag.outputs.new_tag }}
+          body: ${{ steps.tag.outputs.changelog }}
+      - name: Alert Telegram on release failure
+        if: ${{ failure() && github.ref == 'refs/heads/release' }}
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_RED_CHAT_ID }}
+          REPO: ${{ github.repository }}
+          WORKFLOW: ${{ github.workflow }}
+          JOB: ${{ github.job }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          API_BASE: https://api.telegram.org
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          def build_message(repo, workflow, job, ref, sha, run_url):
+              return "\n".join([
+                  "CI failed on release",
                   f"repo: {repo}",
                   f"workflow: {workflow}",
                   f"job: {job}",

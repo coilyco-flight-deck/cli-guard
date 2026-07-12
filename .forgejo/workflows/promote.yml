@@ -1,0 +1,148 @@
+# Stage 1 of the two-stage release flow (ward#1117): every main push re-runs
+# the full repo gate here (the same suite ci.yml enforces: vet, build, race
+# test, godoc-current, mod tidy, golangci-lint, secret scan), and only a green
+# gate fast-forwards `release` to that sha. release.yml then runs on the
+# `release` push (stage 2: gate again, tag, cut the Forgejo release) under a
+# no-cancel concurrency queue. main stays the integration branch; `release` is
+# last-known-good. Bursts on main collapse to the newest sha
+# (cancel-in-progress: true - promotion is idempotent and a newer gate
+# supersedes an older one). The promote push uses CI_RELEASE_TOKEN (real-user
+# PAT with write:repository + read:user from SSM /forgejo/ci-release-token):
+# job-token pushes and PATs without read:user are recorded with an empty actor
+# and silently enqueue no workflow, which is how releases go missing.
+
+name: promote
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: promote-main
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  gate-and-promote:
+    runs-on: docker
+    timeout-minutes: 15
+    container:
+      image: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test
+        run: go test -race -count=1 ./...
+
+      - name: godoc-current.txt up to date
+        run: ./scripts/check-godoc-current.sh
+
+      - name: go.mod tidy
+        run: |
+          set -euo pipefail
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: golangci-lint
+        timeout-minutes: 5
+        run: golangci-lint run --timeout=5m ./...
+
+      - name: Scan filesystem for secrets
+        run: |
+          set -euo pipefail
+          printf '(^|/)\\.git/\n' > /tmp/trufflehog-exclude
+          trufflehog filesystem . \
+            --no-verification --no-update --fail \
+            --exclude-paths=/tmp/trufflehog-exclude
+
+      - name: Promote main to release (fast-forward only)
+        env:
+          PROMOTE_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
+          REPO: ${{ github.repository }}
+          SERVER: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PROMOTE_TOKEN:-}" ]; then
+            echo "::error::CI_RELEASE_TOKEN not set; promotion needs a real-user PAT so the release push enqueues release.yml (SSM /forgejo/ci-release-token, ward exec sync-actions-secrets in aos)." >&2
+            exit 1
+          fi
+          # server_url resolves to the in-cluster http URL on this runner, so
+          # keep its scheme instead of assuming https.
+          proto="${SERVER%%://*}"
+          host="${SERVER#*://}"
+          # Plain push: git refuses a non-fast-forward, so a diverged release
+          # branch fails loud here instead of being silently rewritten.
+          git push "${proto}://oauth2:${PROMOTE_TOKEN}@${host}/${REPO}.git" HEAD:release
+          echo "promoted $(git rev-parse --short HEAD) to release"
+
+      - name: Alert Telegram on main failure
+        if: ${{ failure() && github.ref == 'refs/heads/main' }}
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_RED_CHAT_ID }}
+          REPO: ${{ github.repository }}
+          WORKFLOW: ${{ github.workflow }}
+          JOB: ${{ github.job }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          API_BASE: https://api.telegram.org
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          def build_message(repo, workflow, job, ref, sha, run_url):
+              return "\n".join([
+                  "CI failed on main",
+                  f"repo: {repo}",
+                  f"workflow: {workflow}",
+                  f"job: {job}",
+                  f"ref: {ref}",
+                  f"sha: {sha}",
+                  f"run: {run_url}",
+              ])
+
+          def main():
+              bot_token = os.environ["BOT_TOKEN"]
+              chat_id = os.environ["CHAT_ID"]
+              message = build_message(
+                  os.environ["REPO"],
+                  os.environ["WORKFLOW"],
+                  os.environ["JOB"],
+                  os.environ["REF"],
+                  os.environ["SHA"],
+                  os.environ["RUN_URL"],
+              )
+              payload = urllib.parse.urlencode(
+                  {
+                      "chat_id": chat_id,
+                      "text": message,
+                      "disable_web_page_preview": "true",
+                  }
+              ).encode("utf-8")
+              url = f"{os.environ['API_BASE'].rstrip('/')}/bot{bot_token}/sendMessage"
+              req = urllib.request.Request(url, data=payload, method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=15) as resp:
+                      resp.read()
+              except urllib.error.URLError as exc:
+                  print(f"telegram alert failed: {exc}")
+                  raise SystemExit(1)
+
+          main()
+          PY
