@@ -9,7 +9,13 @@
 # supersedes an older one). The promote push uses CI_RELEASE_TOKEN (real-user
 # PAT with write:repository + read:user from SSM /forgejo/ci-release-token):
 # job-token pushes and PATs without read:user are recorded with an empty actor
-# and silently enqueue no workflow, which is how releases go missing.
+# and silently enqueue no workflow, which is how releases go missing. The
+# checkout sets persist-credentials: false because checkout otherwise stores
+# the job token as an http extraheader in the local git config, and that
+# Authorization header overrides the PAT in the promote push URL - the push
+# then lands as the internal Actions user, whose pushes Forgejo deliberately
+# never enqueues workflows for. With it off, the push authenticates as the
+# PAT user and stage 2 fires (ward#1117).
 
 name: promote
 
@@ -35,6 +41,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: go vet
         run: go vet ./...
