@@ -196,3 +196,26 @@ func TestFormatRefusal_namesVerbAndOverride(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatRefusal_rationaleMatchesTheCause(t *testing.T) {
+	cases := []struct {
+		reason string
+		want   string
+		not    string
+	}{
+		{"working tree is dirty", "require a clean tree", "upstream"},
+		{`branch "x" has no upstream`, "pushed and synced with its upstream", "clean tree"},
+		{"HEAD is detached (no branch)", "require a branch checkout", "clean tree"},
+		{"2 commits behind origin/main", "pushed and synced with its upstream", "clean tree"},
+	}
+	for _, tc := range cases {
+		st := &State{Reason: tc.reason, Recovery: "  fix\n"}
+		msg := st.FormatRefusal("repo.test")
+		if !strings.Contains(msg, tc.want) {
+			t.Errorf("Reason %q: rationale missing %q; got:\n%s", tc.reason, tc.want, msg)
+		}
+		if strings.Contains(msg, tc.not) {
+			t.Errorf("Reason %q: rationale wrongly cites %q; got:\n%s", tc.reason, tc.not, msg)
+		}
+	}
+}

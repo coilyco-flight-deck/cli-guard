@@ -138,14 +138,31 @@ func (s *State) FormatRefusal(verbName string) string {
 			b.WriteString("\n")
 		}
 	}
-	b.WriteString("\nRepo verbs require a clean tree so the audit log can be reconstructed\n")
-	b.WriteString("from git history. Recover with:\n\n")
+	// One rationale per refusal cause: quoting the clean-tree rule at an
+	// operator whose actual problem is a missing upstream misdiagnoses the
+	// failure (ward#1129).
+	b.WriteString("\n")
+	b.WriteString(s.rationale())
+	b.WriteString(" so the audit log can be\nreconstructed from git history. Recover with:\n\n")
 	b.WriteString(s.Recovery)
 	fmt.Fprintf(&b, "  %s %s   # retry\n", filepath.Base(os.Args[0]), verbName)
 	b.WriteString("\nOverride for genuine emergencies with --audit-override-dirty.\n")
 	b.WriteString("The audit row is tagged audit_override=true and captures the working\n")
 	b.WriteString("tree status so the run can still be reconstructed after the fact.")
 	return b.String()
+}
+
+// rationale names the gate property the refusal is enforcing, matched to the
+// Reason that fired, so the explanation never cites the wrong rule.
+func (s *State) rationale() string {
+	switch {
+	case strings.HasPrefix(s.Reason, "working tree"):
+		return "Repo verbs require a clean tree"
+	case strings.HasPrefix(s.Reason, "HEAD is detached"):
+		return "Repo verbs require a branch checkout"
+	default:
+		return "Repo verbs require the branch to be pushed and synced with its upstream"
+	}
 }
 
 // parseDirtyPaths extracts the working-tree paths from git porcelain v1
