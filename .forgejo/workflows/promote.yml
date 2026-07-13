@@ -2,7 +2,7 @@
 # the full repo gate here (the same suite ci.yml enforces: vet, build, race
 # test, godoc-current, mod tidy, golangci-lint, secret scan), and only a green
 # gate fast-forwards `release` to that sha. release.yml then runs on the
-# `release` push (stage 2: gate again, tag, cut the Forgejo release) under a
+# `release` push (stage 2: no re-gate, tag, cut the Forgejo release) under a
 # no-cancel concurrency queue. main stays the integration branch; `release` is
 # last-known-good. Bursts on main collapse to the newest sha
 # (cancel-in-progress: true - promotion is idempotent and a newer gate
