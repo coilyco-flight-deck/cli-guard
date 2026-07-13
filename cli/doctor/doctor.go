@@ -119,29 +119,29 @@ func checkSudo(r *Report, sec repocfg.Security, p Probes) {
 	}
 }
 
-// checkBinaries verifies each protected binary's real install is not
-// agent-executable, so an absolute-path call cannot bypass the shim.
+// checkBinaries verifies each protected binary's basename target.
+// expected_real_paths are optional integrity hints for absolute-path checks.
 func checkBinaries(r *Report, sec repocfg.Security, p Probes) {
 	for _, pb := range sec.ProtectedBinaries {
 		check := "binary:" + pb.Name
 		if len(pb.ExpectedRealPaths) == 0 {
-			r.add(check, Warn, "no expected_real_paths declared; cannot verify the binary is locked against absolute-path invocation.")
+			r.add(check, Warn, "target %s is identified by basename only; no expected_real_paths declared, so doctor cannot verify the absolute-path floor.", pb.Name)
 			continue
 		}
 		for _, path := range pb.ExpectedRealPaths {
 			info, err := p.Stat(path)
 			if err != nil {
-				r.add(check, Warn, "real binary not found at %s (%v); cannot verify floor.", path, err)
+				r.add(check, Warn, "integrity hint %s for target %s was not found (%v); doctor cannot verify the absolute-path floor.", path, pb.Name, err)
 				continue
 			}
 			canExec, known := p.CanExec(info)
 			switch {
 			case !known:
-				r.add(check, Warn, "cannot determine exec posture of %s on this platform.", path)
+				r.add(check, Warn, "cannot determine exec posture of integrity hint %s for target %s on this platform.", path, pb.Name)
 			case canExec:
-				r.add(check, Fail, "real binary at %s is executable by the agent user; an absolute-path call bypasses the PATH shim. Make it root-owned and not user-executable.", path)
+				r.add(check, Fail, "integrity hint %s for target %s is executable by the agent user; a matching basename remains reachable by absolute path. Make it root-owned and not user-executable.", path, pb.Name)
 			default:
-				r.add(check, Pass, "real binary at %s is not executable by the agent user.", path)
+				r.add(check, Pass, "integrity hint %s for target %s is not executable by the agent user.", path, pb.Name)
 			}
 		}
 	}

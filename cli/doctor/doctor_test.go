@@ -133,7 +133,50 @@ func TestCheckBinaries(t *testing.T) {
 		if !ok || f.Severity != Warn {
 			t.Fatalf("want Warn, got %+v", f)
 		}
+		if !strings.Contains(f.Message, "identified by basename only") {
+			t.Errorf("message should distinguish the basename target: %s", f.Message)
+		}
 	})
+}
+
+func TestCheckBinariesUsesIdentityForIntegrityHints(t *testing.T) {
+	sec := repocfg.Security{ProtectedBinaries: []repocfg.ProtectedBinary{
+		{
+			Name:              "kubectl",
+			ExpectedRealPaths: []string{"/usr/local/bin/kubectl", "/opt/homebrew/bin/kubectl"},
+		},
+	}}
+
+	p := probes()
+	p.Stat = func(path string) (os.FileInfo, error) {
+		switch path {
+		case "/usr/local/bin/kubectl":
+			return fakeInfo{mode: 0o755}, nil
+		case "/opt/homebrew/bin/kubectl":
+			return fakeInfo{mode: 0o644}, nil
+		default:
+			t.Fatalf("unexpected path: %s", path)
+			return fakeInfo{}, os.ErrNotExist
+		}
+	}
+	p.CanExec = func(info os.FileInfo) (bool, bool) {
+		return info.Mode().Perm()&0o111 != 0, true
+	}
+
+	r := Check(sec, p)
+	f, ok := find(r, "binary:kubectl")
+	if !ok {
+		t.Fatal("expected a kubectl finding")
+	}
+	if f.Severity != Fail {
+		t.Fatalf("severity = %v, want Fail (%s)", f.Severity, f.Message)
+	}
+	if !strings.Contains(f.Message, "integrity hint") {
+		t.Errorf("message should call the path an integrity hint: %s", f.Message)
+	}
+	if !strings.Contains(f.Message, "matching basename remains reachable by absolute path") {
+		t.Errorf("message should explain the basename-wide risk: %s", f.Message)
+	}
 }
 
 func TestCheckCredEnv(t *testing.T) {

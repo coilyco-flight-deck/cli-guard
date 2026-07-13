@@ -18,7 +18,7 @@ type Guardfile struct {
 	Description string
 
 	Group      []string     // command path, e.g. ["<cli>", "git"]
-	Bin        string       // the real binary, fixed at parse
+	Bin        string       // the real binary, fixed at parse; bare names stay the default, absolute paths only when intentionally pinned
 	ArgvPrefix []string     // unoverridable leading argv (remote-exec transport)
 	Env        []EnvVar     // environment vars set on the wrapped process
 	Grants     []Grant      // mounted leaves

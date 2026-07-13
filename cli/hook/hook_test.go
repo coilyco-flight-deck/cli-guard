@@ -413,10 +413,11 @@ func TestLeadingToken(t *testing.T) {
 	}
 }
 
-func TestPreToolUse_ProtectedBinaryDeny(t *testing.T) {
+func TestSecurityClaim_ProtectedBinaryMatchesBasenameEverywhere(t *testing.T) {
 	protected := []Protected{
 		{Name: "gcloud", Wrappers: []string{"kap"}},
 		{Name: "clusterctl", Hint: "use `kap cluster ...`."},
+		{Name: "kubectl", Wrappers: []string{"kap"}},
 	}
 	cases := []struct {
 		name    string
@@ -424,12 +425,15 @@ func TestPreToolUse_ProtectedBinaryDeny(t *testing.T) {
 		block   bool
 		substr  string
 	}{
-		{"bare", "gcloud projects list", true, "blocked protected binary `gcloud`"},
-		{"absolute path", "/opt/homebrew/bin/gcloud auth list", true, "blocked protected binary `gcloud`"},
-		{"usr-local path", "/usr/local/bin/gcloud config", true, "gcloud"},
+		{"bare basename", "gcloud projects list", true, "blocked protected binary `gcloud`"},
+		{"usr-local path", "/usr/local/bin/gcloud config", true, "blocked protected binary `gcloud`"},
+		{"homebrew path", "/opt/homebrew/bin/gcloud auth list", true, "blocked protected binary `gcloud`"},
+		{"path-discovered copy", "env PATH=/tmp/toolbin:$PATH gcloud status", true, "blocked protected binary `gcloud`"},
 		{"env prefix", "env CLOUDSDK_CONFIG=/x gcloud projects list", true, "gcloud"},
 		{"sudo prefix", "sudo gcloud auth list", true, "gcloud"},
 		{"piped behind allowed", "ls | gcloud feed", true, "gcloud"},
+		{"kubectl basename target", "kubectl get pods", true, "blocked protected binary `kubectl`"},
+		{"kubectl absolute path", "/usr/local/bin/kubectl get pods", true, "blocked protected binary `kubectl`"},
 		{"wrappers in hint", "gcloud x", true, "route through an audited wrapper: kap"},
 		{"explicit hint", "clusterctl get pods", true, "use `kap cluster ...`."},
 		{"unprotected passes", "ls -la", false, ""},

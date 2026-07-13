@@ -17,8 +17,8 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 - **repocfg** / **allowlist** - Per-repo command allowlist YAML, validated vs the Makefile.
 - **catalog** - Assert a repo config carries a `catalog:` block with required keys.
 - **hook** / **hookcfg** - PreToolUse engine expanding `repocfg.Security` into the guard registry + installer.
-- **shim** - PATH shim per protected binary. See [deny-by-structure.md](deny-by-structure.md).
-- **doctor** - Verify the deny-by-structure floor.
+- **shim** - PATH shim per protected binary basename. See [deny-by-structure.md](deny-by-structure.md).
+- **doctor** - Verify the basename target floor and integrity hints.
 - **sudo** - Policy-free sudo plumbing over any stdin transport.
 - **profiles** / **profile** / **decision** - Profile registry, axes, per-call evaluator.
 - **cmd/cli-guard-hook** - PreToolUse binary for shell-only consumers.
