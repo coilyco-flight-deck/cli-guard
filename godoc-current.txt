@@ -335,7 +335,7 @@ type Guardfile struct {
 	Description string
 
 	Group      []string     // command path, e.g. ["<cli>", "git"]
-	Bin        string       // the real binary, fixed at parse
+	Bin        string       // the real binary, fixed at parse; bare names stay the default, absolute paths only when intentionally pinned
 	ArgvPrefix []string     // unoverridable leading argv (remote-exec transport)
 	Env        []EnvVar     // environment vars set on the wrapped process
 	Grants     []Grant      // mounted leaves
@@ -580,8 +580,8 @@ type IntegrityRule struct {
 	Binary       string
 	AllowedPaths []string
 }
-    IntegrityRule names a binary and the canonical absolute paths it is allowed
-    to resolve to. A bare invocation of Binary that
+    IntegrityRule names a binary and the expected absolute paths it may resolve
+    to. The binary name is the target identity; the paths are integrity hints.
 
 type LookPath func(name string) (string, error)
     LookPath mirrors exec.LookPath. Injected for tests.
@@ -1034,8 +1034,8 @@ type ProtectedBinary struct {
 	// AllowedWrappers names the wrapper commands a human routes through
 	// instead (e.g. "<cli>", "<cli>-ops"). Surfaced in remediation text.
 	AllowedWrappers []string
-	// ExpectedRealPaths are the canonical install locations of the real
-	// binary, used by doctor to reason about PATH-shim posture.
+	// ExpectedRealPaths are optional integrity hints for doctor.
+	// They help verify the basename target's real installs.
 	ExpectedRealPaths []string
 	// CredentialEnv names environment variables that hand the agent the
 	// binary's credentials when set. doctor warns when they are present.

@@ -25,6 +25,7 @@ cli-guard is a security-boundary framework. Issues here can have outsized impact
 - `gittree.CheckClean` returning OK on a tree that does not reconstruct from git history
 - CONNECT-proxy allowlist bypasses in the `egress` package
 - `sandbox` jail escapes: a wrapped tool spawned under the jail — or any descendant of it — invoking a wrapped tool (by name **or** absolute path) without re-entering the consumer gate (shim-mask bypass), or defeating the seccomp denylist / namespace confinement (ptrace, kernel-module load, re-namespacing to undo the bind-mounts). These properties are pinned by `TestSecurityClaim_GrandchildRoutesThroughGate` and `TestSecurityClaim_SeccompDeniesPtrace` in `cli/sandbox/`; a passing test that does not actually hold is itself a vulnerability.
+- basename-wide lockdown target bypasses: a protected tool that can still be reached by spelling only the path differently while keeping the same executable basename, or by placing a copy / shim on PATH with that basename. The basename is the boundary, and any matching spelling that reaches the real binary is a security bug.
 
 Out of scope (file as regular issues, not vulnerabilities):
 

@@ -51,8 +51,8 @@ type ProtectedBinary struct {
 	// AllowedWrappers names the wrapper commands a human routes through
 	// instead (e.g. "<cli>", "<cli>-ops"). Surfaced in remediation text.
 	AllowedWrappers []string
-	// ExpectedRealPaths are the canonical install locations of the real
-	// binary, used by doctor to reason about PATH-shim posture.
+	// ExpectedRealPaths are optional integrity hints for doctor.
+	// They help verify the basename target's real installs.
 	ExpectedRealPaths []string
 	// CredentialEnv names environment variables that hand the agent the
 	// binary's credentials when set. doctor warns when they are present.

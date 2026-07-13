@@ -138,9 +138,8 @@ func (s *State) FormatRefusal(verbName string) string {
 			b.WriteString("\n")
 		}
 	}
-	// One rationale per refusal cause: quoting the clean-tree rule at an
-	// operator whose actual problem is a missing upstream misdiagnoses the
-	// failure (ward#1129).
+	// One rationale per refusal cause. Quoting the clean-tree rule at the wrong
+	// operator misdiagnoses the failure (ward#1129).
 	b.WriteString("\n")
 	b.WriteString(s.rationale())
 	b.WriteString(" so the audit log can be\nreconstructed from git history. Recover with:\n\n")

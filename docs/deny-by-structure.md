@@ -4,7 +4,7 @@ A denylist is an enumeration problem (N tools x M hosts x every version bump), w
 
 ## The literal
 
-A consumer declares its protected tools once, in `repocfg.Security` (the `security:` block of its config). `protected_binaries` names each tool, its `allowed_wrappers`, `expected_real_paths`, and `credential_env`; `sudo.forbid_passwordless` asserts the floor. cli-guard carries no org's binary list - the literal is the only input.
+A consumer declares its protected tools once, in `repocfg.Security` (the `security:` block of its config). `protected_binaries` names each tool by basename, plus its `allowed_wrappers`, optional `expected_real_paths` integrity hints, and `credential_env`; `sudo.forbid_passwordless` asserts the floor. cli-guard carries no org's binary list - the literal is the only input.
 
 ## Three layers from one literal
 
@@ -21,7 +21,7 @@ The shim is **UX, not the enforcement boundary.** It only shadows the bare name 
 The actual enforcement is two invariants the doctor checks:
 
 - **The agent has no broad passwordless sudo.** When `sudo.forbid_passwordless` is set, a successful `sudo -n true` is a **Fail**: the agent can escalate without the human's password, and the password is the human carve-out the whole model depends on.
-- **The real binary is not agent-executable.** Each `expected_real_paths` entry that the agent user can execute is a **Fail** - an absolute-path call bypasses the shim. The fix is filesystem posture: root-owned, not user-executable. The human runs `sudo <realtool>` because she has the password.
+- **The basename target's real installs are not agent-executable.** Each `expected_real_paths` entry is an integrity hint, not the protected target's identity. If the agent user can execute one of those paths, that is a **Fail** because an absolute-path call still reaches the same basename. The fix is filesystem posture: root-owned, not user-executable. The human runs `sudo <realtool>` because she has the password.
 
 A third, softer check: any `credential_env` var present in the session is a **Warn** - even a locked binary is moot if another reachable tool can read the credentials from the environment.
 

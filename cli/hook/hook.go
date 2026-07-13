@@ -27,8 +27,8 @@ type Route struct {
 	Extra func(segment string) string
 }
 
-// IntegrityRule names a binary and the canonical absolute paths it
-// is allowed to resolve to. A bare invocation of Binary that
+// IntegrityRule names a binary and the expected absolute paths it may resolve to.
+// The binary name is the target identity; the paths are integrity hints.
 type IntegrityRule struct {
 	Binary       string
 	AllowedPaths []string

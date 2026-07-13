@@ -14,7 +14,7 @@ wrap ward git {
 }
 ```
 
-- **`exec <bin>`** - the real binary, fixed at parse. The caller can never substitute it.
+- **`exec <bin>`** - the real binary, fixed at parse. Prefer bare names unless you intentionally pin one artifact.
 - **`argv-prefix`** (child of `exec`) - an unoverridable leading argv, the remote-exec transport: `exec ssh { argv-prefix "kai@kai-server" "kubectl" ... }` pins the invocation ahead of the subcommand.
 - **`env <NAME> { value <provider> "<addr>" }`** (child of `exec`) - an env var on the wrapped process, resolved at exec time via a provider (so a secret comes from SSM, not the guardfile); `env "NAME" "literal"` for a committed value. Providers via `pkg/valuesource`.
 - **`can run <subcommand>`** - deny-by-default: only named subcommands mount. A quoted multi-word sentence (`"admin user list"`) is a nested path.
