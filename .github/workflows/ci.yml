@@ -25,6 +25,7 @@ jobs:
             "$scratch/xdg-cache"
           {
             echo "GOTMPDIR=$scratch/go-tmp"
+            echo "TMPDIR=$scratch/go-tmp"
             echo "GOCACHE=$scratch/go-build"
             echo "GOMODCACHE=$scratch/go-mod"
             echo "XDG_CACHE_HOME=$scratch/xdg-cache"
@@ -114,12 +115,13 @@ jobs:
             "$scratch/xdg-cache"
           {
             echo "GOTMPDIR=$scratch/go-tmp"
+            echo "TMPDIR=$scratch/go-tmp"
             echo "GOCACHE=$scratch/go-build"
             echo "GOMODCACHE=$scratch/go-mod"
             echo "XDG_CACHE_HOME=$scratch/xdg-cache"
           } >> "$GITHUB_ENV"
       - name: golangci-lint
-        run: golangci-lint run --timeout=5m ./...
+        run: golangci-lint run --timeout=5m --concurrency=1 ./...
 
       - name: Alert Telegram on main failure
         if: ${{ failure() && github.ref == 'refs/heads/main' }}
@@ -197,6 +199,7 @@ jobs:
             "$scratch/xdg-cache"
           {
             echo "GOTMPDIR=$scratch/go-tmp"
+            echo "TMPDIR=$scratch/go-tmp"
             echo "GOCACHE=$scratch/go-build"
             echo "GOMODCACHE=$scratch/go-mod"
             echo "XDG_CACHE_HOME=$scratch/xdg-cache"
