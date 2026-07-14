@@ -21,6 +21,11 @@ jobs:
   test:
     runs-on: docker
     container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:latest
+    env:
+      GOTMPDIR: ${{ runner.temp }}/go-tmp
+      GOCACHE: ${{ runner.temp }}/go-build
+      GOMODCACHE: ${{ runner.temp }}/go-mod
+      XDG_CACHE_HOME: ${{ runner.temp }}/xdg-cache
     steps:
       - uses: actions/checkout@v6
         with:
@@ -102,6 +107,11 @@ jobs:
   lint:
     runs-on: docker
     container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:latest
+    env:
+      GOTMPDIR: ${{ runner.temp }}/go-tmp
+      GOCACHE: ${{ runner.temp }}/go-build
+      GOMODCACHE: ${{ runner.temp }}/go-mod
+      XDG_CACHE_HOME: ${{ runner.temp }}/xdg-cache
     steps:
       - uses: actions/checkout@v6
       - name: golangci-lint
