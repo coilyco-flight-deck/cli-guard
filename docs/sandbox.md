@@ -5,6 +5,9 @@ the tool and its descendants re-enter the gate (they can't reach a wrapped binar
 without hitting the shim) and a seccomp denylist blocks escape syscalls. It is a
 no-op off Linux. The jail is applied by `shell.Runner.Exec` when the runner
 carries a non-nil `sandbox.Spec`; read-only `Capture` calls are never jailed.
+When a wrapped tool is `$0`-sensitive, the jail places its `.<tool>.cliguard`
+exec symlink in a private tmpfs view of the canonical directory so the host
+filesystem stays clean.
 
 ## When the environment can't jail
 
