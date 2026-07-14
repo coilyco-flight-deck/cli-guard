@@ -93,8 +93,10 @@ func (p *inlineParser) applyNode(n *kdl.Node) error {
 		return nil
 	case "can":
 		return p.parseGrant(n)
+	case "proxy":
+		return p.parseProxy(n)
 	default:
-		return fmt.Errorf("opcore: unknown node %q in wrap body (want base-url | auth | restrict | can; fail-closed)", n.Name())
+		return fmt.Errorf("opcore: unknown node %q in wrap body (want base-url | auth | restrict | can | proxy; fail-closed)", n.Name())
 	}
 }
 
@@ -107,7 +109,7 @@ func (p *inlineParser) validate() error {
 		return fmt.Errorf("opcore: base-url set both as a string and a `{ value }` block; pick one")
 	}
 	if len(p.descs) == 0 {
-		return fmt.Errorf("opcore: no `can` operations (nothing to mount)")
+		return fmt.Errorf("opcore: no `can` or `proxy` operations (nothing to mount)")
 	}
 	return nil
 }
@@ -152,6 +154,35 @@ func (p *inlineParser) parseGrant(n *kdl.Node) error {
 	return nil
 }
 
+// parseProxy states one `proxy <tool> { upstream <server> <tool>; ... }` grant.
+// The runtime uses the upstream mapping to fetch the tool schema and forward the call.
+func (p *inlineParser) parseProxy(n *kdl.Node) error {
+	name, err := singleInlineArg(n, "proxy")
+	if err != nil {
+		return fmt.Errorf("opcore: proxy: %w (name it `proxy browser_snapshot { ... }`)", err)
+	}
+	if name == "" {
+		return fmt.Errorf("opcore: proxy needs a non-empty tool name")
+	}
+	d := Descriptor{
+		VerbName: strings.Join(p.group, ".") + ".proxy." + name,
+		Group:    "mcp",
+		Leaf:     name,
+		Grant:    "proxy " + name,
+		Proxy:    &Proxy{Name: name},
+	}
+	for _, c := range n.Children().Nodes {
+		if err := applyProxyChild(&d, c); err != nil {
+			return fmt.Errorf("opcore: proxy %s: %w", name, err)
+		}
+	}
+	if d.Proxy.Upstream.Server == "" || d.Proxy.Upstream.Tool == "" {
+		return fmt.Errorf("opcore: proxy %s: `upstream <server> <tool>` is required", name)
+	}
+	p.descs = append(p.descs, d)
+	return nil
+}
+
 // applyInlineGrantChild dispatches one child of a `can` operation body onto d,
 // failing closed on anything outside path | query | body | set.
 func applyInlineGrantChild(d *Descriptor, c *kdl.Node) error {
@@ -183,6 +214,130 @@ func applyInlineGrantChild(d *Descriptor, c *kdl.Node) error {
 		return fmt.Errorf("unknown node %q (want path | query | body | set; fail-closed)", c.Name())
 	}
 	return nil
+}
+
+// applyProxyChild dispatches one child of a proxy grant body onto d, failing
+// closed on anything outside upstream | allow | deny | post-call | describe.
+func applyProxyChild(d *Descriptor, c *kdl.Node) error {
+	if d.Proxy == nil {
+		d.Proxy = &Proxy{Name: d.Leaf}
+	}
+	switch c.Name() {
+	case "upstream":
+		return setProxyUpstream(d.Proxy, c)
+	case "allow":
+		return appendProxyRule(&d.Proxy.Allow, c, proxyRuleAllow)
+	case "deny":
+		return appendProxyRule(&d.Proxy.Deny, c, proxyRuleDeny)
+	case "post-call":
+		return appendProxyRule(&d.Proxy.PostCall, c, proxyRulePostCall)
+	case "describe":
+		return setProxyDescribe(d.Proxy, c)
+	default:
+		return fmt.Errorf("unknown node %q (want upstream | allow | deny | post-call | describe; fail-closed)", c.Name())
+	}
+}
+
+func setProxyUpstream(proxy *Proxy, n *kdl.Node) error {
+	if proxy.Upstream.Server != "" || proxy.Upstream.Tool != "" {
+		return fmt.Errorf("duplicate `upstream` (fail-closed)")
+	}
+	server, tool, err := proxyUpstream(n)
+	if err != nil {
+		return err
+	}
+	proxy.Upstream = UpstreamTool{Server: server, Tool: tool}
+	return nil
+}
+
+func appendProxyRule(dst *[]ProxyRule, n *kdl.Node, mode proxyRuleMode) error {
+	rule, err := parseProxyRule(n, mode)
+	if err != nil {
+		return err
+	}
+	*dst = append(*dst, rule)
+	return nil
+}
+
+func setProxyDescribe(proxy *Proxy, n *kdl.Node) error {
+	v, err := singleInlineArg(n, "describe")
+	if err != nil {
+		return err
+	}
+	proxy.Describe = v
+	return nil
+}
+
+type proxyRuleMode string
+
+const (
+	proxyRuleAllow    proxyRuleMode = "allow"
+	proxyRuleDeny     proxyRuleMode = "deny"
+	proxyRulePostCall proxyRuleMode = "post-call"
+)
+
+// proxyUpstream reads `upstream <server> <tool>` into the exact upstream tool
+// mapping the consumer should proxy to.
+func proxyUpstream(n *kdl.Node) (string, string, error) {
+	if len(n.Children().Nodes) > 0 || len(n.Properties()) > 0 {
+		return "", "", fmt.Errorf("`upstream` takes only positional args, no children or properties (fail-closed)")
+	}
+	args := n.Arguments()
+	if len(args) != 2 {
+		return "", "", fmt.Errorf("`upstream` needs a server and a tool, e.g. `upstream playwright browser_snapshot`")
+	}
+	server, tool := args[0].String(), args[1].String()
+	if server == "" || tool == "" {
+		return "", "", fmt.Errorf("`upstream` needs a non-empty server and tool")
+	}
+	return server, tool, nil
+}
+
+// parseProxyRule reads one `allow`/`deny`/`post-call` guard clause. The first arg
+// is the selector, and `matches` separates it from one or more regex patterns.
+func parseProxyRule(n *kdl.Node, mode proxyRuleMode) (ProxyRule, error) {
+	args := n.Arguments()
+	if len(args) < 3 || args[1].String() != "matches" {
+		return ProxyRule{}, fmt.Errorf("opcore: %s needs `matches` regexes, e.g. `%s url matches \"^https://grubhub\\.com/\"`", n.Name(), n.Name())
+	}
+	field := args[0].String()
+	if field == "" {
+		return ProxyRule{}, fmt.Errorf("opcore: %s needs a non-empty selector", n.Name())
+	}
+	if !proxySelectorAllowed(field, mode) {
+		return ProxyRule{}, fmt.Errorf("opcore: %s selector %q unsupported (fail-closed)", n.Name(), field)
+	}
+	rule := ProxyRule{Field: field}
+	for _, a := range args[2:] {
+		pat := a.String()
+		if pat == "" {
+			return ProxyRule{}, fmt.Errorf("opcore: %s %q has an empty regex (fail-closed)", n.Name(), field)
+		}
+		rule.Patterns = append(rule.Patterns, pat)
+	}
+	if len(rule.Patterns) == 0 {
+		return ProxyRule{}, fmt.Errorf("opcore: %s %q needs at least one regex", n.Name(), field)
+	}
+	if len(n.Children().Nodes) > 0 || len(n.Properties()) > 0 {
+		return ProxyRule{}, fmt.Errorf("opcore: %s takes only positional args, no children or properties (fail-closed)", n.Name())
+	}
+	return rule, nil
+}
+
+func proxySelectorAllowed(selector string, mode proxyRuleMode) bool {
+	switch mode {
+	case proxyRuleAllow, proxyRuleDeny:
+		switch selector {
+		case "url", "target", "element", "text", "key":
+			return true
+		}
+	case proxyRulePostCall:
+		switch selector {
+		case "url", "content", "text", "state":
+			return true
+		}
+	}
+	return false
 }
 
 // applyInlineSet reads `set k=v...` into FixedBody, keeping each value's

@@ -1,11 +1,9 @@
 # opcore inline-operation source (`ParseInline`)
-
 `opcore.ParseInline` is the second descriptor source of the cli-free engine core.
 Where the OpenAPI source resolves a `Descriptor` against a spec, the inline source
 **states** it directly from KDL, so a non-CLI consumer (ward-mcp) never couples to
 the CLI projection. Both sources feed the one `opcore.Descriptor` type, so every
 downstream projection is source-blind. See [specverb.md](specverb.md) and the opcore docs.
-
 ## Grammar
 
 The frozen ward-mcp grammar, parsed with the same node-walking shape as
@@ -60,9 +58,10 @@ wrap ward mcp forgejo {
 * **set** - `set k=v...` becomes the leaf's `FixedBody`, keeping each value's
   KDL-native type (a boolean stays a boolean). A `set` toggle owns its body, so no
   body flags mount alongside it.
+* **proxy** - guarded upstream MCP passthroughs live in
+  [opcore-proxy.md](opcore-proxy.md).
 * **auth / base-url / restrict** - parsed by the shared `guardfile` node parsers
   (`ParseAuthNode`, `ParseBaseURL`, `ParseRestrictNode`) into the `RuntimeConfig`.
-
 ## Fail-closed and the shared guard
 
 `ParseInline` fails closed on an unknown node, a missing `auth`, a missing `path`,
@@ -73,7 +72,6 @@ source runs, so an inline descriptor fails closed exactly like a resolved one.
 
 `Providers` and `Client` are the consumer's to fill on the returned `RuntimeConfig`
 before `NewRuntime`; the KDL carries no opaque values.
-
 ## See also
 
 - [specverb.md](specverb.md) - the resolved OpenAPI source and the CLI projection.
