@@ -21,11 +21,36 @@ type Descriptor struct {
 	Destructive bool           // leaf mutates irreversibly (delete)
 	Grant       string         // the authorizing grant sentence, e.g. "can delete repos"
 	Describe    string         // optional Guardfile describe "..." note, "" if none
+	Proxy       *Proxy         // non-nil for an inline MCP proxy grant
 }
 
 // Label names the leaf in operator-facing errors, satisfying stepflow.Leaf so a
 // resolved Descriptor can drive a complex-action step. See pkg/stepflow.
 func (d Descriptor) Label() string { return d.Leaf }
+
+// Proxy is one inline MCP proxy grant: local tool, exact upstream mapping, and
+// request/response guards. The consumer resolves the upstream schema at runtime.
+type Proxy struct {
+	Name     string       // local served tool name
+	Upstream UpstreamTool // exact upstream MCP tool mapping
+	Allow    []ProxyRule  // request-time allow rules
+	Deny     []ProxyRule  // request-time deny rules
+	PostCall []ProxyRule  // response-time checks after the upstream call
+	Describe string       // optional human note
+}
+
+// UpstreamTool names the proxied MCP server and upstream tool exactly.
+type UpstreamTool struct {
+	Server string
+	Tool   string
+}
+
+// ProxyRule is one simple regex guard over a string field such as url, text,
+// content, target, element, key, or state.
+type ProxyRule struct {
+	Field    string
+	Patterns []string
+}
 
 // Field is one spec input. The flat cases lower to CLI flags, while a body
 // field may also carry nested object/array shape for neutral schema emission.

@@ -52,6 +52,19 @@ const nestedInlineSrc = `wrap ward mcp forgejo {
     }
 }`
 
+const proxyInlineSrc = `wrap ward mcp grubhub {
+    auth bearer {
+        value env "GRUBHUB_TOKEN"
+    }
+    proxy browser_snapshot {
+        upstream playwright browser_snapshot
+        allow url matches "^https://www\\.grubhub\\.com/"
+        deny text matches "forbidden"
+        post-call content matches "grubhub\\.com"
+        post-call state matches "forbidden"
+    }
+}`
+
 func parseInline(t *testing.T, src string) ([]opcore.Descriptor, opcore.RuntimeConfig) {
 	t.Helper()
 	descs, cfg, err := opcore.ParseInline([]byte(src))
@@ -132,6 +145,32 @@ func TestParseInlineNestedBodySchema(t *testing.T) {
 	}
 	if !reflect.DeepEqual(query.BodyFlags, wantBody) {
 		t.Errorf("query body = %+v, want %+v", query.BodyFlags, wantBody)
+	}
+}
+
+func TestParseInlineProxyGrant(t *testing.T) {
+	descs, _ := parseInline(t, proxyInlineSrc)
+	if len(descs) != 1 {
+		t.Fatalf("proxy descriptors = %d, want 1", len(descs))
+	}
+	got := descs[0]
+	if got.Proxy == nil {
+		t.Fatal("proxy descriptor missing Proxy payload")
+	}
+	if got.Leaf != "browser_snapshot" || got.Group != "mcp" {
+		t.Fatalf("proxy identity = %+v, want leaf browser_snapshot and group mcp", got)
+	}
+	if got.Proxy.Upstream.Server != "playwright" || got.Proxy.Upstream.Tool != "browser_snapshot" {
+		t.Fatalf("proxy upstream = %+v, want playwright/browser_snapshot", got.Proxy.Upstream)
+	}
+	wantAllow := []opcore.ProxyRule{{Field: "url", Patterns: []string{"^https://www\\.grubhub\\.com/"}}}
+	wantDeny := []opcore.ProxyRule{{Field: "text", Patterns: []string{"forbidden"}}}
+	if !reflect.DeepEqual(got.Proxy.Allow, wantAllow) || !reflect.DeepEqual(got.Proxy.Deny, wantDeny) {
+		t.Fatalf("proxy request guards = allow %+v deny %+v, want allow %+v deny %+v", got.Proxy.Allow, got.Proxy.Deny, wantAllow, wantDeny)
+	}
+	wantPostCall := []opcore.ProxyRule{{Field: "content", Patterns: []string{"grubhub\\.com"}}, {Field: "state", Patterns: []string{"forbidden"}}}
+	if !reflect.DeepEqual(got.Proxy.PostCall, wantPostCall) {
+		t.Fatalf("proxy post-call guards = %+v, want %+v", got.Proxy.PostCall, wantPostCall)
 	}
 }
 
@@ -265,6 +304,17 @@ func TestParseInlineFailClosedCases(t *testing.T) {
 		"missing path": `wrap x {
             auth bearer { value env "T" }
             can get repo { query "state" }
+        }`,
+		"proxy missing upstream": `wrap x {
+            auth bearer { value env "T" }
+            proxy browser_snapshot { allow url matches "^https://example.com/" }
+        }`,
+		"proxy bad selector": `wrap x {
+            auth bearer { value env "T" }
+            proxy browser_snapshot {
+                upstream playwright browser_snapshot
+                allow body matches "^x"
+            }
         }`,
 		"unknown grant child": `wrap x {
             auth bearer { value env "T" }
