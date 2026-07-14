@@ -12,13 +12,23 @@ jobs:
   test:
     runs-on: ubuntu-latest
     container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:v0.195.0
-    env:
-      GOTMPDIR: ${{ runner.temp }}/go-tmp
-      GOCACHE: ${{ runner.temp }}/go-build
-      GOMODCACHE: ${{ runner.temp }}/go-mod
-      XDG_CACHE_HOME: ${{ runner.temp }}/xdg-cache
     steps:
       - uses: actions/checkout@v6
+      - name: Configure Go scratch
+        run: |
+          set -euo pipefail
+          scratch="${RUNNER_TEMP:-/tmp}"
+          mkdir -p \
+            "$scratch/go-tmp" \
+            "$scratch/go-build" \
+            "$scratch/go-mod" \
+            "$scratch/xdg-cache"
+          {
+            echo "GOTMPDIR=$scratch/go-tmp"
+            echo "GOCACHE=$scratch/go-build"
+            echo "GOMODCACHE=$scratch/go-mod"
+            echo "XDG_CACHE_HOME=$scratch/xdg-cache"
+          } >> "$GITHUB_ENV"
       - name: go vet
         run: go vet ./...
       - name: go build
@@ -91,13 +101,23 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:v0.195.0
-    env:
-      GOTMPDIR: ${{ runner.temp }}/go-tmp
-      GOCACHE: ${{ runner.temp }}/go-build
-      GOMODCACHE: ${{ runner.temp }}/go-mod
-      XDG_CACHE_HOME: ${{ runner.temp }}/xdg-cache
     steps:
       - uses: actions/checkout@v6
+      - name: Configure Go scratch
+        run: |
+          set -euo pipefail
+          scratch="${RUNNER_TEMP:-/tmp}"
+          mkdir -p \
+            "$scratch/go-tmp" \
+            "$scratch/go-build" \
+            "$scratch/go-mod" \
+            "$scratch/xdg-cache"
+          {
+            echo "GOTMPDIR=$scratch/go-tmp"
+            echo "GOCACHE=$scratch/go-build"
+            echo "GOMODCACHE=$scratch/go-mod"
+            echo "XDG_CACHE_HOME=$scratch/xdg-cache"
+          } >> "$GITHUB_ENV"
       - name: golangci-lint
         run: golangci-lint run --timeout=5m ./...
 
@@ -164,13 +184,23 @@ jobs:
   govulncheck:
     runs-on: ubuntu-latest
     container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:v0.195.0
-    env:
-      GOTMPDIR: ${{ runner.temp }}/go-tmp
-      GOCACHE: ${{ runner.temp }}/go-build
-      GOMODCACHE: ${{ runner.temp }}/go-mod
-      XDG_CACHE_HOME: ${{ runner.temp }}/xdg-cache
     steps:
       - uses: actions/checkout@v6
+      - name: Configure Go scratch
+        run: |
+          set -euo pipefail
+          scratch="${RUNNER_TEMP:-/tmp}"
+          mkdir -p \
+            "$scratch/go-tmp" \
+            "$scratch/go-build" \
+            "$scratch/go-mod" \
+            "$scratch/xdg-cache"
+          {
+            echo "GOTMPDIR=$scratch/go-tmp"
+            echo "GOCACHE=$scratch/go-build"
+            echo "GOMODCACHE=$scratch/go-mod"
+            echo "XDG_CACHE_HOME=$scratch/xdg-cache"
+          } >> "$GITHUB_ENV"
       - name: govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
