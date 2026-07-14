@@ -130,6 +130,10 @@ fi
 	if !strings.Contains(got, "JAILED=1") {
 		t.Skipf("sandbox did not engage (opted out or namespace jail unavailable); reroute not enforceable; log:\n%s", got)
 	}
+	link := filepath.Join(binDir, "."+fakeTool+".cliguard")
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Fatalf("exec symlink leaked onto host filesystem at %s: %v", link, err)
+	}
 	if !strings.Contains(got, "SHIM byname") {
 		t.Errorf("name-based grandchild call was not rerouted to the gate; log:\n%s", got)
 	}

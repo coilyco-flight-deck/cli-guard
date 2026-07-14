@@ -95,6 +95,10 @@ func RunJail(args []string) error {
 	if execTool == "" {
 		return fmt.Errorf("sandbox: jail missing --exec target")
 	}
+	resolvedTools, err := resolveTools(tools)
+	if err != nil {
+		return err
+	}
 
 	// Make our mount view private so binds never propagate back to the host.
 	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
@@ -112,8 +116,22 @@ func RunJail(args []string) error {
 	}
 
 	shim := spec().SelfExe
-	for _, t := range tools {
-		if err := installToolShim(t, stash, shim); err != nil {
+	for _, tool := range resolvedTools {
+		if err := stashRealBinary(tool.realPath, filepath.Join(stash, tool.tool)); err != nil {
+			return err
+		}
+	}
+	mountedDirs := map[string]struct{}{}
+	for _, tool := range resolvedTools {
+		if tool.needsLink {
+			if _, seen := mountedDirs[tool.dir]; !seen {
+				if err := mountPrivateToolDir(tool.dir); err != nil {
+					return err
+				}
+				mountedDirs[tool.dir] = struct{}{}
+			}
+		}
+		if err := installToolShim(tool, stash, shim); err != nil {
 			return err
 		}
 	}
@@ -143,48 +161,98 @@ func RunJail(args []string) error {
 	return syscall.Exec(target, fullArgv, os.Environ()) // #nosec G702 -- target is the resolved real binary, not user input
 }
 
-// installToolShim records one wrapped tool's real target for the gate to exec,
-// then masks its canonical PATH entry with the consumer shim.
-func installToolShim(tool, stash, shim string) error {
+type resolvedTool struct {
+	tool      string
+	canonical string
+	realPath  string
+	dir       string
+	needsLink bool
+}
+
+// resolveTools snapshots the wrapped tools' PATH entries before any mount
+// rewrite can hide them.
+func resolveTools(tools []string) ([]resolvedTool, error) {
+	resolved := make([]resolvedTool, 0, len(tools))
+	for _, tool := range tools {
+		rt, ok, err := resolveTool(tool)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			resolved = append(resolved, rt)
+		}
+	}
+	return resolved, nil
+}
+
+// resolveTool records one wrapped tool's current PATH entry. Missing tools stay
+// a no-op, matching the pre-refactor behavior.
+func resolveTool(tool string) (resolvedTool, bool, error) {
 	canonical, err := exec.LookPath(tool)
 	if err != nil {
 		// Tool not present on this host: nothing to shim.
-		return nil //nolint:nilerr // absence is not an error; just skip
+		return resolvedTool{}, false, nil //nolint:nilerr // absence is not an error; just skip
 	}
 	realPath := canonical
 	if resolved, err := filepath.EvalSymlinks(canonical); err == nil {
 		realPath = resolved
 	}
+	return resolvedTool{
+		tool:      tool,
+		canonical: canonical,
+		realPath:  realPath,
+		dir:       filepath.Dir(canonical),
+		needsLink: realPath != canonical,
+	}, true, nil
+}
 
-	realTarget := realPath
-	if realPath == canonical {
-		// Compiled binary at its own path: stash a bind before masking. argv0/$0
-		// are irrelevant for an ELF, so exec'ing the stash copy is fine.
-		stashed := filepath.Join(stash, tool)
-		if err := touch(stashed); err != nil {
-			return fmt.Errorf("sandbox: stash placeholder %s: %w", tool, err)
-		}
-		if err := unix.Mount(realPath, stashed, "", unix.MS_BIND, ""); err != nil {
-			return fmt.Errorf("sandbox: stash bind %s: %w", tool, err)
-		}
-		realTarget = stashed
-	} else {
-		// Symlinked $0-sensitive tool (brew derives HOMEBREW_PREFIX from $0's
-		// grandparent): exec a canonical-dir symlink so the prefix resolves right.
-		link := filepath.Join(filepath.Dir(canonical), "."+tool+".cliguard")
+// installToolShim records one wrapped tool's real target for the gate to exec,
+// then masks its canonical PATH entry with the consumer shim.
+func installToolShim(tool resolvedTool, stash, shim string) error {
+	stashed := filepath.Join(stash, tool.tool)
+	realTarget := stashed
+	if tool.needsLink {
+		// Symlinked $0-sensitive tools need argv[0] to stay beside the canonical
+		// entry, but the exec symlink itself must stay off the host filesystem.
+		link := filepath.Join(tool.dir, "."+tool.tool+".cliguard")
 		_ = os.Remove(link)
-		if err := os.Symlink(realPath, link); err == nil {
-			realTarget = link
+		if err := os.Symlink(stashed, link); err != nil {
+			return fmt.Errorf("sandbox: symlink exec target %s: %w", tool.tool, err)
 		}
+		realTarget = link
 	}
-	if err := os.Setenv(RealBinEnv(tool), realTarget); err != nil {
-		return fmt.Errorf("sandbox: set realbin env %s: %w", tool, err)
+	if err := os.Setenv(RealBinEnv(tool.tool), realTarget); err != nil {
+		return fmt.Errorf("sandbox: set realbin env %s: %w", tool.tool, err)
 	}
 
+	if err := touch(tool.canonical); err != nil {
+		return fmt.Errorf("sandbox: ensure canonical entry %s: %w", tool.tool, err)
+	}
 	// Mask the canonical PATH/symlink entry with the shim (O_NOFOLLOW so the
 	// bind lands on the symlink itself, leaving realTarget reachable).
-	if err := maskWithShim(canonical, shim); err != nil {
-		return fmt.Errorf("sandbox: shim mask %s: %w", tool, err)
+	if err := maskWithShim(tool.canonical, shim); err != nil {
+		return fmt.Errorf("sandbox: shim mask %s: %w", tool.tool, err)
+	}
+	return nil
+}
+
+// stashRealBinary copies the resolved tool into the private tmpfs stash so the
+// jail can exec it after the canonical path is masked.
+func stashRealBinary(realPath, stashed string) error {
+	if err := touch(stashed); err != nil {
+		return fmt.Errorf("sandbox: stash placeholder %s: %w", filepath.Base(stashed), err)
+	}
+	if err := unix.Mount(realPath, stashed, "", unix.MS_BIND, ""); err != nil {
+		return fmt.Errorf("sandbox: stash bind %s: %w", filepath.Base(stashed), err)
+	}
+	return nil
+}
+
+// mountPrivateToolDir overlays a canonical tool directory with a private tmpfs
+// so sandbox-only exec symlinks never land on the host filesystem.
+func mountPrivateToolDir(dir string) error {
+	if err := unix.Mount("tmpfs", dir, "tmpfs", 0, "mode=0700"); err != nil {
+		return fmt.Errorf("sandbox: mount tool dir tmpfs %s: %w", dir, err)
 	}
 	return nil
 }
