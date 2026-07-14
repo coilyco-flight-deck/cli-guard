@@ -18,6 +18,7 @@ import (
 // jailArgv0 is the internal subcommand the consumer's main routes to RunJail
 // before any normal CLI parsing.
 const jailArgv0 = "__jail"
+const jailStashPath = "/tmp/.cliguard-jail"
 
 // Wrap rewrites cmd to re-exec the consumer binary as the jail helper in a fresh
 // user+mount namespace. No-op when jailed, opted out (EnvNoSandbox), or spec nil.
@@ -95,70 +96,23 @@ func RunJail(args []string) error {
 	if execTool == "" {
 		return fmt.Errorf("sandbox: jail missing --exec target")
 	}
-	resolvedTools, err := resolveTools(tools)
-	if err != nil {
+	resolvedTools := resolveTools(tools)
+	if err := prepareJailMounts(resolvedTools); err != nil {
 		return err
 	}
-
-	// Make our mount view private so binds never propagate back to the host.
-	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
-		return fmt.Errorf("sandbox: make-rprivate: %w", err)
+	if err := installToolShims(resolvedTools, spec().SelfExe); err != nil {
+		return err
 	}
-
-	// A private tmpfs stashes real binaries for the compiled-tool case, where
-	// masking the canonical path would also hide the file the gate must exec.
-	stash := "/tmp/.cliguard-jail"
-	if err := os.MkdirAll(stash, 0o700); err != nil {
-		return fmt.Errorf("sandbox: mkdir stash: %w", err)
+	if err := setJailEnvironment(); err != nil {
+		return err
 	}
-	if err := unix.Mount("tmpfs", stash, "tmpfs", 0, "mode=0700"); err != nil {
-		return fmt.Errorf("sandbox: mount stash tmpfs: %w", err)
+	if err := clearAmbientCaps(); err != nil {
+		return err
 	}
-
-	shim := spec().SelfExe
-	for _, tool := range resolvedTools {
-		if err := stashRealBinary(tool.realPath, filepath.Join(stash, tool.tool)); err != nil {
-			return err
-		}
-	}
-	mountedDirs := map[string]struct{}{}
-	for _, tool := range resolvedTools {
-		if tool.needsLink {
-			if _, seen := mountedDirs[tool.dir]; !seen {
-				if err := mountPrivateToolDir(tool.dir); err != nil {
-					return err
-				}
-				mountedDirs[tool.dir] = struct{}{}
-			}
-		}
-		if err := installToolShim(tool, stash, shim); err != nil {
-			return err
-		}
-	}
-
-	if err := os.Setenv(EnvJailed, "1"); err != nil {
-		return fmt.Errorf("sandbox: set jailed env: %w", err)
-	}
-
-	// All bind-mounts are done; the tool itself must not keep CAP_SYS_ADMIN.
-	// Clear the ambient set so the cap does not leak into the exec'd tool.
-	if err := unix.Prctl(unix.PR_CAP_AMBIENT, unix.PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0); err != nil {
-		return fmt.Errorf("sandbox: clear ambient caps: %w", err)
-	}
-
-	// Drop the ability to gain privileges, then install the syscall denylist.
-	// Order matters: all bind-mounts are done above, so mount() can be denied.
 	if err := lockdownSyscalls(); err != nil {
 		return err
 	}
-
-	target := os.Getenv(RealBinEnv(execTool))
-	if target == "" {
-		return fmt.Errorf("sandbox: exec target %q was not stashed (not on PATH?)", execTool)
-	}
-	fullArgv := append([]string{execTool}, rest...)
-	// Replaces this image; target is our stashed real path, not user input.
-	return syscall.Exec(target, fullArgv, os.Environ()) // #nosec G702 -- target is the resolved real binary, not user input
+	return execJailTarget(execTool, rest)
 }
 
 type resolvedTool struct {
@@ -171,27 +125,24 @@ type resolvedTool struct {
 
 // resolveTools snapshots the wrapped tools' PATH entries before any mount
 // rewrite can hide them.
-func resolveTools(tools []string) ([]resolvedTool, error) {
+func resolveTools(tools []string) []resolvedTool {
 	resolved := make([]resolvedTool, 0, len(tools))
 	for _, tool := range tools {
-		rt, ok, err := resolveTool(tool)
-		if err != nil {
-			return nil, err
-		}
+		rt, ok := resolveTool(tool)
 		if ok {
 			resolved = append(resolved, rt)
 		}
 	}
-	return resolved, nil
+	return resolved
 }
 
 // resolveTool records one wrapped tool's current PATH entry. Missing tools stay
 // a no-op, matching the pre-refactor behavior.
-func resolveTool(tool string) (resolvedTool, bool, error) {
+func resolveTool(tool string) (resolvedTool, bool) {
 	canonical, err := exec.LookPath(tool)
 	if err != nil {
 		// Tool not present on this host: nothing to shim.
-		return resolvedTool{}, false, nil //nolint:nilerr // absence is not an error; just skip
+		return resolvedTool{}, false
 	}
 	realPath := canonical
 	if resolved, err := filepath.EvalSymlinks(canonical); err == nil {
@@ -203,7 +154,81 @@ func resolveTool(tool string) (resolvedTool, bool, error) {
 		realPath:  realPath,
 		dir:       filepath.Dir(canonical),
 		needsLink: realPath != canonical,
-	}, true, nil
+	}, true
+}
+
+// prepareJailMounts makes the mount namespace private and stages the real tools
+// inside a private tmpfs before canonical dirs are masked.
+func prepareJailMounts(resolvedTools []resolvedTool) error {
+	// Make our mount view private so binds never propagate back to the host.
+	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
+		return fmt.Errorf("sandbox: make-rprivate: %w", err)
+	}
+
+	// A private tmpfs stashes real binaries for the compiled-tool case, where
+	// masking the canonical path would also hide the file the gate must exec.
+	stash := jailStashPath
+	if err := os.MkdirAll(stash, 0o700); err != nil {
+		return fmt.Errorf("sandbox: mkdir stash: %w", err)
+	}
+	if err := unix.Mount("tmpfs", stash, "tmpfs", 0, "mode=0700"); err != nil {
+		return fmt.Errorf("sandbox: mount stash tmpfs: %w", err)
+	}
+
+	mountedDirs := map[string]struct{}{}
+	for _, tool := range resolvedTools {
+		if err := stashRealBinary(tool.realPath, filepath.Join(stash, tool.tool)); err != nil {
+			return err
+		}
+		if !tool.needsLink {
+			continue
+		}
+		if _, seen := mountedDirs[tool.dir]; seen {
+			continue
+		}
+		if err := mountPrivateToolDir(tool.dir); err != nil {
+			return err
+		}
+		mountedDirs[tool.dir] = struct{}{}
+	}
+	return nil
+}
+
+// installToolShims binds the consumer shim into each wrapped tool's canonical
+// location after the private staging area is ready.
+func installToolShims(resolvedTools []resolvedTool, shim string) error {
+	for _, tool := range resolvedTools {
+		if err := installToolShim(tool, jailStashPath, shim); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func setJailEnvironment() error {
+	if err := os.Setenv(EnvJailed, "1"); err != nil {
+		return fmt.Errorf("sandbox: set jailed env: %w", err)
+	}
+	return nil
+}
+
+func clearAmbientCaps() error {
+	// All bind-mounts are done; the tool itself must not keep CAP_SYS_ADMIN.
+	// Clear the ambient set so the cap does not leak into the exec'd tool.
+	if err := unix.Prctl(unix.PR_CAP_AMBIENT, unix.PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0); err != nil {
+		return fmt.Errorf("sandbox: clear ambient caps: %w", err)
+	}
+	return nil
+}
+
+func execJailTarget(execTool string, rest []string) error {
+	target := os.Getenv(RealBinEnv(execTool))
+	if target == "" {
+		return fmt.Errorf("sandbox: exec target %q was not stashed (not on PATH?)", execTool)
+	}
+	fullArgv := append([]string{execTool}, rest...)
+	// Replaces this image; target is our stashed real path, not user input.
+	return syscall.Exec(target, fullArgv, os.Environ()) // #nosec G702 -- target is the resolved real binary, not user input
 }
 
 // installToolShim records one wrapped tool's real target for the gate to exec,
