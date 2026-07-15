@@ -53,7 +53,7 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 
 - `Makefile` is the source of truth for dev verbs (cli-guard is unguarded).
 - `.golangci.yaml` / `staticcheck.conf` mirror urfave/cli; CI runs vet, build, `test -race`, golangci-lint, trufflehog.
-- Release is automated, Forgejo-canonical, tag-only; consumers self-bump. See [release-pipeline.md](release-pipeline.md).
+- Release is automated, Forgejo-canonical, with commit-scoped draft tags on `main` and public release tags on `release`; consumers self-bump. See [release-pipeline.md](release-pipeline.md).
 
 ## See also
 

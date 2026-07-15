@@ -11,20 +11,21 @@ last-known-good, and only gate-green shas release.
 
 - Push to `main` lands on Forgejo and fires `.forgejo/workflows/promote.yml`
   (stage 1): the full repo gate (vet, build, race test, godoc-current, mod
-  tidy, golangci-lint, secret scan) runs, and only a green gate fast-forwards
+  tidy, golangci-lint, secret scan) runs, then the workflow publishes the
+  commit-scoped draft tag (`draft-${sha}`) and only then fast-forwards
   `release` to that sha. The promote push uses the `CI_RELEASE_TOKEN` secret
   (a real-user PAT with `write:repository` + `read:user` from SSM
   `/forgejo/ci-release-token`, synced by aos `ward exec sync-actions-secrets`):
   job-token pushes and PATs without `read:user` get an empty actor and
   silently enqueue no workflow.
 - The `release` push fires `.forgejo/workflows/release.yml` (stage 2) under a
-  no-cancel concurrency queue, so promoted shas release in sequence. A leading
-  `test` job re-runs the gate, then the **release** job: `tag-bump` reads the
-  conventional commits since the last semver tag and computes the next
-  version (`feat` -> minor, `fix` -> patch, `!:` or `BREAKING CHANGE` ->
-  major, patch otherwise), creates the tag, then `create-release` cuts the
-  Forgejo release. Both writes use the auto-issued job token, so only the
-  promote push needs the cross-repo secret.
+  no-cancel concurrency queue, so promoted shas release in sequence. The
+  workflow first verifies the matching draft tag exists, then the **release**
+  job: `tag-bump` reads the conventional commits since the last semver tag and
+  computes the next version (`feat` -> minor, `fix` -> patch, `!:` or
+  `BREAKING CHANGE` -> major, patch otherwise), creates the tag, then
+  `create-release` cuts the Forgejo release. Both writes use the auto-issued
+  job token, so only the promote push needs the cross-repo secret.
 
 cli-guard ships no Homebrew formula: it is a library plus the
 `cmd/cli-guard-hook` binary, consumed through `go.mod`, not installed via brew.

@@ -1,9 +1,10 @@
 # Stage 1 of the two-stage release flow (ward#1117): every main push re-runs
 # the full repo gate here (the same suite ci.yml enforces: vet, build, race
-# test, godoc-current, mod tidy, golangci-lint, secret scan), and only a green
-# gate fast-forwards `release` to that sha. release.yml then runs on the
-# `release` push (stage 2: no re-gate, tag, cut the Forgejo release) under a
-# no-cancel concurrency queue. main stays the integration branch; `release` is
+# test, godoc-current, mod tidy, golangci-lint, secret scan), publishes the
+# commit-scoped draft tag (`draft-${sha}`), and only then fast-forwards
+# `release` to that sha. release.yml then runs on the `release` push (stage 2:
+# no re-gate, verify the draft tag, cut the Forgejo release) under a no-cancel
+# concurrency queue. main stays the integration branch; `release` is
 # last-known-good. Bursts on main collapse to the newest sha
 # (cancel-in-progress: true - promotion is idempotent and a newer gate
 # supersedes an older one). The promote push uses CI_RELEASE_TOKEN (real-user
@@ -72,6 +73,31 @@ jobs:
           trufflehog filesystem . \
             --no-verification --no-update --fail \
             --exclude-paths=/tmp/trufflehog-exclude
+
+      - name: Publish draft release tag
+        env:
+          PROMOTE_TOKEN: ${{ secrets.CI_RELEASE_TOKEN }}
+          REPO: ${{ github.repository }}
+          SERVER: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PROMOTE_TOKEN:-}" ]; then
+            echo "::error::CI_RELEASE_TOKEN not set; draft release publishing needs a real-user PAT so the release push enqueues release.yml (SSM /forgejo/ci-release-token, ward exec sync-actions-secrets in aos)." >&2
+            exit 1
+          fi
+          # server_url resolves to the in-cluster http URL on this runner, so
+          # keep its scheme instead of assuming https.
+          proto="${SERVER%%://*}"
+          host="${SERVER#*://}"
+          remote_url="${proto}://oauth2:${PROMOTE_TOKEN}@${host}/${REPO}.git"
+          draft_tag="draft-${GITHUB_SHA}"
+          if git ls-remote --exit-code --tags "${remote_url}" "refs/tags/${draft_tag}" >/dev/null 2>&1; then
+            echo "draft tag already published: ${draft_tag}"
+            exit 0
+          fi
+          git tag "${draft_tag}"
+          git push "${remote_url}" "refs/tags/${draft_tag}"
+          echo "published ${draft_tag}"
 
       - name: Promote main to release (fast-forward only)
         env:

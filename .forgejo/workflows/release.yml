@@ -1,11 +1,12 @@
 # Stage 2 of the two-stage release flow (ward#1117): promote.yml gates every
-# main push and fast-forwards `release` when green; this pipeline runs on
-# `release` pushes only, under a concurrency queue (cancel-in-progress: false)
-# so promoted shas release in sequence instead of overlap-and-cancel. A
-# workflow_dispatch re-fires it against the `release` ref on a missed enqueue.
-# There is no test job here: promote.yml already ran the full repo gate on the
-# exact sha it fast-forwarded, so re-running the suite on `release` only lets
-# a flaky rerun fail an already-vouched promotion (Kai's call, 2026-07-12).
+# main push, publishes the commit-scoped draft tag (`draft-${sha}`), and then
+# fast-forwards `release` when green; this pipeline runs on `release` pushes
+# only, under a concurrency queue (cancel-in-progress: false) so promoted
+# shas release in sequence instead of overlap-and-cancel. A workflow_dispatch
+# re-fires it against the `release` ref on a missed enqueue. There is no test
+# job here: promote.yml already ran the full repo gate on the exact sha it
+# fast-forwarded, so re-running the suite on `release` only lets a flaky rerun
+# fail an already-vouched promotion (Kai's call, 2026-07-12).
 
 name: release
 
@@ -32,6 +33,19 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - id: draft
+        name: Derive the draft release tag
+        run: |
+          set -euo pipefail
+          echo "draft_tag=draft-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the draft release tag was published on main
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          git rev-parse --verify "refs/tags/${{ steps.draft.outputs.draft_tag }}" >/dev/null
+          echo "verified ${{ steps.draft.outputs.draft_tag }}"
 
       - id: tag
         uses: coilysiren/agentic-os/actions/tag-bump@main
