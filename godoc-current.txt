@@ -1096,9 +1096,8 @@ const (
 
 FUNCTIONS
 
-func IsJailInvocation(argv []string) bool
-    IsJailInvocation reports whether argv is the internal jail-helper re-exec;
-    the consumer's main calls RunJail when true.
+func IsJailInvocation(_ []string) bool
+    IsJailInvocation is always false off Linux.
 
 func Jailed() bool
     Jailed reports whether the current process is already running inside a jail.
@@ -1115,19 +1114,16 @@ func RealBinEnv(tool string) string
     RealBinEnv returns the env-var name carrying tool's stashed real path,
     upper-casing the name and mapping non-alphanumerics to '_'.
 
-func RunJail(args []string) error
-    RunJail is the in-namespace helper: it shims the wrapped tools, installs the
-    seccomp denylist, and execs the real tool (args is os.Args[2:]).
+func RunJail(_ []string) error
+    RunJail is unsupported off Linux.
 
-func SetupDenied(cmd *exec.Cmd, err error) bool
-    SetupDenied reports whether a jailed cmd failed to *start* on a clone
-    denial (EPERM/EACCES, child never ran), so the caller may retry it.
-    See docs/sandbox.md.
+func SetupDenied(_ *exec.Cmd, _ error) bool
+    SetupDenied is always false off Linux: nothing was jailed, so there is no
+    namespace-denial to degrade from.
 
-func Wrap(cmd *exec.Cmd, realPath string, argv []string, spec *Spec)
-    Wrap rewrites cmd to re-exec the consumer binary as the jail helper in a
-    fresh user+mount namespace. No-op when jailed, opted out (EnvNoSandbox),
-    or spec nil.
+func Wrap(_ *exec.Cmd, _ string, _ []string, _ *Spec)
+    Wrap is a no-op off Linux: OS-level jailing is unsupported, so the caller
+    execs the real binary directly (pre-sandbox behavior).
 
 
 TYPES
@@ -1868,6 +1864,7 @@ type DepLock struct {
 
 type Options struct {
 	GuardfilePath   string   // path to the consumer's KDL Guardfile
+	BinaryName      string   // gen/build/run: generated CLI/binary name (empty = Guardfile wrap binary)
 	Out             string   // gen: main.go output path (debug; cache when empty). build: binary output dir or path
 	Args            []string // run: arguments passed through to the materialized binary
 	CLIGuardRef     string   // lock: cli-guard module query to pin (version/commit); empty = auto

@@ -95,6 +95,68 @@ func TestLoadGroupMergesSpecAndExec(t *testing.T) {
 	}
 }
 
+func TestLoadGroupKeepsSourceBinaryWhenRuntimeNameChanges(t *testing.T) {
+	dir := t.TempDir()
+	gfPath := filepath.Join(dir, "forgejo.guardfile.kdl")
+	if err := os.WriteFile(gfPath, []byte(guardfileFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	defaultGroup, err := loadGroup(Options{GuardfilePath: gfPath})
+	if err != nil {
+		t.Fatalf("load default group: %v", err)
+	}
+	renamedGroup, err := loadGroup(Options{GuardfilePath: gfPath, BinaryName: "ward"})
+	if err != nil {
+		t.Fatalf("load renamed group: %v", err)
+	}
+	if renamedGroup.Binary != "ward-kdl" {
+		t.Errorf("source binary changed: got %q want ward-kdl", renamedGroup.Binary)
+	}
+	if renamedGroup.runtimeBinary() != "ward" {
+		t.Errorf("runtime binary: got %q want ward", renamedGroup.runtimeBinary())
+	}
+	main, err := renamedGroup.render()
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	src := string(main)
+	for _, want := range []string{`Name: "ward"`, `WARD_KDL_OPS_FORGEJO_SPEC`} {
+		if !strings.Contains(src, want) {
+			t.Errorf("renamed main.go missing %q", want)
+		}
+	}
+	defaultKey, err := cacheKeyForGroup(defaultGroup)
+	if err != nil {
+		t.Fatalf("default cache key: %v", err)
+	}
+	renamedKey, err := cacheKeyForGroup(renamedGroup)
+	if err != nil {
+		t.Fatalf("renamed cache key: %v", err)
+	}
+	if defaultKey == renamedKey {
+		t.Errorf("renamed build reused default cache key %q", defaultKey)
+	}
+}
+
+func TestLoadGroupRejectsInvalidRuntimeBinaryName(t *testing.T) {
+	dir := t.TempDir()
+	gfPath := filepath.Join(dir, "forgejo.guardfile.kdl")
+	if err := os.WriteFile(gfPath, []byte(guardfileFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{" ward", "ward ", "../ward", "bin/ward", `bin\ward`, ".", "..", "ward\x00"} {
+		t.Run(name, func(t *testing.T) {
+			_, err := loadGroup(Options{GuardfilePath: gfPath, BinaryName: name})
+			if err == nil {
+				t.Fatal("expected invalid runtime binary name to error")
+			}
+			if !strings.Contains(err.Error(), "--binary") {
+				t.Fatalf("error should mention --binary, got %v", err)
+			}
+		})
+	}
+}
+
 func TestGenEmitsExecReferenceDoc(t *testing.T) {
 	dir := t.TempDir()
 	gfPath := filepath.Join(dir, "aws.guardfile.kdl")

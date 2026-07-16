@@ -40,8 +40,8 @@ func cacheKey(guardfilePath string) (string, error) {
 	return hex.EncodeToString(sum[:])[:16], nil
 }
 
-// cacheKeyForGroup derives the per-binary cache key from the sorted absolute
-// member paths, so a merged build gets one stable, collision-free key.
+// cacheKeyForGroup keys the cache by runtime name plus sorted member paths, so
+// renamed builds do not share a materialized main.go or executable.
 func cacheKeyForGroup(g *group) (string, error) {
 	abs := make([]string, len(g.Members))
 	for i, m := range g.Members {
@@ -52,7 +52,8 @@ func cacheKeyForGroup(g *group) (string, error) {
 		abs[i] = a
 	}
 	sort.Strings(abs)
-	sum := sha256.Sum256([]byte(strings.Join(abs, "\n")))
+	parts := append([]string{"binary=" + g.runtimeBinary()}, abs...)
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
 	return hex.EncodeToString(sum[:])[:16], nil
 }
 

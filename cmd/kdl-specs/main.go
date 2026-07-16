@@ -42,6 +42,7 @@ func app() *cli.Command {
 			// --out on the root keeps the legacy one-shot signature working.
 			// Local so it does not collide with gen's own --out on subcommands.
 			&cli.StringFlag{Name: "out", Hidden: true, Local: true},
+			&cli.StringFlag{Name: "binary", Hidden: true, Local: true},
 		},
 		Commands: []*cli.Command{
 			genCmd(),
@@ -57,9 +58,13 @@ func app() *cli.Command {
 				return cli.ShowAppHelp(c)
 			}
 			gf := resolveGuardfile(c)
-			return kdlspecs.Gen(kdlspecs.Options{GuardfilePath: gf, Out: c.String("out")})
+			return kdlspecs.Gen(kdlspecs.Options{GuardfilePath: gf, BinaryName: c.String("binary"), Out: c.String("out")})
 		},
 	}
+}
+
+func binaryNameFlag() cli.Flag {
+	return &cli.StringFlag{Name: "binary", Usage: "generated CLI/binary name (default: Guardfile wrap binary)"}
 }
 
 func genCmd() *cli.Command {
@@ -68,10 +73,11 @@ func genCmd() *cli.Command {
 		Usage: "render the consumer main.go (into the cache, or --out for inspection)",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "out", Usage: "write main.go here instead of the cache (debug)"},
+			binaryNameFlag(),
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
 			gf := resolveGuardfile(c)
-			return kdlspecs.Gen(kdlspecs.Options{GuardfilePath: gf, Out: c.String("out")})
+			return kdlspecs.Gen(kdlspecs.Options{GuardfilePath: gf, BinaryName: c.String("binary"), Out: c.String("out")})
 		},
 	}
 }
@@ -111,12 +117,18 @@ func buildCmd() *cli.Command {
 		Name:  "build",
 		Usage: "materialize+build the consumer binary if stale, then write it to --out (a dir or file path)",
 		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "out", Value: "bin", Usage: "output directory (binary keeps its Guardfile name) or explicit file path"},
+			&cli.StringFlag{Name: "out", Value: "bin", Usage: "output directory (binary keeps its generated name) or explicit file path"},
+			binaryNameFlag(),
 			&cli.StringFlag{Name: "set-version", Usage: "release version stamped into the binary's --version via -ldflags (default \"dev\")"},
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
 			gf := resolveGuardfile(c)
-			return kdlspecs.Build(kdlspecs.Options{GuardfilePath: gf, Out: c.String("out"), Version: c.String("set-version")})
+			return kdlspecs.Build(kdlspecs.Options{
+				GuardfilePath: gf,
+				BinaryName:    c.String("binary"),
+				Out:           c.String("out"),
+				Version:       c.String("set-version"),
+			})
 		},
 	}
 }
@@ -125,9 +137,12 @@ func runCmd() *cli.Command {
 	return &cli.Command{
 		Name:  "run",
 		Usage: "materialize+build the consumer binary if stale, then exec it with the remaining args",
+		Flags: []cli.Flag{
+			binaryNameFlag(),
+		},
 		Action: func(_ context.Context, c *cli.Command) error {
 			gf := resolveGuardfile(c)
-			return kdlspecs.Run(kdlspecs.Options{GuardfilePath: gf, Args: c.Args().Slice()})
+			return kdlspecs.Run(kdlspecs.Options{GuardfilePath: gf, BinaryName: c.String("binary"), Args: c.Args().Slice()})
 		},
 	}
 }

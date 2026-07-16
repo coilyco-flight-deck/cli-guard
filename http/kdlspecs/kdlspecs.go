@@ -24,6 +24,7 @@ import (
 // Options are the inputs shared by every driver verb.
 type Options struct {
 	GuardfilePath   string   // path to the consumer's KDL Guardfile
+	BinaryName      string   // gen/build/run: generated CLI/binary name (empty = Guardfile wrap binary)
 	Out             string   // gen: main.go output path (debug; cache when empty). build: binary output dir or path
 	Args            []string // run: arguments passed through to the materialized binary
 	CLIGuardRef     string   // lock: cli-guard module query to pin (version/commit); empty = auto
@@ -54,9 +55,45 @@ func (m member) isExec() bool { return m.Params.Transport == codegen.TransportEx
 // group is the set of guardfiles that compose one merged binary - every
 // *.guardfile.kdl in a directory that shares a wrap binary name (Group[0]).
 type group struct {
-	Dir     string
-	Binary  string
-	Members []member // sorted by Path for a deterministic embed/build order
+	Dir           string
+	Binary        string
+	RuntimeBinary string
+	Members       []member // sorted by Path for a deterministic embed/build order
+}
+
+// runtimeBinary is the generated app/file name. It defaults to the source
+// Guardfile wrap binary while letting a consumer publish it under another name.
+func (g *group) runtimeBinary() string {
+	if g.RuntimeBinary != "" {
+		return g.RuntimeBinary
+	}
+	return g.Binary
+}
+
+// normalizeBinaryName checks a caller-supplied generated binary name before it
+// becomes both a cli.Command name and a cached file path.
+func normalizeBinaryName(name string) (string, error) {
+	if name == "" {
+		return "", nil
+	}
+	if strings.TrimSpace(name) != name {
+		return "", fmt.Errorf("kdl-specs: --binary must not have leading or trailing whitespace")
+	}
+	if name == "." || name == ".." || strings.ContainsAny(name, `/\`) || strings.ContainsRune(name, 0) {
+		return "", fmt.Errorf("kdl-specs: --binary must be a binary name, not a path")
+	}
+	return name, nil
+}
+
+func newGroup(dir, selector string, members []member, binaryName string) (*group, error) {
+	runtimeBinary, err := normalizeBinaryName(binaryName)
+	if err != nil {
+		return nil, err
+	}
+	if runtimeBinary == "" {
+		runtimeBinary = selector
+	}
+	return &group{Dir: dir, Binary: selector, RuntimeBinary: runtimeBinary, Members: members}, nil
 }
 
 // sniffTransport reads a guardfile's dialect: an `exec` child of the `wrap`
@@ -164,13 +201,13 @@ func loadGroup(opts Options) (*group, error) {
 	if !ok {
 		return nil, fmt.Errorf("kdl-specs: no guardfile for binary %q in %s", selector, dir)
 	}
-	return &group{Dir: dir, Binary: selector, Members: members}, nil
+	return newGroup(dir, selector, members, opts.BinaryName)
 }
 
 // render emits the merged main.go from the members' pre-planned params, mixing
 // spec and exec mounts onto the one binary.
 func (g *group) render() ([]byte, error) {
-	sp := codegen.SetParams{Binary: g.Binary}
+	sp := codegen.SetParams{Binary: g.runtimeBinary()}
 	for _, m := range g.Members {
 		sp.Mounts = append(sp.Mounts, m.Params)
 		if m.isExec() {
@@ -435,7 +472,7 @@ func Build(opts Options) error {
 	if err != nil {
 		return err
 	}
-	dest, err := resolveBuildDest(opts.Out, g.Binary)
+	dest, err := resolveBuildDest(opts.Out, g.runtimeBinary())
 	if err != nil {
 		return err
 	}
@@ -487,7 +524,7 @@ func materialize(opts Options) (string, *group, error) {
 	if err != nil {
 		return "", g, err
 	}
-	binPath := filepath.Join(cdir, "bin", g.Binary)
+	binPath := filepath.Join(cdir, "bin", g.runtimeBinary())
 	want := stamp{
 		GuardfileHash:    hashMembers(g.Members),
 		SpecLockHash:     hashConcat(orderedSpecs(g.Members, specByPath)...),
