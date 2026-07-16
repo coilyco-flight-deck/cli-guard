@@ -74,9 +74,11 @@ type Role struct {
 	AgentConfig map[string]RoleAgentOverride
 }
 
-// RoleAgentOverride is a role's sparse overlay on a top-level `agent` node: only
-// the launch knobs a role may retune. See docs/fleetconfig.md.
+// RoleAgentOverride is a role's sparse launch and display-identity overlay.
+// Structural launch fields remain top-level only. See docs/fleetconfig.md.
 type RoleAgentOverride struct {
+	DisplayName     string // display-name override from the `name` node
+	Pronouns        string // pronouns override
 	Model           string // model id override
 	Endpoint        string // API endpoint override
 	ReasoningEffort string // reasoning-effort override
@@ -441,16 +443,18 @@ func (st *roleState) applyAgent(c *kdl.Node) error {
 }
 
 // parseRoleAgent reads a role's `agent <name> { ... }` block: a sparse overlay of
-// the overridable launch knobs, reusing the agent grammar's names.
+// display identity and the overridable launch knobs.
 func parseRoleAgent(n *kdl.Node, role string) (string, RoleAgentOverride, error) {
 	name, err := singleStringArg(n, fmt.Sprintf("role %q > agent", role))
 	if err != nil {
 		return "", RoleAgentOverride{}, fmt.Errorf("fleetconfig: role %q `agent` needs a single name, e.g. `agent claude`: %w", role, err)
 	}
 	var o RoleAgentOverride
-	// The overridable subset of the agent grammar's string knobs; a role may not
-	// retune structural fields (binary, argv, context-level), only launch tuning.
+	// A role may assign display identity and retune string launch knobs. Structural
+	// fields such as binary, argv, and context-level remain top-level only.
 	fields := map[string]*string{
+		"name":             &o.DisplayName,
+		"pronouns":         &o.Pronouns,
 		"model":            &o.Model,
 		"endpoint":         &o.Endpoint,
 		"reasoning-effort": &o.ReasoningEffort,
@@ -461,7 +465,7 @@ func parseRoleAgent(n *kdl.Node, role string) (string, RoleAgentOverride, error)
 		if !ok {
 			return "", RoleAgentOverride{}, unknownNode(
 				fmt.Sprintf("role %q agent %q body", role, name), c.Name(),
-				"model | endpoint | reasoning-effort | verbosity")
+				"name | pronouns | model | endpoint | reasoning-effort | verbosity")
 		}
 		v, verr := singleStringArg(c, fmt.Sprintf("role %q agent %q > %s", role, name, c.Name()))
 		if verr != nil {

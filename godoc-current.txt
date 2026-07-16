@@ -3513,13 +3513,15 @@ type Role struct {
     set it holds, and an optional per-agent overlay.
 
 type RoleAgentOverride struct {
+	DisplayName     string // display-name override from the `name` node
+	Pronouns        string // pronouns override
 	Model           string // model id override
 	Endpoint        string // API endpoint override
 	ReasoningEffort string // reasoning-effort override
 	Verbosity       string // verbosity override
 }
-    RoleAgentOverride is a role's sparse overlay on a top-level `agent` node:
-    only the launch knobs a role may retune. See docs/fleetconfig.md.
+    RoleAgentOverride is a role's sparse launch and display-identity overlay.
+    Structural launch fields remain top-level only. See docs/fleetconfig.md.
 
 type Source int
     Source selects which subset of the one grammar a parse accepts. One parser,

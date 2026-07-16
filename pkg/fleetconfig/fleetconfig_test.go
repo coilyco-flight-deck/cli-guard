@@ -161,6 +161,8 @@ agents {
         }
         role engineer {
             agent claude {
+                name "opal engineer"
+                pronouns she
                 model "claude-opus-4-8"
                 reasoning-effort "high"
             }
@@ -196,6 +198,9 @@ agents {
 	}
 	if eng["claude"].Model != "claude-opus-4-8" || eng["claude"].ReasoningEffort != "high" {
 		t.Errorf("engineer claude override = %+v", eng["claude"])
+	}
+	if eng["claude"].DisplayName != "opal engineer" || eng["claude"].Pronouns != "she" {
+		t.Errorf("engineer claude identity = %+v", eng["claude"])
 	}
 	if eng["claude"].Endpoint != "" || eng["claude"].Verbosity != "" {
 		t.Errorf("engineer claude override leaked unset knobs: %+v", eng["claude"])
