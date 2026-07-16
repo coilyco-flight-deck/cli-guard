@@ -4,6 +4,9 @@
 
 set -eu
 
+# Canonicalize docs to Linux so macOS hooks match CI.
+export GOOS=linux
+
 gen() {
   for pkg in $(go list ./... | grep -v '/examples/'); do
     echo "## ${pkg}"
