@@ -35,7 +35,7 @@ func FillPath(template string, values []string) string {
 type ArgBinder struct {
 	pathIdx    map[string]int
 	PathVals   []string
-	queryNames map[string]bool
+	queryNames map[string]string
 	flagNames  map[string]bool
 	Query      neturl.Values
 	BodyObj    map[string]any
@@ -46,7 +46,7 @@ func NewArgBinder(leaf Descriptor) *ArgBinder {
 	b := &ArgBinder{
 		pathIdx:    map[string]int{},
 		PathVals:   make([]string, len(leaf.PathParams)),
-		queryNames: map[string]bool{},
+		queryNames: map[string]string{},
 		flagNames:  map[string]bool{},
 		Query:      neturl.Values{},
 		BodyObj:    map[string]any{},
@@ -55,7 +55,7 @@ func NewArgBinder(leaf Descriptor) *ArgBinder {
 		b.pathIdx[p] = i
 	}
 	for _, f := range leaf.QueryFlags {
-		b.queryNames[f.Name] = true
+		b.queryNames[f.Name] = f.QueryName()
 	}
 	for _, f := range append(append([]Field{}, leaf.QueryFlags...), append(leaf.BodyFlags, leaf.FormFlags...)...) {
 		b.flagNames[f.Name] = true
@@ -77,8 +77,8 @@ func (b *ArgBinder) Bind(name, val string) error {
 		b.PathVals[b.pathIdx["repo"]] = repo
 	case hasKey(b.pathIdx, name):
 		b.PathVals[b.pathIdx[name]] = val
-	case b.queryNames[name]:
-		b.Query.Set(name, val)
+	case b.queryNames[name] != "":
+		b.Query.Set(b.queryNames[name], val)
 	case b.flagNames[name]:
 		b.BodyObj[name] = val
 	}

@@ -51,10 +51,9 @@ wrap ward mcp forgejo {
 * **path params** - inferred from the `{template}` in author order via
   `opcore.PathParamsInOrder`.
 * **query / body** - flat `query`/`body` field-name lists still promote to
-  `Field{Type:"string"}`. `body { ... }` adds nested schema blocks with
-  `field`/`object`/`array`, `required=true`, and `raw=true` on object or array
-  fields. A flat inline field still carries no schema, so it types as a plain
-  string.
+  `Field{Type:"string"}`. Query aliases use `query "local" upstream="wire"`.
+  The local name owns the input surface. See [opcore-query-aliases.md](opcore-query-aliases.md).
+  `body { ... }` adds typed nested `field`/`object`/`array` schema blocks.
 * **set** - `set k=v...` becomes the leaf's `FixedBody`, keeping each value's
   KDL-native type (a boolean stays a boolean). A `set` toggle owns its body, so no
   body flags mount alongside it.
@@ -69,10 +68,10 @@ a malformed sentence, or zero operations. A promoted field that shadows a reserv
 engine flag (`dry-run`, `query`, `output`, `body-file`) or another field on the
 same leaf is rejected by `opcore.CheckFlagCollisions` - the same guard the resolved
 source runs, so an inline descriptor fails closed exactly like a resolved one.
-
 `Providers` and `Client` are the consumer's to fill on the returned `RuntimeConfig`
 before `NewRuntime`; the KDL carries no opaque values.
 ## See also
 
 - [specverb.md](specverb.md) - the resolved OpenAPI source and the CLI projection.
 - [specverb-resolution.md](specverb-resolution.md) - the verb→method conventions `MethodForVerb` mirrors.
+- [opcore-query-aliases.md](opcore-query-aliases.md) - safe local names for colliding upstream query parameters.

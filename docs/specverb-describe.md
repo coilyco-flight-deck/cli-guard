@@ -8,7 +8,7 @@ Gold-standard visibility for the fanatically thin generated CLI. The surface is 
 
 - **`Surface`** - the command path, resolved base-url, `AuthInfo`, and one `VerbInfo` per mounted leaf in mount order.
 - **`VerbInfo`** - the CLI placement (noun -> leaf), the HTTP method/path, the destructive flag, the dotted audit name, the authorizing grant sentence, the optional `describe` note, `Params`, and the `FixedBody` a state-toggle leaf always sends.
-- **`ParamInfo`** - each param tagged by kind (`path` positional, `query` flag, `body` flag) plus type (arrays render as `[]elem`) and requiredness.
+- **`ParamInfo`** - each param tagged by kind (`path` positional, `query` flag, `body` flag) plus type (arrays render as `[]elem`) and requiredness. Query aliases also record their upstream parameter.
 - **`AuthInfo`** - the scheme, header, and SSM token **path**. The secret value never appears in the model.
 
 ## The three consumer surfaces

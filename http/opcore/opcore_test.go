@@ -101,6 +101,33 @@ func TestExecuteHappyPath(t *testing.T) {
 	}
 }
 
+func TestQueryAliasMapsLocalInputToUpstreamParameter(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+	op := newTestOp(srv, tokenAuth("s3cret"), nil)
+	op.Desc.QueryFlags = []opcore.Field{{Name: "search_query", UpstreamName: "query", Type: "string"}}
+	args := opcore.Args{
+		Path:  map[string]string{"owner": "kai", "repo": "aos"},
+		Query: map[string]string{"search_query": "platform engineer"},
+		Body:  map[string]any{"title": "search"},
+	}
+	req, err := op.Preview(args)
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	if !strings.HasSuffix(req.URL, "?query=platform+engineer") {
+		t.Errorf("URL = %q, want aliased query parameter", req.URL)
+	}
+	if strings.Contains(req.URL, "search_query") {
+		t.Errorf("URL leaked local query name: %q", req.URL)
+	}
+
+	args.Query["query"] = "duplicate"
+	if _, err := op.Preview(args); kindOf(err) != "user_error" {
+		t.Fatalf("ambiguous local and upstream inputs: kind = %q, want user_error (err=%v)", kindOf(err), err)
+	}
+}
+
 func TestExecuteSelfGuardsShellMeta(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Errorf("server must not be reached; the gate should have rejected first")
@@ -353,7 +380,7 @@ func TestArgBinderRoutesByLocation(t *testing.T) {
 	leaf := opcore.Descriptor{
 		Path:       "/repos/{owner}/{repo}/issues",
 		PathParams: []string{"owner", "repo"},
-		QueryFlags: []opcore.Field{{Name: "state"}},
+		QueryFlags: []opcore.Field{{Name: "state"}, {Name: "search_query", UpstreamName: "query"}},
 		BodyFlags:  []opcore.Field{{Name: "title"}},
 	}
 	b := opcore.NewArgBinder(leaf)
@@ -362,6 +389,9 @@ func TestArgBinderRoutesByLocation(t *testing.T) {
 	}
 	if err := b.Bind("state", "open"); err != nil {
 		t.Fatalf("bind state: %v", err)
+	}
+	if err := b.Bind("search_query", "platform"); err != nil {
+		t.Fatalf("bind search query: %v", err)
 	}
 	if err := b.Bind("title", "hello"); err != nil {
 		t.Fatalf("bind title: %v", err)
@@ -374,6 +404,9 @@ func TestArgBinderRoutesByLocation(t *testing.T) {
 	}
 	if b.Query.Get("state") != "open" {
 		t.Errorf("query state = %q", b.Query.Get("state"))
+	}
+	if b.Query.Get("query") != "platform" || b.Query.Has("search_query") {
+		t.Errorf("aliased query = %q, local present = %v", b.Query.Get("query"), b.Query.Has("search_query"))
 	}
 	if b.BodyObj["title"] != "hello" {
 		t.Errorf("body title = %v", b.BodyObj["title"])

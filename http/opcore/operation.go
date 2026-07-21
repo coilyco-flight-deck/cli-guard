@@ -77,6 +77,10 @@ func (o Operation) resolve(ctx context.Context, a Args, dry bool) (Request, erro
 	if err := policy.ValidateArgs(a.Query); err != nil {
 		return Request{}, gateDenied(err)
 	}
+	query, err := o.outgoingQuery(a.Query)
+	if err != nil {
+		return Request{}, err
+	}
 	pathVals, err := o.orderedPathValues(a.Path)
 	if err != nil {
 		return Request{}, err
@@ -95,8 +99,33 @@ func (o Operation) resolve(ctx context.Context, a Args, dry bool) (Request, erro
 	if err != nil {
 		return Request{}, err
 	}
-	url := base + FillPath(d.Path, pathVals) + assembleQuery(a.Query)
+	url := base + FillPath(d.Path, pathVals) + assembleQuery(query)
 	return Request{Method: d.Method, URL: url, Body: body, ContentType: contentTypeJSON}, nil
+}
+
+// outgoingQuery maps local inputs onto upstream parameters while preserving
+// unknown-name pass-through and rejecting ambiguous supplied names.
+func (o Operation) outgoingQuery(supplied map[string]string) (map[string]string, error) {
+	localToWire := map[string]string{}
+	for _, f := range o.Desc.QueryFlags {
+		localToWire[f.Name] = f.QueryName()
+	}
+	out := make(map[string]string, len(supplied))
+	owners := make(map[string]string, len(supplied))
+	for localName, value := range supplied {
+		wireName := localName
+		if declared, ok := localToWire[localName]; ok {
+			wireName = declared
+		}
+		if prior, exists := owners[wireName]; exists {
+			return nil, exitcode.New(exitcode.UserError, "user_error",
+				fmt.Errorf("query inputs %q and %q both resolve to upstream parameter %q", prior, localName, wireName),
+				"supply only the declared local query input name")
+		}
+		owners[wireName] = localName
+		out[wireName] = value
+	}
+	return out, nil
 }
 
 // orderedPathValues lowers the path-arg map to the leaf's declared path-param

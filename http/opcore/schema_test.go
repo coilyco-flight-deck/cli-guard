@@ -55,6 +55,33 @@ func TestInputSchemaLocationsAndTypes(t *testing.T) {
 	}
 }
 
+func TestInputSchemaPreservesQueryAlias(t *testing.T) {
+	d := opcore.Descriptor{QueryFlags: []opcore.Field{
+		{Name: "search_query", UpstreamName: "query", Type: "string", Required: true},
+	}}
+	s := d.InputSchema()
+	prop, ok := s.Properties["search_query"]
+	if !ok {
+		t.Fatal("schema omitted the local query input name")
+	}
+	if prop.UpstreamName != "query" || prop.Location != opcore.LocationQuery {
+		t.Errorf("aliased property = %+v", prop)
+	}
+	if _, leaked := s.Properties["query"]; leaked {
+		t.Fatal("schema exposed the reserved upstream name as a local input")
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(s.JSONSchema(), &doc); err != nil {
+		t.Fatalf("unmarshal JSON schema: %v", err)
+	}
+	props := doc["properties"].(map[string]any)
+	alias := props["search_query"].(map[string]any)
+	if alias["x-opcore-upstream-name"] != "query" {
+		t.Errorf("upstream schema annotation = %v", alias["x-opcore-upstream-name"])
+	}
+}
+
 func TestInputSchemaFixedBodyOmitted(t *testing.T) {
 	// A fixed-body leaf mounts no body flags on the CLI, so its input schema is
 	// path params only - nothing the caller supplies for the body.

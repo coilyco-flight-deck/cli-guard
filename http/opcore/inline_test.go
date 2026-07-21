@@ -125,6 +125,21 @@ func TestParseInlineBodyAndQueryFields(t *testing.T) {
 	}
 }
 
+func TestParseInlineQueryAlias(t *testing.T) {
+	descs, _ := parseInline(t, `wrap x {
+        auth bearer { value env "T" }
+        can search card {
+            path "/search"
+            query "search_query" upstream="query"
+        }
+    }`)
+	search := descByLeaf(t, descs, "search")
+	want := []opcore.Field{{Name: "search_query", UpstreamName: "query", Type: "string"}}
+	if !reflect.DeepEqual(search.QueryFlags, want) {
+		t.Errorf("search query flags = %+v, want %+v", search.QueryFlags, want)
+	}
+}
+
 func TestParseInlineNestedBodySchema(t *testing.T) {
 	descs, _ := parseInline(t, nestedInlineSrc)
 	query := descByLeaf(t, descs, "query")
@@ -281,6 +296,29 @@ func TestParseInlineDuplicateFieldFailsClosed(t *testing.T) {
     }`))
 	if err == nil {
 		t.Fatal("a query and body field both named `state` collide; want a fail-closed error")
+	}
+}
+
+func TestParseInlineQueryAliasFailsClosed(t *testing.T) {
+	cases := map[string]string{
+		"reserved local name":                      `query "query" upstream="q"`,
+		"multiple local names":                     `query "search_query" "filter" upstream="query"`,
+		"same local and upstream name":             `query "search_query" upstream="search_query"`,
+		"duplicate upstream mapping":               `query "search_query" upstream="query"; query "advanced_query" upstream="query"`,
+		"alias conflicts with unaliased wire name": `query "q"; query "search_query" upstream="q"`,
+		"unknown property":                         `query "search_query" target="query"`,
+		"body alias":                               `body "search_query" upstream="query"`,
+	}
+	for name, query := range cases {
+		t.Run(name, func(t *testing.T) {
+			src := `wrap x {
+                auth bearer { value env "T" }
+                can search card { path "/search"; ` + query + ` }
+            }`
+			if _, _, err := opcore.ParseInline([]byte(src)); err == nil {
+				t.Fatal("ambiguous or invalid query alias should fail closed")
+			}
+		})
 	}
 }
 

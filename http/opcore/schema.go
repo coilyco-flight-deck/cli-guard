@@ -15,14 +15,15 @@ type Schema struct {
 // Property is one input in a Schema: its type (or array element type), the
 // neutral where-it-goes hint, its help text, and any nested shape.
 type Property struct {
-	Type        string // string|boolean|integer|number|array
-	Items       string // element type when Type==array
-	Item        *Property
-	Properties  map[string]Property
-	Required    []string
-	Raw         bool
-	Location    string // path|query|body|form (neutral hint)
-	Description string
+	Type         string // string|boolean|integer|number|array
+	Items        string // element type when Type==array
+	Item         *Property
+	Properties   map[string]Property
+	Required     []string
+	Raw          bool
+	Location     string // path|query|body|form (neutral hint)
+	UpstreamName string // outgoing query parameter when it differs from the local property name
+	Description  string
 }
 
 // Location constants label where a Property lowers onto the outgoing request.
@@ -58,11 +59,12 @@ func (d Descriptor) InputSchema() Schema {
 // toProperty lowers one Field into the neutral Schema tree.
 func (f Field) toProperty(loc string) Property {
 	p := Property{
-		Type:        f.Type,
-		Items:       f.Items,
-		Location:    loc,
-		Description: f.Desc,
-		Raw:         f.Raw,
+		Type:         f.Type,
+		Items:        f.Items,
+		Location:     loc,
+		UpstreamName: f.UpstreamName,
+		Description:  f.Desc,
+		Raw:          f.Raw,
 	}
 	if f.Item != nil {
 		item := f.Item.toProperty("")
@@ -103,13 +105,7 @@ func (s Schema) JSONSchema() []byte {
 
 // jsonSchema emits one Property as a draft-07 fragment.
 func (p Property) jsonSchema() map[string]any {
-	entry := map[string]any{"type": p.Type}
-	if p.Description != "" {
-		entry["description"] = p.Description
-	}
-	if p.Raw {
-		entry["x-opcore-raw"] = true
-	}
+	entry := p.schemaEntry()
 	switch p.Type {
 	case "array":
 		switch {
@@ -138,6 +134,22 @@ func (p Property) jsonSchema() map[string]any {
 				entry["required"] = required
 			}
 		}
+	}
+	return entry
+}
+
+// schemaEntry emits the common scalar metadata before jsonSchema adds any
+// nested object or array shape.
+func (p Property) schemaEntry() map[string]any {
+	entry := map[string]any{"type": p.Type}
+	if p.Description != "" {
+		entry["description"] = p.Description
+	}
+	if p.Raw {
+		entry["x-opcore-raw"] = true
+	}
+	if p.UpstreamName != "" {
+		entry["x-opcore-upstream-name"] = p.UpstreamName
 	}
 	return entry
 }

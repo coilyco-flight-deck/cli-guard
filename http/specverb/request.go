@@ -257,7 +257,7 @@ func assembleQuery(c *cli.Command, flags []fieldFlag) string {
 		if !c.IsSet(f.Name) {
 			continue
 		}
-		vals.Set(f.Name, stringifyFlag(c, f))
+		vals.Set(f.QueryName(), stringifyFlag(c, f))
 	}
 	if len(vals) == 0 {
 		return ""

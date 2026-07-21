@@ -8,8 +8,8 @@ var ReservedFlagNames = map[string]bool{
 	"dry-run": true, "query": true, "output": true, "body-file": true,
 }
 
-// CheckFlagCollisions fails closed when a promoted input shadows a reserved engine
-// flag or another input on the same leaf. Shared by both descriptor sources.
+// CheckFlagCollisions rejects reserved or duplicate local inputs and duplicate
+// outgoing query names. Both descriptor sources share this fail-closed check.
 func CheckFlagCollisions(desc Descriptor) error {
 	seen := map[string]bool{}
 	all := append(append([]Field{}, desc.QueryFlags...), desc.BodyFlags...)
@@ -21,6 +21,22 @@ func CheckFlagCollisions(desc Descriptor) error {
 			return fmt.Errorf("opcore: %s: two inputs both name %q (fail-closed)", desc.VerbName, f.Name)
 		}
 		seen[f.Name] = true
+	}
+	for _, f := range append(append([]Field{}, desc.BodyFlags...), desc.FormFlags...) {
+		if f.UpstreamName != "" {
+			return fmt.Errorf("opcore: %s: input %q sets an upstream name outside query parameters (fail-closed)", desc.VerbName, f.Name)
+		}
+	}
+	wireNames := map[string]string{}
+	for _, f := range desc.QueryFlags {
+		if f.UpstreamName == f.Name && f.UpstreamName != "" {
+			return fmt.Errorf("opcore: %s: query input %q repeats its local name as the upstream name (fail-closed)", desc.VerbName, f.Name)
+		}
+		wireName := f.QueryName()
+		if localName, ok := wireNames[wireName]; ok {
+			return fmt.Errorf("opcore: %s: query inputs %q and %q both map to upstream parameter %q (fail-closed)", desc.VerbName, localName, f.Name, wireName)
+		}
+		wireNames[wireName] = f.Name
 	}
 	return nil
 }

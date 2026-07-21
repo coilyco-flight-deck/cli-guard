@@ -356,15 +356,22 @@ func applyInlineSet(d *Descriptor, c *kdl.Node) error {
 	return nil
 }
 
-// inlineFields reads a `query` node's flat string arguments into Fields. An
-// inline query field carries no schema, so it types as a plain string.
+// inlineFields reads query or flat body strings into Fields. Query upstream=
+// maps one safe local name to a different outgoing parameter.
 func inlineFields(c *kdl.Node, kind string) ([]Field, error) {
 	if children := c.Children(); children != nil && len(children.Nodes) > 0 {
 		return nil, fmt.Errorf("`%s` takes flat field names, not a block (fail-closed)", kind)
 	}
+	upstreamName, err := inlineUpstreamName(c, kind)
+	if err != nil {
+		return nil, err
+	}
 	args := c.Arguments()
 	if len(args) == 0 {
 		return nil, fmt.Errorf("`%s` needs at least one field name (e.g. `%s \"state\"`)", kind, kind)
+	}
+	if upstreamName != "" && len(args) != 1 {
+		return nil, fmt.Errorf("`query` with upstream= maps exactly one local field name (fail-closed)")
 	}
 	out := make([]Field, 0, len(args))
 	for _, a := range args {
@@ -372,9 +379,29 @@ func inlineFields(c *kdl.Node, kind string) ([]Field, error) {
 		if name == "" {
 			return nil, fmt.Errorf("`%s` field name is empty (fail-closed)", kind)
 		}
-		out = append(out, Field{Name: name, Type: "string"})
+		if upstreamName == name {
+			return nil, fmt.Errorf("`query` field %q repeats its local name in upstream= (use the unaliased form)", name)
+		}
+		out = append(out, Field{Name: name, UpstreamName: upstreamName, Type: "string"})
 	}
 	return out, nil
+}
+
+// inlineUpstreamName reads the one property accepted by a query declaration.
+// Body shorthand and every unknown property fail closed.
+func inlineUpstreamName(c *kdl.Node, kind string) (string, error) {
+	upstreamName := ""
+	for k, v := range c.Properties() {
+		if kind != "query" || k != "upstream" {
+			return "", fmt.Errorf("unknown property %q on `%s` (want upstream on query only; fail-closed)", k, kind)
+		}
+		raw, ok := v.RawValue().(string)
+		if !ok || raw == "" {
+			return "", fmt.Errorf("`query` needs a non-empty string upstream name")
+		}
+		upstreamName = raw
+	}
+	return upstreamName, nil
 }
 
 // inlineBodyFields reads either `body "title" "body"` shorthand or a nested

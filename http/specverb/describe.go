@@ -195,11 +195,12 @@ type VerbInfo struct {
 // ParamInfo is one input to a verb, tagged by kind so help can always show the
 // structure the engine knows even where the upstream spec carries no description.
 type ParamInfo struct {
-	Name     string `json:"name"`
-	Kind     string `json:"kind"`           // "path" | "query" | "body" | "form"
-	Type     string `json:"type"`           // swagger type; arrays render as []elem
-	Required bool   `json:"required"`       // path params and required-schema fields
-	Desc     string `json:"desc,omitempty"` // upstream spec description, often blank
+	Name         string `json:"name"`
+	UpstreamName string `json:"upstream_name,omitempty"` // aliased outgoing query parameter
+	Kind         string `json:"kind"`                    // "path" | "query" | "body" | "form"
+	Type         string `json:"type"`                    // swagger type, arrays render as []elem
+	Required     bool   `json:"required"`                // path params and required-schema fields
+	Desc         string `json:"desc,omitempty"`          // upstream spec description, often blank
 }
 
 // Describe builds the surface model for cfg without mounting a command tree, so a
@@ -404,7 +405,7 @@ func paramsOf(d opDescriptor) []ParamInfo {
 		params = append(params, ParamInfo{Name: p, Kind: "path", Type: "string", Required: true})
 	}
 	for _, f := range d.QueryFlags {
-		params = append(params, ParamInfo{Name: f.Name, Kind: "query", Type: f.TypeLabel(), Required: f.Required, Desc: f.Desc})
+		params = append(params, ParamInfo{Name: f.Name, UpstreamName: f.UpstreamName, Kind: "query", Type: f.TypeLabel(), Required: f.Required, Desc: f.Desc})
 	}
 	for _, f := range d.BodyFlags {
 		params = append(params, ParamInfo{Name: f.Name, Kind: "body", Type: f.TypeLabel(), Required: f.Required, Desc: f.Desc})
@@ -801,8 +802,15 @@ func optionLines(params []ParamInfo) []string {
 			req = "required"
 		}
 		line := fmt.Sprintf("`--%s` (%s, %s)", p.Name, p.Type, req)
+		var details []string
+		if p.UpstreamName != "" {
+			details = append(details, fmt.Sprintf("sends as query parameter `%s`", p.UpstreamName))
+		}
 		if p.Desc != "" {
-			line += ": " + p.Desc
+			details = append(details, p.Desc)
+		}
+		if len(details) > 0 {
+			line += ": " + strings.Join(details, ". ")
 		}
 		lines[i] = line
 	}
@@ -862,8 +870,15 @@ func paramHelpLines(params []ParamInfo) []string {
 			req = "required"
 		}
 		line := fmt.Sprintf("%-*s  %s", width, labels[i], req)
+		var details []string
+		if p.UpstreamName != "" {
+			details = append(details, fmt.Sprintf("sends as query parameter %q", p.UpstreamName))
+		}
 		if p.Desc != "" {
-			line += "  " + p.Desc
+			details = append(details, p.Desc)
+		}
+		if len(details) > 0 {
+			line += "  " + strings.Join(details, ". ")
 		}
 		lines[i] = line
 	}

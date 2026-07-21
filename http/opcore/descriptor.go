@@ -55,14 +55,24 @@ type ProxyRule struct {
 // Field is one spec input. The flat cases lower to CLI flags, while a body
 // field may also carry nested object/array shape for neutral schema emission.
 type Field struct {
-	Name     string // json field / query param name, doubling as the flag name
-	Type     string // swagger type: string|boolean|integer|number|array|object
-	Items    string // scalar element type when Type is "array" and Item is nil
-	Item     *Field // nested element schema when Type is "array" and Item is object/array
-	Fields   []Field
-	Raw      bool
-	Required bool // required in the schema; enforced at request assembly
-	Desc     string
+	Name         string // local input name and the default outgoing field or parameter name
+	UpstreamName string // outgoing query parameter name when it differs from Name
+	Type         string // swagger type: string|boolean|integer|number|array|object
+	Items        string // scalar element type when Type is "array" and Item is nil
+	Item         *Field // nested element schema when Type is "array" and Item is object/array
+	Fields       []Field
+	Raw          bool
+	Required     bool // required in the schema, enforced at request assembly
+	Desc         string
+}
+
+// QueryName returns the outgoing query parameter name for this field. An empty
+// UpstreamName preserves the historical Name-to-wire mapping.
+func (f Field) QueryName() string {
+	if f.UpstreamName != "" {
+		return f.UpstreamName
+	}
+	return f.Name
 }
 
 // TypeLabel renders the flag's type for help and the reference doc.
