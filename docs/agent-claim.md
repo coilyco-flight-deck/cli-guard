@@ -43,6 +43,10 @@ The parser requires at least one role. The parser accepts at most one role in
 each domain and at most one of every scalar fact. Unknown vocabulary, malformed
 values, and unsupported versions fail closed.
 
+`ParseKDL` accepts a complete one-node document. A consumer that embeds the
+same node inside a larger KDL contract passes the parsed child to `ParseNode`.
+Both entry points apply the same structural validation.
+
 The parser allows partial subjects because different producers know different
 facts. A consumer applies its own completeness rules after structural
 validation. For example, a context bundle producer may require a context role

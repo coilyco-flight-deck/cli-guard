@@ -52,9 +52,24 @@ func ParseKDL(src []byte) (Claim, error) {
 	if err != nil {
 		return Claim{}, fmt.Errorf("agentclaim: parse KDL: %w", err)
 	}
-	root, err := claimRoot(doc.Nodes)
+	root, err := singleClaimNode(doc.Nodes)
 	if err != nil {
 		return Claim{}, err
+	}
+	return ParseNode(root)
+}
+
+// ParseNode validates an embedded agent-claim node. It applies the same rules
+// as ParseKDL after that wrapper checks whole-document cardinality.
+func ParseNode(root *kdl.Node) (Claim, error) {
+	if root == nil {
+		return Claim{}, fmt.Errorf("agentclaim: node is nil (fail-closed)")
+	}
+	if root.Name() != "agent-claim" {
+		return Claim{}, fmt.Errorf("agentclaim: node %q is not `agent-claim` (fail-closed)", root.Name())
+	}
+	if len(root.Arguments()) != 0 {
+		return Claim{}, fmt.Errorf("agentclaim: `agent-claim` takes no arguments, only schema-version= and a block (fail-closed)")
 	}
 	version, err := schemaVersion(root)
 	if err != nil {
@@ -76,18 +91,11 @@ func ParseKDL(src []byte) (Claim, error) {
 	return state.claim, nil
 }
 
-func claimRoot(nodes []*kdl.Node) (*kdl.Node, error) {
+func singleClaimNode(nodes []*kdl.Node) (*kdl.Node, error) {
 	if len(nodes) != 1 {
 		return nil, fmt.Errorf("agentclaim: document needs exactly one `agent-claim` node, got %d (fail-closed)", len(nodes))
 	}
-	root := nodes[0]
-	if root.Name() != "agent-claim" {
-		return nil, fmt.Errorf("agentclaim: top-level node %q is not `agent-claim` (fail-closed)", root.Name())
-	}
-	if len(root.Arguments()) != 0 {
-		return nil, fmt.Errorf("agentclaim: `agent-claim` takes no arguments, only schema-version= and a block (fail-closed)")
-	}
-	return root, nil
+	return nodes[0], nil
 }
 
 func schemaVersion(root *kdl.Node) (int, error) {
@@ -143,9 +151,8 @@ func (s *claimParseState) applyChild(child *kdl.Node) error {
 	return nil
 }
 
-// Validate checks a programmatically constructed claim against the same
-// structural rules as ParseKDL. Consumers apply their own completeness and
-// producer-trust policy after this check.
+// Validate applies ParseKDL's structural rules to a constructed claim.
+// Consumers apply completeness and producer-trust policy afterward.
 func (c Claim) Validate() error {
 	if c.SchemaVersion != SchemaVersion {
 		return fmt.Errorf("agentclaim: schema-version %d is not the supported dialect %d (fail-closed)", c.SchemaVersion, SchemaVersion)

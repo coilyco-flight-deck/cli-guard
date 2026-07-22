@@ -2615,10 +2615,13 @@ func ParseKDL(src []byte) (Claim, error)
     ParseKDL parses and validates one agent-claim document. Unknown vocabulary,
     duplicate scalar facts, and unsupported schema versions fail closed.
 
+func ParseNode(root *kdl.Node) (Claim, error)
+    ParseNode validates an embedded agent-claim node. It applies the same rules
+    as ParseKDL after that wrapper checks whole-document cardinality.
+
 func (c Claim) Validate() error
-    Validate checks a programmatically constructed claim against the same
-    structural rules as ParseKDL. Consumers apply their own completeness and
-    producer-trust policy after this check.
+    Validate applies ParseKDL's structural rules to a constructed claim.
+    Consumers apply completeness and producer-trust policy afterward.
 
 type Domain string
     Domain identifies what a role claim describes.

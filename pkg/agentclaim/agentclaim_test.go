@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	kdl "github.com/calico32/kdl-go"
 )
 
 func TestParseKDLContextOnly(t *testing.T) {
@@ -62,6 +64,42 @@ func TestParseKDLComposedRolesStaySeparate(t *testing.T) {
 	}
 }
 
+func TestParseNodeAcceptsEmbeddedClaim(t *testing.T) {
+	t.Parallel()
+
+	doc, err := kdl.ParseString(`consumer schema-version=1 {
+    agent-claim schema-version=1 {
+        agent "example-agent"
+        role "builder" domain="context"
+        harness "example-harness"
+    }
+}`)
+	if err != nil {
+		t.Fatalf("parse consumer KDL: %v", err)
+	}
+	claim, err := ParseNode(doc.Nodes[0].Children().Nodes[0])
+	if err != nil {
+		t.Fatalf("ParseNode: %v", err)
+	}
+	if claim.Agent != "example-agent" || claim.Harness != "example-harness" ||
+		len(claim.Roles) != 1 || claim.Roles[0].Domain != DomainContext {
+		t.Fatalf("embedded claim = %+v", claim)
+	}
+}
+
+func TestParseNodeRejectsNonClaimNode(t *testing.T) {
+	t.Parallel()
+
+	doc, err := kdl.ParseString(`subject schema-version=1 {}`)
+	if err != nil {
+		t.Fatalf("parse KDL: %v", err)
+	}
+	_, err = ParseNode(doc.Nodes[0])
+	if err == nil || !strings.Contains(err.Error(), "is not `agent-claim`") {
+		t.Fatalf("ParseNode error = %v", err)
+	}
+}
+
 func TestClaimJSONUsesStablePublicFields(t *testing.T) {
 	t.Parallel()
 
@@ -93,7 +131,7 @@ func TestParseKDLFailures(t *testing.T) {
 		{name: "empty document", src: ``, want: "exactly one"},
 		{name: "extra top level", src: `agent-claim schema-version=1 {}
 agent-claim schema-version=1 {}`, want: "exactly one"},
-		{name: "wrong root", src: `subject schema-version=1 {}`, want: "top-level node"},
+		{name: "wrong root", src: `subject schema-version=1 {}`, want: "is not `agent-claim`"},
 		{name: "root argument", src: `agent-claim "x" schema-version=1 {}`, want: "takes no arguments"},
 		{name: "missing version", src: `agent-claim {
     role "builder" domain="context"
