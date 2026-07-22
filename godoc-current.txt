@@ -2580,6 +2580,63 @@ func Invalidate() error
     they just rotated credentials or assumed a different role can use
 
 
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/agentclaim
+
+package agentclaim // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/agentclaim"
+
+Package agentclaim defines the policy-free identity facts shared by agent
+context producers and authority launchers.
+
+A Claim keeps context and authority roles in separate domains. The package
+validates structure only. Consumers decide which facts they require and whether
+they trust the producer that supplied each role.
+
+CONSTANTS
+
+const SchemaVersion = 1
+    SchemaVersion is the agent-claim KDL dialect this package parses.
+
+
+TYPES
+
+type Claim struct {
+	SchemaVersion   int    `json:"schema_version"`
+	Agent           string `json:"agent,omitempty"`
+	Roles           []Role `json:"roles"`
+	Model           string `json:"model,omitempty"`
+	ModelClass      string `json:"model_class,omitempty"`
+	Harness         string `json:"harness,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+}
+    Claim is a resolved agent subject. Optional scalar facts remain independent:
+    the package never derives one from another or assigns consumer defaults.
+
+func ParseKDL(src []byte) (Claim, error)
+    ParseKDL parses and validates one agent-claim document. Unknown vocabulary,
+    duplicate scalar facts, and unsupported schema versions fail closed.
+
+func (c Claim) Validate() error
+    Validate checks a programmatically constructed claim against the same
+    structural rules as ParseKDL. Consumers apply their own completeness and
+    producer-trust policy after this check.
+
+type Domain string
+    Domain identifies what a role claim describes.
+
+const (
+	// DomainContext identifies organizational purpose and context selection.
+	DomainContext Domain = "context"
+
+	// DomainAuthority identifies independently resolved execution authority.
+	DomainAuthority Domain = "authority"
+)
+type Role struct {
+	Domain Domain `json:"domain"`
+	Name   string `json:"name"`
+}
+    Role is one opaque role name in an explicit domain.
+
+
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/agentid
 
 package agentid // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/agentid"
