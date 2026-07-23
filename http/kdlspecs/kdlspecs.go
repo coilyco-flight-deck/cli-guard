@@ -24,7 +24,7 @@ import (
 // Options are the inputs shared by every driver verb.
 type Options struct {
 	GuardfilePath   string   // path to the consumer's KDL Guardfile
-	ProjectRoot     string   // explicit recursive KDL project boundary (empty keeps legacy directory discovery)
+	ProjectRoot     string   // explicit recursive KDL project boundary (empty discovers .specgen, then keeps legacy discovery)
 	BinaryName      string   // gen/build/run: generated CLI/binary name (empty = Guardfile wrap binary)
 	Out             string   // gen: main.go output path (debug; cache when empty). build: binary output dir or path
 	Args            []string // run: arguments passed through to the materialized binary
@@ -350,6 +350,13 @@ func loadGroup(opts Options) (*group, error) {
 }
 
 func discover(opts Options) (string, string, []member, error) {
+	if opts.ProjectRoot == "" && opts.GuardfilePath == "" {
+		if _, err := os.Stat(".specgen"); err == nil {
+			return discoverRoot(".specgen", "")
+		} else if !os.IsNotExist(err) {
+			return "", "", nil, fmt.Errorf("specgen: inspect conventional project root .specgen: %w", err)
+		}
+	}
 	if opts.ProjectRoot == "" {
 		return discoverLegacy(opts.GuardfilePath)
 	}

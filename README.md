@@ -16,10 +16,9 @@ cli-guard is a **security-boundary** framework for [urfave/cli][urfave/cli] v3 a
 - per-invocation CONNECT proxy with consumer-supplied egress allowlist
 - public exit-code taxonomy for orchestrators
 
-The repository also ships **`specgen`**, an installable no-code driver that
-turns KDL policy plus committed locks into standalone guarded CLIs. It can
-generate, lock, check for upstream skew, build, and run a consumer tool without
-hand-written Go source.
+The repository also ships **`specgen`**, an installable no-code driver that turns
+KDL policy plus committed locks into standalone guarded CLIs without hand-written
+Go. It discovers `.specgen/` and can generate, lock, check skew, build, and run.
 
 ## Install specgen
 

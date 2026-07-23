@@ -11,7 +11,7 @@ See [install specgen](specgen-install.md) for release binaries, checksums,
 
 A `--guardfile` selects a **binary**, not the whole build: members compose only when their parsed `wrap <binary>` name (`Group[0]`) agrees. A different wrap name is a **separate** binary, never merged in.
 
-For a project that spans folders, pass `--project-root <dir>`. It is an explicit recursive discovery boundary; a `--guardfile <path>` inside it selects that member's binary group. See [specgen discovery](specgen-discovery.md) for membership, mixed-dialect, identity, and fail-closed rules.
+A repository can place its recursive project under `.specgen/` and invoke the driver without discovery flags. Pass `--project-root <dir>` for another explicit boundary; a `--guardfile <path>` inside it selects that member's binary group. See [specgen discovery](specgen-discovery.md) for membership, mixed-dialect, identity, and fail-closed rules.
 
 `gen`, `build`, and `run` accept `--binary <name>` to rename only the generated command and cache/build output; discovery and policy identity still come from `wrap`.
 
