@@ -1851,7 +1851,7 @@ type DepLock struct {
 
 type Options struct {
 	GuardfilePath   string   // path to the consumer's KDL Guardfile
-	ProjectRoot     string   // explicit recursive KDL project boundary (empty keeps legacy directory discovery)
+	ProjectRoot     string   // explicit recursive KDL project boundary (empty discovers .specgen, then keeps legacy discovery)
 	BinaryName      string   // gen/build/run: generated CLI/binary name (empty = Guardfile wrap binary)
 	Out             string   // gen: main.go output path (debug; cache when empty). build: binary output dir or path
 	Args            []string // run: arguments passed through to the materialized binary

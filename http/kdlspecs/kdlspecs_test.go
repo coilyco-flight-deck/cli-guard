@@ -106,6 +106,43 @@ func TestProjectRootDiscoversArbitraryNestedMembersInStableOrder(t *testing.T) {
 	}
 }
 
+func TestConventionalProjectRootDiscoversDotSpecgenRecursively(t *testing.T) {
+	dir := t.TempDir()
+	project := filepath.Join(dir, ".specgen")
+	writeMember(t, project, "aguard/ops.kdl", guardfileFixture)
+	t.Chdir(dir)
+
+	g, err := loadGroup(Options{})
+	if err != nil {
+		t.Fatalf("loadGroup: %v", err)
+	}
+	wantRoot, err := filepath.EvalSymlinks(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Dir != wantRoot {
+		t.Errorf("project root = %q, want %q", g.Dir, wantRoot)
+	}
+	if len(g.Members) != 1 || g.Members[0].Path != "aguard/ops.kdl" {
+		t.Errorf("conventional members = %+v", g.Members)
+	}
+}
+
+func TestExplicitGuardfileKeepsLegacyDiscoveryBesideDotSpecgen(t *testing.T) {
+	dir := t.TempDir()
+	writeMember(t, filepath.Join(dir, ".specgen"), "aguard/ops.kdl", guardfileFixture)
+	selected := writeMember(t, dir, "legacy.guardfile.kdl", strings.Replace(guardfileFixture, "wrap ward-kdl", "wrap legacy", 1))
+	t.Chdir(dir)
+
+	g, err := loadGroup(Options{GuardfilePath: selected})
+	if err != nil {
+		t.Fatalf("loadGroup: %v", err)
+	}
+	if g.Binary != "legacy" || len(g.Members) != 1 || g.Members[0].Path != "legacy.guardfile.kdl" {
+		t.Errorf("legacy selection = %+v", g)
+	}
+}
+
 func TestProjectRootUsesDistinctArtifactsForSameBasename(t *testing.T) {
 	dir := t.TempDir()
 	writeMember(t, dir, "cloud/api.kdl", strings.Replace(guardfileFixture, "ops forgejo", "ops cloud", 1))
