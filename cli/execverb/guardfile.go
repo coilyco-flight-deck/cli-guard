@@ -33,8 +33,8 @@ type Guardfile struct {
 	// funnel - the read-only floor over the whole inspect list (allow only).
 	WrapWhens []WhenClause
 
-	// Actions are the declared complex actions: call sequences with compensations
-	// and a canary over granted exec leaves. See docs/execverb-actions.md.
+	// Actions are declared ordered call sequences over granted exec leaves. See
+	// docs/execverb-actions.md.
 	Actions []guardfile.Action
 
 	// passthrough marks the `passthrough <bin>` sugar: exec + an implicit

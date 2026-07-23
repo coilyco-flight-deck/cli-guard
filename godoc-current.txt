@@ -350,8 +350,8 @@ type Guardfile struct {
 	// funnel - the read-only floor over the whole inspect list (allow only).
 	WrapWhens []WhenClause
 
-	// Actions are the declared complex actions: call sequences with compensations
-	// and a canary over granted exec leaves. See docs/execverb-actions.md.
+	// Actions are declared ordered call sequences over granted exec leaves. See
+	// docs/execverb-actions.md.
 	Actions []guardfile.Action
 
 	// Has unexported fields.
@@ -1513,10 +1513,6 @@ type Action struct {
 	Collect  *Collect
 	FailWhen string // JMESPath over the bindings; truthy => non-zero exit
 
-	// Canary is the optional health-window watch fired after the `call` steps;
-	// call-only, it rolls them back on degradation. See specverb-rollback.md.
-	Canary *Canary
-
 	// MountVerb/MountResource: the two-arg `action <verb> <resource>` mount form
 	// shadows that leaf path. Empty for `action <name>`. See specverb-actions.md.
 	MountVerb     string
@@ -1563,26 +1559,9 @@ type Call struct {
 	Resource string
 	Args     []ArgBind
 	As       string // binding name for this call's response
-
-	// Compensate is the optional rollback step, fired to undo this call when a
-	// later step fails. See specverb-rollback.md.
-	Compensate *Compensation
 }
     Call is one step of a multi-call action: fires a granted leaf with Args,
     binds the response to As for `$As.field` data-flow. See specverb-actions.md.
-
-type Canary struct {
-	Verb         string
-	Resource     string
-	Args         []ArgBind
-	Every        string // sample interval, e.g. "5s" (quoted: KDL rejects bare 5s)
-	Window       string // watch window, e.g. "1m"; elapsing without degradation passes
-	DegradedWhen string // JMESPath; truthy mid-window triggers the rollback path
-	HealthyWhen  string // optional JMESPath; truthy ends the watch early as healthy
-	As           string // binding name for each sampled response
-}
-    Canary re-samples a granted leaf every Every up to Window after the forward
-    steps, rolling back on DegradedWhen mid-window. See specverb-rollback.md.
 
 type Collect struct {
 	Verb         string
@@ -1600,14 +1579,6 @@ type Collect struct {
     Collect walks a paginated granted leaf, incrementing PageParam and
     appending each array response until the page returns fewer than Limit
     (specverb-actions.md).
-
-type Compensation struct {
-	Verb     string
-	Resource string
-	Args     []ArgBind
-}
-    Compensation is a call's rollback step: a granted leaf fired (with Args) to
-    undo the call when a later step fails. See specverb-rollback.md.
 
 type DocLink struct {
 	Href string // link target: a relative path or URL
@@ -2328,25 +2299,8 @@ type ActionCallInfo struct {
 	Path   string `json:"path"`
 	Grant  string `json:"grant"`
 	As     string `json:"as,omitempty"`
-
-	// Compensate is the step's rollback call, fired in reverse on a later
-	// failure; nil when the call declares no compensation.
-	Compensate *ActionCompensateInfo `json:"compensate,omitempty"`
 }
     ActionCallInfo is one step of a multi-call action for the describe surface.
-
-type ActionCanaryInfo struct {
-	Method       string `json:"method"`
-	Path         string `json:"path"`
-	Grant        string `json:"grant"`
-	Every        string `json:"every"`
-	Window       string `json:"window"`
-	DegradedWhen string `json:"degraded_when"`
-	HealthyWhen  string `json:"healthy_when,omitempty"`
-	As           string `json:"as"`
-}
-    ActionCanaryInfo is a call action's health-window watch for the describe
-    surface: the sampled leaf, the bounds, and the verdict predicates.
 
 type ActionCollectInfo struct {
 	Method       string `json:"method"`
@@ -2362,13 +2316,6 @@ type ActionCollectInfo struct {
 }
     ActionCollectInfo is the resolved auto-pagination leaf for the describe
     surface.
-
-type ActionCompensateInfo struct {
-	Method string `json:"method"`
-	Path   string `json:"path"`
-	Grant  string `json:"grant"`
-}
-    ActionCompensateInfo is one call's rollback step for the describe surface.
 
 type ActionDefaultInfo struct {
 	Input    string `json:"input"`
@@ -2404,9 +2351,6 @@ type ActionInfo struct {
 
 	// Collect describes an auto-pagination action; nil for poll/call actions.
 	Collect *ActionCollectInfo `json:"collect,omitempty"`
-
-	// Canary describes a call action's health-window watch; nil when it declares none.
-	Canary *ActionCanaryInfo `json:"canary,omitempty"`
 }
     ActionInfo is one mounted complex action for the describe surface:
     its envelope name, the polled leaf, the bounds, and the conditions.
@@ -3846,107 +3790,68 @@ type Entry struct {
 
 package stepflow // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/stepflow"
 
-Package stepflow is the transport-agnostic engine behind complex-action call
-sequences: ordered steps, compensating rollback, and the canary health watch.
-A dialect (specverb HTTP, execverb exec/ssh) resolves its granted leaves
-into Steps and supplies a Runner; the engine owns ordering, reverse-order
-compensation, and the canary verdict loop. See docs/specverb-rollback.md.
+Package stepflow executes transport-agnostic ordered step sequences.
+A dialect resolves its authorized leaves into Steps and supplies a Runner;
+stepflow preserves their order and threads explicit `as` bindings between them.
+It deliberately does not attach deployment policy to a sequence.
 
 FUNCTIONS
 
 func CoerceScalar(s string) any
-    CoerceScalar lowers an input string to a number where it parses as one (so
-    `run_number==$run` compares number to number), otherwise the string itself.
+    CoerceScalar lowers numeric inputs to the JSON number shape used by
+    JMESPath.
 
 func CondScope(jmesVars, bindings map[string]any) map[string]any
-    CondScope merges the coerced inputs and the step bindings into one JMESPath
-    variable scope; a step binding wins over an equally-named input.
+    CondScope merges coerced inputs with completed step bindings. A binding wins
+    over an equally named input.
 
 func PlanCalls(ctx context.Context, steps []Step, resolve Resolve, r Runner) ([]any, error)
-    PlanCalls renders each step (with its compensation) for a --dry-run through
-    the Runner's Plan, firing nothing. resolve leaves $step.field placeholders.
-
-func PlanCanary(ctx context.Context, can *Canary, resolve Resolve, r Runner) (map[string]any, error)
-    PlanCanary renders the canary block for a --dry-run: the watched leaf,
-    the bounds, and the verdict predicates. Fires nothing.
+    PlanCalls renders each step for a dry run. Data-flow references are resolved
+    by the supplied resolver, which normally preserves future bindings as hints.
 
 func ResolveArg(value string, inputs map[string]string, bindings map[string]any) (string, error)
-    ResolveArg resolves a step arg value: a literal verbatim, a `$input`
-    from the bound inputs, or a `$step.field` projected out of a prior step's
-    response.
+    ResolveArg resolves a step argument: a literal, a `$input`, or a
+    `$step.field` projection from a completed step response.
 
 func ResolveArgDry(value string, inputs map[string]string) string
-    ResolveArgDry resolves an arg value for a --dry-run plan: literals and bound
-    inputs resolve, a $step.field stays a `${ref}` placeholder (nothing fired).
+    ResolveArgDry resolves an argument for a dry-run plan. Unavailable step
+    output is left as a `${ref}` placeholder.
 
-func Run(ctx context.Context, c *cli.Command, name string, steps []Step, can *Canary,
-	strVars map[string]string, jmesVars map[string]any, r Runner,
-) (bindings map[string]any, lastRaw []byte, err error)
-    Run executes the ordered steps then the optional canary, compensating
-    completed steps in reverse on failure. See docs/specverb-rollback.md for the
-    full contract.
+func Run(ctx context.Context, c *cli.Command, steps []Step, strVars map[string]string, r Runner) (bindings map[string]any, lastRaw []byte, err error)
+    Run executes steps in order and returns the successfully completed prefix.
+    A failure stops the sequence; it does not infer a recovery action.
 
 func ScalarToString(v any) string
-    ScalarToString renders a JMESPath scalar result for use as an argv or URL
-    value: whole-number floats lose the trailing ".0", others format naturally.
+    ScalarToString renders a JMESPath scalar for a later argument.
 
 
 TYPES
 
-type Canary struct {
-	Leaf         Leaf
-	Args         []guardfile.ArgBind
-	Every        time.Duration
-	Window       time.Duration
-	DegradedWhen string // JMESPath; truthy mid-window triggers rollback
-	HealthyWhen  string // optional JMESPath; truthy ends the watch early, clean
-	As           string // binding name for each sampled response
-}
-    Canary re-samples a granted health leaf every Every up to Window after the
-    forward steps, driving the rollback path on DegradedWhen mid-window.
-
-type Compensation struct {
-	Leaf Leaf
-	Args []guardfile.ArgBind
-}
-    Compensation is a step's rollback: a granted leaf fired (with Args) to undo
-    its parent step when a later step or the canary fails.
-
 type Leaf interface {
-	// Label names the leaf in operator-facing errors, e.g. "create snapshot".
 	Label() string
 }
-    Leaf is one resolved, granted step target. The engine only labels it;
-    the Runner that resolved it knows its concrete type (HTTP op, exec grant).
+    Leaf is one resolved, authorized step target. The Runner that resolved it
+    knows its concrete type (for example, an HTTP operation or exec grant).
 
 type Resolve func(string) (string, error)
-    Resolve maps one arg value (a literal, $input, or $step.field reference)
-    onto its bound string. See ResolveArg.
+    Resolve maps one argument value (a literal, $input, or $step.field) to its
+    current bound string.
 
 type Runner interface {
-	// Fire runs a forward or compensation step, returning the decoded response
-	// (for $as data-flow) and its raw bytes. An error marks the step failed.
 	Fire(ctx context.Context, c *cli.Command, leaf Leaf, args []guardfile.ArgBind,
 		resolve Resolve) (decoded any, raw []byte, err error)
-	// Sample takes one canary observation. Only a transport-level failure (the
-	// probe could not run at all) is an error; a degraded result is data.
-	Sample(ctx context.Context, c *cli.Command, leaf Leaf, args []guardfile.ArgBind,
-		resolve Resolve) (decoded any, raw []byte, err error)
-	// Plan renders a resolved step for a --dry-run, firing nothing.
 	Plan(ctx context.Context, leaf Leaf, args []guardfile.ArgBind,
 		resolve Resolve) (map[string]any, error)
 }
-    Runner fires (or plans) one resolved step: the transport seam. Fire errors
-    fail the step; Sample tolerates a degraded probe so the canary can judge it.
+    Runner fires or plans one already-resolved step.
 
 type Step struct {
-	Leaf       Leaf
-	Args       []guardfile.ArgBind
-	As         string
-	Compensate *Compensation
+	Leaf Leaf
+	Args []guardfile.ArgBind
+	As   string
 }
-    Step is one resolved forward step: a granted leaf, its arg bindings,
-    the optional `as` binding name, and the optional compensation undoing it.
+    Step is one resolved call in sequence order. As makes its decoded response
+    available to later arguments as `$as.field`.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/ttlcache

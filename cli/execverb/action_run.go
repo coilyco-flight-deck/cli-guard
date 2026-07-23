@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
@@ -36,21 +35,14 @@ type execStepRunner struct {
 	providers map[string]valuesource.Provider
 }
 
-// Fire runs a forward or compensation step: a non-zero exit fails the step
-// (triggering rollback upstream), a spawn failure likewise.
+// Fire runs an authorized step. A non-zero exit fails the sequence.
 func (r *execStepRunner) Fire(ctx context.Context, c *cli.Command, leaf stepflow.Leaf, args []guardfile.ArgBind, resolve stepflow.Resolve) (any, []byte, error) {
-	return r.fire(ctx, c, leaf, args, resolve, true)
-}
-
-// Sample takes one canary observation: a non-zero exit is a degraded sample
-// (data for degraded-when), not an error. Only a spawn failure is blind.
-func (r *execStepRunner) Sample(ctx context.Context, c *cli.Command, leaf stepflow.Leaf, args []guardfile.ArgBind, resolve stepflow.Resolve) (any, []byte, error) {
-	return r.fire(ctx, c, leaf, args, resolve, false)
+	return r.fire(ctx, c, leaf, args, resolve)
 }
 
 // fire resolves the step argv, applies the leaf's guards, and runs the pinned
 // command through the audited verb pipeline, capturing its output.
-func (r *execStepRunner) fire(ctx context.Context, c *cli.Command, leaf stepflow.Leaf, args []guardfile.ArgBind, resolve stepflow.Resolve, failOnExit bool) (any, []byte, error) {
+func (r *execStepRunner) fire(ctx context.Context, c *cli.Command, leaf stepflow.Leaf, args []guardfile.ArgBind, resolve stepflow.Resolve) (any, []byte, error) {
 	l, tokens, err := r.prepare(ctx, leaf, args, resolve)
 	if err != nil {
 		return nil, nil, err
@@ -72,7 +64,7 @@ func (r *execStepRunner) fire(ctx context.Context, c *cli.Command, leaf stepflow
 			}
 			decoded = execStepResponse(stdout, stderr, code)
 			raw, _ = json.Marshal(decoded)
-			if failOnExit && code != 0 {
+			if code != 0 {
 				return fmt.Errorf("%s exited %d: %s", l.Label(), code, tailOf(stderr, stdout))
 			}
 			return nil
@@ -195,19 +187,6 @@ func tailOf(stderr, stdout []byte) string {
 	return s
 }
 
-// positiveDuration parses a Go duration and requires it to be > 0, so a bound
-// of "0s" can never disable a canary clock.
-func positiveDuration(action, field, s string) (time.Duration, error) {
-	d, err := time.ParseDuration(s)
-	if err != nil {
-		return 0, fmt.Errorf("execverb: action %q: %s: %q is not a duration (e.g. \"10s\"): %w", action, field, s, err)
-	}
-	if d <= 0 {
-		return 0, fmt.Errorf("execverb: action %q: %s: %q must be greater than zero", action, field, s)
-	}
-	return d, nil
-}
-
 // mountActions resolves and mounts the guardfile's actions as leaves under the
 // group, each an audited envelope over the shared stepflow engine.
 func mountActions(root *cli.Command, gf *Guardfile, wrap func(verb.Spec) cli.ActionFunc, capture CaptureRunner, host HostResolver, providers map[string]valuesource.Provider) error {
@@ -232,7 +211,7 @@ func mountActions(root *cli.Command, gf *Guardfile, wrap func(verb.Spec) cli.Act
 // inputs become args, flag inputs flags, wrapped for the envelope audit row.
 func buildExecActionLeaf(ea execAction, runner *execStepRunner, wrap func(verb.Spec) cli.ActionFunc) *cli.Command {
 	flags := []cli.Flag{
-		&cli.BoolFlag{Name: flagDryRun, Usage: "print the action plan (steps, compensations, canary) without firing it"},
+		&cli.BoolFlag{Name: flagDryRun, Usage: "print the ordered action plan without firing it"},
 		&cli.StringFlag{Name: flagOutput, Usage: "output format: yaml | yaml-stream | json | text | table"},
 	}
 	var positional []string
@@ -281,7 +260,7 @@ func execActionArgsFunc(ea execAction) func(*cli.Command) (map[string]string, []
 }
 
 // runExecAction binds inputs, then runs the action: --dry-run renders the plan,
-// otherwise the stepflow engine drives the sequence, rollback, and canary.
+// otherwise the stepflow engine drives the ordered sequence.
 func runExecAction(ea execAction, runner *execStepRunner) cli.ActionFunc {
 	return func(ctx context.Context, c *cli.Command) error {
 		strVars, jmesVars, err := bindExecInputs(ea, c)
@@ -291,7 +270,7 @@ func runExecAction(ea execAction, runner *execStepRunner) cli.ActionFunc {
 		if c.Bool(flagDryRun) {
 			return renderExecActionPlan(ctx, c, ea, strVars, runner)
 		}
-		bindings, lastRaw, err := stepflow.Run(ctx, c, ea.Name, ea.Calls, ea.Canary, strVars, jmesVars, runner)
+		bindings, lastRaw, err := stepflow.Run(ctx, c, ea.Calls, strVars, runner)
 		if err != nil {
 			return err
 		}
@@ -334,8 +313,7 @@ func bindExecInputs(ea execAction, c *cli.Command) (map[string]string, map[strin
 	return strVars, jmesVars, nil
 }
 
-// renderExecActionPlan prints the planned step sequence and canary (--dry-run),
-// firing nothing.
+// renderExecActionPlan prints the planned ordered step sequence without firing it.
 func renderExecActionPlan(ctx context.Context, c *cli.Command, ea execAction, strVars map[string]string, runner *execStepRunner) error {
 	resolve := func(v string) (string, error) { return stepflow.ResolveArgDry(v, strVars), nil }
 	calls, err := stepflow.PlanCalls(ctx, ea.Calls, resolve, runner)
@@ -343,13 +321,6 @@ func renderExecActionPlan(ctx context.Context, c *cli.Command, ea execAction, st
 		return err
 	}
 	out := map[string]any{"action": ea.Name, "calls": calls}
-	if ea.Canary != nil {
-		canPlan, cerr := stepflow.PlanCanary(ctx, ea.Canary, resolve, runner)
-		if cerr != nil {
-			return cerr
-		}
-		out["canary"] = canPlan
-	}
 	raw, err := json.Marshal(out)
 	if err != nil {
 		return exitcode.New(exitcode.Internal, "internal", err, "")
@@ -402,27 +373,19 @@ func execActionUsage(ea execAction) string {
 	return fmt.Sprintf("complex action: a %d-step guarded sequence", len(ea.Calls))
 }
 
-// execActionDescription is the rich per-action help body: the step sequence,
-// each compensation, and the canary bounds.
+// execActionDescription is the rich per-action help body for the step sequence.
 func execActionDescription(ea execAction) string {
 	var b strings.Builder
 	if ea.Describe != "" {
 		fmt.Fprintf(&b, "%s\n\n", ea.Describe)
 	}
-	b.WriteString("Runs this sequence of granted steps, rolling completed steps back on failure:\n")
+	b.WriteString("Runs this sequence of granted steps in order; a failed step stops the sequence:\n")
 	for i, s := range ea.Calls {
 		fmt.Fprintf(&b, "  %d. %s", i+1, s.Leaf.Label())
 		if s.As != "" {
 			fmt.Fprintf(&b, " (as %s)", s.As)
 		}
-		if s.Compensate != nil {
-			fmt.Fprintf(&b, " [compensate: %s]", s.Compensate.Leaf.Label())
-		}
 		b.WriteString("\n")
-	}
-	if ea.Canary != nil {
-		fmt.Fprintf(&b, "\nCanary: %s every %s for %s; degraded-when %s rolls back.\n",
-			ea.Canary.Leaf.Label(), ea.Canary.Every, ea.Canary.Window, ea.Canary.DegradedWhen)
 	}
 	if ea.FailWhen != "" {
 		fmt.Fprintf(&b, "\nExits non-zero when: %s\n", ea.FailWhen)
