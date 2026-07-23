@@ -1900,7 +1900,7 @@ type Params struct {
 	Transport     string // TransportSpec | TransportExec
 	Binary        string // binary name, e.g. ward-kdl (Guardfile group[0])
 	GuardfileName string // embedded Guardfile filename, e.g. forgejo.guardfile.kdl
-	SpecLockName  string // committed, embedded spec lock filename, e.g. forgejo.swagger.lock.json
+	SpecLockName  string // committed gzip lock filename, e.g. forgejo.swagger.lock.json.gz
 	SpecURL       string // upstream Swagger URL; the `specgen lock` source and bootstrap fallback
 	SpecEnvVar    string // env var overriding the embedded lock, e.g. WARD_KDL_SPEC
 

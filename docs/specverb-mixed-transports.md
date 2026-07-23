@@ -12,7 +12,7 @@ The generated `main.go` dispatches per member: a spec member mounts through `spe
 
 An exec member carries no upstream spec, so it skips every spec-only seam:
 
-- **No spec lock** - it embeds only its policy guardfile, not a `<spec>.lock.json`.
+- **No spec lock** - it embeds only its policy guardfile, not a `<spec>.lock.json.gz`.
 - **No fetch or skew** - `lock` and `skew` iterate spec members only; an exec member has nothing upstream to fetch or drift against.
 - **No SSM token** - `execverb.Mount` takes no auth token; the wrapped binary owns its own credentials.
 

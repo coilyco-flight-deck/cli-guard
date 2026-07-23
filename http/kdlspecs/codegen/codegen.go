@@ -26,7 +26,7 @@ type Params struct {
 	Transport     string // TransportSpec | TransportExec
 	Binary        string // binary name, e.g. ward-kdl (Guardfile group[0])
 	GuardfileName string // embedded Guardfile filename, e.g. forgejo.guardfile.kdl
-	SpecLockName  string // committed, embedded spec lock filename, e.g. forgejo.swagger.lock.json
+	SpecLockName  string // committed gzip lock filename, e.g. forgejo.swagger.lock.json.gz
 	SpecURL       string // upstream Swagger URL; the `specgen lock` source and bootstrap fallback
 	SpecEnvVar    string // env var overriding the embedded lock, e.g. WARD_KDL_SPEC
 
@@ -172,18 +172,18 @@ func RenderParams(sp SetParams) ([]byte, error) {
 	return out, nil
 }
 
-// deriveLockName maps the Guardfile spec filename to the committed lock name (a
-// distinct tracked name; the pruned lock is always JSON). See specgen.md.
+// deriveLockName maps the Guardfile spec filename to the committed gzip lock
+// name. The encoded payload expands to pruned JSON. See specgen.md.
 func deriveLockName(spec string) string {
 	if strings.HasSuffix(spec, ".v1.json") {
-		return strings.TrimSuffix(spec, ".v1.json") + ".lock.json"
+		return strings.TrimSuffix(spec, ".v1.json") + ".lock.json.gz"
 	}
 	for _, sfx := range []string{".openapi.json", ".openapi.yaml", ".openapi.yml"} {
 		if strings.HasSuffix(spec, sfx) {
-			return strings.TrimSuffix(spec, sfx) + ".openapi.lock.json"
+			return strings.TrimSuffix(spec, sfx) + ".openapi.lock.json.gz"
 		}
 	}
-	return spec + ".lock"
+	return spec + ".lock.gz"
 }
 
 // deriveSpecURL turns the Guardfile base-url into the Swagger fetch URL: the

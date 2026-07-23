@@ -20,7 +20,7 @@ Locks and reference docs are per member and preserve root-relative directories; 
 ## The five verbs
 
 - **`gen`** - render the merged `main.go` into the cache (or `--out` to inspect it), and write each member's root-relative reference doc (`<member>.md`) from the committed spec lock. A debug step; `run` materializes for you. `--binary <name>` overrides the generated app name for inspection or renamed builds.
-- **`lock`** - the deliberate online step. For each member, fetches the upstream Swagger, **prunes it to the granted surface**, writes the committed spec lock (`<spec>.lock.json`), and refreshes its reference doc; then resolves the merged build's module graph (`go mod tidy` in a throwaway module) once and freezes it into the shared `specverb.lock`. `--cli-guard-ref` pins the framework version (defaults to the driver's own); `--cli-guard-replace` points at a local checkout for development.
+- **`lock`** - the deliberate online step. For each member, fetches the upstream Swagger, **prunes it to the granted surface**, writes the committed deterministic gzip lock (`<spec>.lock.json.gz`), and refreshes its reference doc; then resolves the merged build's module graph (`go mod tidy` in a throwaway module) once and freezes it into the shared `specverb.lock`. `--cli-guard-ref` pins the framework version (defaults to the driver's own); `--cli-guard-replace` points at a local checkout for development.
 - **`skew`** - for each member, prune live upstream to the same granted surface and diff it against the committed lock, each drift line prefixed with its member, so only operations the consumer exposes register as drift. Exit 3 on any drift, never writes; a fetch failure is a plain error, distinguishable from drift.
 - **`build`** - materialize the binary **out-of-band** (same cache + staleness path as `run`) and copy it to `--out` (default `bin`) instead of execing it. `--out` follows `go build -o`: a directory (or trailing `/`) takes the generated binary name, else it is the explicit file path. `--binary <name>` sets that generated name, defaulting to the Guardfile-derived binary. `--set-version <v>` stamps the binary's `--version` via `-ldflags`, default `dev`. Refuses without committed locks.
 - **`run`** - materialize the consumer binary **out-of-band** and exec it with the passed-through args. `--binary <name>` uses the renamed generated app.
@@ -33,7 +33,7 @@ Locks and reference docs are per member and preserve root-relative directories; 
 
 The committed build artifacts are:
 
-- **`<spec>.lock.json`** - one pruned embedded API snapshot per member, placed beneath that member's root-relative directory when `--project-root` is used.
+- **`<spec>.lock.json.gz`** - one generated, gzip-encoded pruned API snapshot per member, placed beneath that member's root-relative directory when `--project-root` is used. Specgen reads the former plain `<spec>.lock.json` name until the next `lock` refresh replaces it.
 - **`specverb.lock`** - one frozen Go dependency graph per binary.
 
 See [specgen-materialization.md](specgen-materialization.md) for cache and offline-build detail.
