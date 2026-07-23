@@ -107,15 +107,19 @@ func TestContextLevelUnset(t *testing.T) {
 	}
 }
 
-// TestParseRoles exercises the per-role capability roster: repeated singular
-// guardfile nodes, an empty-set role, and that the parsed shape round-trips.
+// TestParseRoles exercises role intent routes, repeated singular guardfile
+// nodes, an empty-set role, and that the parsed shape round-trips.
 func TestParseRoles(t *testing.T) {
 	src := `
 agents {
     schema-version 2
     agent claude { binary claude }
     roles {
-        role engineer { }
+        role engineer {
+            intent example-intent {
+                harness example-harness
+            }
+        }
         role director {
             guardfile "ward-kdl.tailscale.guardfile.kdl"
         }
@@ -139,6 +143,9 @@ agents {
 	}
 	if g := byName["engineer"].Guardfiles; len(g.List) != 0 || g.Prefix != "" {
 		t.Errorf("engineer holds an unexpected set: %+v", g)
+	}
+	if routes := byName["engineer"].IntentRoutes; len(routes) != 1 || routes[0].Intent != "example-intent" || routes[0].Harness != "example-harness" {
+		t.Errorf("engineer intent routes = %+v", routes)
 	}
 	if g := byName["director"].Guardfiles; len(g.List) != 1 || g.List[0] != "ward-kdl.tailscale.guardfile.kdl" {
 		t.Errorf("director list = %+v", g)
@@ -413,6 +420,36 @@ func TestParseRejects(t *testing.T) {
 			name: "roles unknown child",
 			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { bogus "x" } } }`,
 			want: "unknown node",
+		},
+		{
+			name: "role intent duplicate",
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { intent work { harness first }; intent work { harness second } } } }`,
+			want: "duplicate `intent work`",
+		},
+		{
+			name: "role intent missing harness",
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { intent work { } } } }`,
+			want: "missing `harness`",
+		},
+		{
+			name: "role intent duplicate harness",
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { intent work { harness first; harness second } } } }`,
+			want: "repeats `harness`",
+		},
+		{
+			name: "role intent unknown child",
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { intent work { model hidden } } } }`,
+			want: "unknown node",
+		},
+		{
+			name: "role intent properties rejected",
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { intent work harness=example } } }`,
+			want: "takes no properties",
+		},
+		{
+			name: "role intent harness block rejected",
+			src:  `agents { schema-version 2; agent a { binary a }; roles { role r { intent work { harness example { model hidden } } } } }`,
+			want: "no block or properties",
 		},
 		{
 			name: "roles non-role child",

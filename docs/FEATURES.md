@@ -41,7 +41,7 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 - **config** - Layered-config primitives + `OverlayFile[T]`.
 - **agentclaim** - Policy-free, versioned KDL and JSON identity contract with
   separate context and authority role domains. See [agent-claim.md](agent-claim.md).
-- **fleetconfig** - KDL fleet-config validator (core, unguarded). See [fleetconfig.md](fleetconfig.md).
+- **fleetconfig** - Typed KDL fleet configuration. See [fleetconfig.md](fleetconfig.md).
 - **stepflow** - Transport-agnostic ordered sequence engine with explicit data threading.
 - **ttlcache** - Generic TTL-keyed cache.
 - **workdir** - Working-directory resolver.

@@ -10,7 +10,8 @@ The embedded form is an `agents` block plus an optional `director` seed.
   - `schema-version` - must equal `2`.
   - `defaults` - `agent` plus required `attribution name=... email=...`.
   - `agent <name>` - one roster entry, repeated, at least one required. Fields are descriptive, never grants: `binary`, `context-level` (`-1` unset), `stream`, `auth`, `model`, `endpoint`, `provider`, `reasoning-effort`, `verbosity`, and `argv { preflight; headless; interactive }`. Sparse top-level agent nodes may leave launch fields empty so a consumer can layer built-ins before validating completeness.
-  - `roles` - optional per-role capability roster. Each `role <name>` names its guardfile set with repeated `guardfile "..."` children and may add sparse per-agent display-identity and launch-knob overlays.
+  - `roles` - optional per-role capability roster. Each `role <name>` may carry model-opaque `intent <name> { harness <name> }` defaults, names its guardfile set with repeated `guardfile "..."` children, and may add sparse per-agent display-identity and launch-knob overlays.
+    - `intent <name> { harness <name> }` - ordered descriptive route default. Exactly one harness is required. It grants no execution and carries no model or backend data.
     - `agent <name>` - assigns optional `name` and `pronouns` display identity and retunes `model`, `endpoint`, `reasoning-effort`, and `verbosity`. Structural fields stay top-level only.
 - `director` - per-host settings. `default-scope` seeds the coordinate scope.
 - `description` - optional prose, both sources, empty fails.

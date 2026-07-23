@@ -63,15 +63,23 @@ type Agent struct {
 	Argv            Argv   // the three launch argvs (preflight/headless/interactive)
 }
 
-// Role is one entry in the per-role capability roster: a name, the guardfile
-// set it holds, and an optional per-agent overlay.
+// Role is one entry in the per-role capability roster: a name, model-opaque
+// intent routes, the guardfile set it holds, and an optional per-agent overlay.
 type Role struct {
-	Name       string     // block name, e.g. `role advisor` -> "advisor"
-	Guardfiles Guardfiles // the guardfile set this role holds (list or legacy prefix)
+	Name         string        // block name, e.g. `role advisor` -> "advisor"
+	IntentRoutes []IntentRoute // ordered intent-to-harness defaults
+	Guardfiles   Guardfiles    // the guardfile set this role holds (list or legacy prefix)
 
 	// AgentConfig is the sparse per-agent override overlay, keyed by agent name;
 	// nil when the role sets none. See docs/fleetconfig.md.
 	AgentConfig map[string]RoleAgentOverride
+}
+
+// IntentRoute is one model-opaque default under a role. Intent and Harness are
+// descriptive identities only. They do not grant execution or carry model data.
+type IntentRoute struct {
+	Intent  string
+	Harness string
 }
 
 // RoleAgentOverride is a role's sparse launch and display-identity overlay.
@@ -355,8 +363,8 @@ func parseRoles(n *kdl.Node) ([]Role, error) {
 	return out, nil
 }
 
-// parseRole reads one role block with guardfile nodes and optional agent overrides.
-// A role may hold no guardfiles and no agent overlay. `guardfiles` is a temporary alias.
+// parseRole reads one role block with intent routes, guardfiles, and optional
+// agent overrides. A role may leave any of those sets empty.
 func parseRole(n *kdl.Node) (Role, error) {
 	name, err := singleStringArg(n, "role")
 	if err != nil {
@@ -365,6 +373,7 @@ func parseRole(n *kdl.Node) (Role, error) {
 	st := roleState{
 		role:           Role{Name: name},
 		guardfileNames: map[string]bool{},
+		intentNames:    map[string]bool{},
 	}
 	for _, c := range n.Children().Nodes {
 		if err := st.applyChild(c); err != nil {
@@ -377,6 +386,7 @@ func parseRole(n *kdl.Node) (Role, error) {
 type roleState struct {
 	role             Role
 	guardfileNames   map[string]bool
+	intentNames      map[string]bool
 	seenGuardfiles   bool
 	seenLegacyBundle bool
 }
@@ -387,10 +397,12 @@ func (st *roleState) applyChild(c *kdl.Node) error {
 		return st.applyGuardfile(c)
 	case "guardfiles":
 		return st.applyLegacyGuardfiles(c)
+	case "intent":
+		return st.applyIntent(c)
 	case "agent":
 		return st.applyAgent(c)
 	default:
-		return unknownNode(fmt.Sprintf("role %q body", st.role.Name), c.Name(), "guardfile | guardfiles | agent")
+		return unknownNode(fmt.Sprintf("role %q body", st.role.Name), c.Name(), "intent | guardfile | guardfiles | agent")
 	}
 }
 
@@ -425,6 +437,79 @@ func (st *roleState) applyLegacyGuardfiles(c *kdl.Node) error {
 	}
 	st.role.Guardfiles = gf
 	return nil
+}
+
+func (st *roleState) applyIntent(c *kdl.Node) error {
+	route, err := parseIntentRoute(c, st.role.Name)
+	if err != nil {
+		return err
+	}
+	if st.intentNames[route.Intent] {
+		return fmt.Errorf(
+			"fleetconfig: role %q has a duplicate `intent %s` route (fail-closed)",
+			st.role.Name,
+			route.Intent,
+		)
+	}
+	st.intentNames[route.Intent] = true
+	st.role.IntentRoutes = append(st.role.IntentRoutes, route)
+	return nil
+}
+
+func parseIntentRoute(n *kdl.Node, role string) (IntentRoute, error) {
+	if len(n.Properties()) != 0 {
+		return IntentRoute{}, fmt.Errorf(
+			"fleetconfig: role %q `intent` takes no properties (fail-closed)",
+			role,
+		)
+	}
+	intent, err := singleStringArg(n, fmt.Sprintf("role %q > intent", role))
+	if err != nil {
+		return IntentRoute{}, fmt.Errorf(
+			"fleetconfig: role %q `intent` needs a single name: %w",
+			role,
+			err,
+		)
+	}
+	var harness string
+	for _, c := range n.Children().Nodes {
+		if c.Name() != "harness" {
+			return IntentRoute{}, unknownNode(
+				fmt.Sprintf("role %q intent %q body", role, intent),
+				c.Name(),
+				"harness",
+			)
+		}
+		if harness != "" {
+			return IntentRoute{}, fmt.Errorf(
+				"fleetconfig: role %q intent %q repeats `harness` (fail-closed)",
+				role,
+				intent,
+			)
+		}
+		if len(c.Properties()) != 0 || len(c.Children().Nodes) != 0 {
+			return IntentRoute{}, fmt.Errorf(
+				"fleetconfig: role %q intent %q `harness` takes one value and no block or properties (fail-closed)",
+				role,
+				intent,
+			)
+		}
+		harness, err = singleStringArg(
+			c,
+			fmt.Sprintf("role %q intent %q > harness", role, intent),
+		)
+		if err != nil {
+			return IntentRoute{}, err
+		}
+	}
+	if harness == "" {
+		return IntentRoute{}, fmt.Errorf(
+			"fleetconfig: role %q intent %q is missing `harness` (fail-closed)",
+			role,
+			intent,
+		)
+	}
+	return IntentRoute{Intent: intent, Harness: harness}, nil
 }
 
 func (st *roleState) applyAgent(c *kdl.Node) error {

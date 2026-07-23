@@ -3538,16 +3538,26 @@ type Guardfiles struct {
     legacy Prefix selecting by name prefix, mutually exclusive; both zero means
     none.
 
+type IntentRoute struct {
+	Intent  string
+	Harness string
+}
+    IntentRoute is one model-opaque default under a role. Intent and Harness
+    are descriptive identities only. They do not grant execution or carry model
+    data.
+
 type Role struct {
-	Name       string     // block name, e.g. `role advisor` -> "advisor"
-	Guardfiles Guardfiles // the guardfile set this role holds (list or legacy prefix)
+	Name         string        // block name, e.g. `role advisor` -> "advisor"
+	IntentRoutes []IntentRoute // ordered intent-to-harness defaults
+	Guardfiles   Guardfiles    // the guardfile set this role holds (list or legacy prefix)
 
 	// AgentConfig is the sparse per-agent override overlay, keyed by agent name;
 	// nil when the role sets none. See docs/fleetconfig.md.
 	AgentConfig map[string]RoleAgentOverride
 }
-    Role is one entry in the per-role capability roster: a name, the guardfile
-    set it holds, and an optional per-agent overlay.
+    Role is one entry in the per-role capability roster: a name, model-opaque
+    intent routes, the guardfile set it holds, and an optional per-agent
+    overlay.
 
 type RoleAgentOverride struct {
 	DisplayName     string // display-name override from the `name` node
