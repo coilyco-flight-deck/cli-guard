@@ -1,7 +1,5 @@
-// Exec-dialect complex actions: call sequences with compensating rollback and
-// a canary watch, run over granted exec leaves through the shared stepflow
-// engine. The spec dialect's grammar, the exec dialect's transport. See
-// docs/execverb.md and docs/specverb-rollback.md.
+// Exec-dialect complex actions: ordered call sequences over granted exec leaves
+// through the shared generic stepflow engine. See docs/execverb.md.
 
 package execverb
 
@@ -73,7 +71,6 @@ type execAction struct {
 	Describe string
 	Inputs   []guardfile.Input
 	Calls    []stepflow.Step
-	Canary   *stepflow.Canary
 	FailWhen string
 }
 
@@ -91,8 +88,7 @@ func resolveExecActions(gf *Guardfile) ([]execAction, error) {
 	return out, nil
 }
 
-// resolveExecAction resolves one action: its inputs, steps, compensations, and
-// canary, each gate fail-closed.
+// resolveExecAction resolves one action's inputs and ordered steps, fail-closed.
 func resolveExecAction(gf *Guardfile, a guardfile.Action) (execAction, error) {
 	inputNames, err := validateExecActionHeader(a)
 	if err != nil {
@@ -113,13 +109,6 @@ func resolveExecAction(gf *Guardfile, a guardfile.Action) (execAction, error) {
 		if call.As != "" {
 			bound[call.As] = true
 		}
-	}
-	if a.Canary != nil {
-		can, err := resolveExecCanary(gf, a.Name, a.Canary, inputNames, bound)
-		if err != nil {
-			return execAction{}, err
-		}
-		ea.Canary = can
 	}
 	return ea, nil
 }
@@ -148,8 +137,8 @@ func validateExecActionHeader(a guardfile.Action) (map[string]bool, error) {
 	return inputNames, nil
 }
 
-// resolveExecStep resolves one call step onto a granted exec leaf, with its
-// positional args validated and the optional compensation resolved.
+// resolveExecStep resolves one call step onto a granted exec leaf with
+// positional args validated.
 func resolveExecStep(gf *Guardfile, action string, i int, call guardfile.Call, inputNames, bound map[string]bool) (stepflow.Step, error) {
 	label := fmt.Sprintf("call %d", i+1)
 	leaf, err := resolveExecLeaf(gf, action, label, call.Verb, call.Resource, call.Args)
@@ -159,28 +148,7 @@ func resolveExecStep(gf *Guardfile, action string, i int, call guardfile.Call, i
 	if err := validateExecArgs(action, label, call.Args, inputNames, bound); err != nil {
 		return stepflow.Step{}, err
 	}
-	step := stepflow.Step{Leaf: leaf, Args: call.Args, As: call.As}
-	if call.Compensate != nil {
-		comp := call.Compensate
-		compBound := bound
-		if call.As != "" {
-			compBound = map[string]bool{}
-			for k := range bound {
-				compBound[k] = true
-			}
-			compBound[call.As] = true
-		}
-		compLabel := label + " compensate"
-		compLeaf, cerr := resolveExecLeaf(gf, action, compLabel, comp.Verb, comp.Resource, comp.Args)
-		if cerr != nil {
-			return stepflow.Step{}, cerr
-		}
-		if err := validateExecArgs(action, compLabel, comp.Args, inputNames, compBound); err != nil {
-			return stepflow.Step{}, err
-		}
-		step.Compensate = &stepflow.Compensation{Leaf: compLeaf, Args: comp.Args}
-	}
-	return step, nil
+	return stepflow.Step{Leaf: leaf, Args: call.Args, As: call.As}, nil
 }
 
 // resolveExecLeaf recovers the granted exec leaf a step names: `<verb>` must be
@@ -228,38 +196,6 @@ func validateExecArgs(action, where string, args []guardfile.ArgBind, inputNames
 		}
 	}
 	return nil
-}
-
-// resolveExecCanary resolves the canary watch onto a granted exec leaf with
-// validated bounds and predicates.
-func resolveExecCanary(gf *Guardfile, action string, can *guardfile.Canary, inputNames, bound map[string]bool) (*stepflow.Canary, error) {
-	leaf, err := resolveExecLeaf(gf, action, "canary", can.Verb, can.Resource, can.Args)
-	if err != nil {
-		return nil, err
-	}
-	if err := validateExecArgs(action, "canary", can.Args, inputNames, bound); err != nil {
-		return nil, err
-	}
-	every, err := positiveDuration(action, "canary every", can.Every)
-	if err != nil {
-		return nil, err
-	}
-	window, err := positiveDuration(action, "canary window", can.Window)
-	if err != nil {
-		return nil, err
-	}
-	if err := respfmt.Validate(can.DegradedWhen); err != nil {
-		return nil, fmt.Errorf("execverb: action %q: canary degraded-when: %w", action, err)
-	}
-	if can.HealthyWhen != "" {
-		if err := respfmt.Validate(can.HealthyWhen); err != nil {
-			return nil, fmt.Errorf("execverb: action %q: canary healthy-when: %w", action, err)
-		}
-	}
-	return &stepflow.Canary{
-		Leaf: leaf, Args: can.Args, Every: every, Window: window,
-		DegradedWhen: can.DegradedWhen, HealthyWhen: can.HealthyWhen, As: can.As,
-	}, nil
 }
 
 // equalTokens reports whether two token paths are identical.

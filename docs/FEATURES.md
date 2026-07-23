@@ -28,7 +28,6 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 - **egress** - Per-run CONNECT proxy with consumer allowlist.
 - **guardfile** / **specverb** / **opcore** / **kdl-specs** / **codegen** - Spec-driven HTTP verbs and code generation. See [specverb.md](specverb.md) and [features-detail.md](features-detail.md).
 - **complex actions** - `wrap`-block `poll`/`call`/`collect` verbs; the mount form shadows its leaf. See [specverb-actions.md](specverb-actions.md).
-- **guarded rollback** - `compensate` + `canary` health-window rollback. See [specverb-rollback.md](specverb-rollback.md).
 - **respfmt** - JSON renderer + JMESPath, five formats.
 - **ghcache** / **ghidcache** / **ghratelimit** / **stscache** - Response, id, rate-limit, STS caches.
 
@@ -43,7 +42,7 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 - **agentclaim** - Policy-free, versioned KDL and JSON identity contract with
   separate context and authority role domains. See [agent-claim.md](agent-claim.md).
 - **fleetconfig** - KDL fleet-config validator (core, unguarded). See [fleetconfig.md](fleetconfig.md).
-- **stepflow** - Transport-agnostic sequence/rollback engine.
+- **stepflow** - Transport-agnostic ordered sequence engine with explicit data threading.
 - **ttlcache** - Generic TTL-keyed cache.
 - **workdir** - Working-directory resolver.
 - **skillgen** - Render a cli command tree to markdown/yaml.

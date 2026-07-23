@@ -38,7 +38,7 @@ type Config struct {
 	BaseURL string
 
 	// stepRun overrides the transport firing an action's steps; nil uses the HTTP
-	// runtime. A test seam for a fake step runner. See specverb-rollback.md.
+	// runtime. A test seam for a fake step runner.
 	stepRun stepflow.Runner
 }
 

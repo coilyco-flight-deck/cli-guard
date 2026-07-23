@@ -138,31 +138,6 @@ type Call struct {
 	Resource string
 	Args     []ArgBind
 	As       string // binding name for this call's response
-
-	// Compensate is the optional rollback step, fired to undo this call when a
-	// later step fails. See specverb-rollback.md.
-	Compensate *Compensation
-}
-
-// Compensation is a call's rollback step: a granted leaf fired (with Args) to
-// undo the call when a later step fails. See specverb-rollback.md.
-type Compensation struct {
-	Verb     string
-	Resource string
-	Args     []ArgBind
-}
-
-// Canary re-samples a granted leaf every Every up to Window after the forward
-// steps, rolling back on DegradedWhen mid-window. See specverb-rollback.md.
-type Canary struct {
-	Verb         string
-	Resource     string
-	Args         []ArgBind
-	Every        string // sample interval, e.g. "5s" (quoted: KDL rejects bare 5s)
-	Window       string // watch window, e.g. "1m"; elapsing without degradation passes
-	DegradedWhen string // JMESPath; truthy mid-window triggers the rollback path
-	HealthyWhen  string // optional JMESPath; truthy ends the watch early as healthy
-	As           string // binding name for each sampled response
 }
 
 // Collect walks a paginated granted leaf, incrementing PageParam and appending
@@ -191,10 +166,6 @@ type Action struct {
 	Calls    []Call // ordered multi-call sequence; mutually exclusive with Poll
 	Collect  *Collect
 	FailWhen string // JMESPath over the bindings; truthy => non-zero exit
-
-	// Canary is the optional health-window watch fired after the `call` steps;
-	// call-only, it rolls them back on degradation. See specverb-rollback.md.
-	Canary *Canary
 
 	// MountVerb/MountResource: the two-arg `action <verb> <resource>` mount form
 	// shadows that leaf path. Empty for `action <name>`. See specverb-actions.md.
@@ -859,8 +830,6 @@ func parseAction(n *kdl.Node) (Action, error) {
 		return Action{}, fmt.Errorf("guardfile: action %q: needs a `poll`, `collect`, or at least one `call` step", act.Name)
 	case countActionKinds(act) > 1:
 		return Action{}, fmt.Errorf("guardfile: action %q: `poll`, `collect`, and `call` are mutually exclusive", act.Name)
-	case act.Canary != nil && len(act.Calls) == 0:
-		return Action{}, fmt.Errorf("guardfile: action %q: `canary` needs at least one `call` step to guard (it rolls back the executed compensations on degradation)", act.Name)
 	}
 	return act, nil
 }
@@ -898,7 +867,7 @@ func actionHeader(n *kdl.Node) (Action, error) {
 }
 
 // applyActionChild dispatches one child node of an action body onto act; the
-// step kinds (poll/collect/call/canary) split off to applyActionStep.
+// step kinds (poll/collect/call) split off to applyActionStep.
 func applyActionChild(act *Action, c *kdl.Node) error {
 	switch c.Name() {
 	case "describe":
@@ -925,7 +894,7 @@ func applyActionChild(act *Action, c *kdl.Node) error {
 }
 
 // applyActionStep dispatches the step-kind children of an action body: the
-// poll/collect/call primitives and the canary watch, fail-closed on the rest.
+// poll/collect/call primitives, fail-closed on the rest.
 func applyActionStep(act *Action, c *kdl.Node) error {
 	switch c.Name() {
 	case "poll":
@@ -940,7 +909,7 @@ func applyActionStep(act *Action, c *kdl.Node) error {
 		act.Calls = append(act.Calls, call)
 		return nil
 	case "canary":
-		return addCanary(act, c)
+		return fmt.Errorf("`canary` is no longer supported: cli-guard sequences authorized calls but does not own health policy (fail-closed)")
 	default:
 		if reservedActionKeywords[c.Name()] {
 			return fmt.Errorf("%q is reserved for a future version, not implemented in v1 (fail-closed)", c.Name())
@@ -1221,19 +1190,6 @@ func addPoll(act *Action, c *kdl.Node) error {
 	return nil
 }
 
-// addCanary parses a canary child and attaches it to act, rejecting a second one.
-func addCanary(act *Action, c *kdl.Node) error {
-	if act.Canary != nil {
-		return fmt.Errorf("v1 allows exactly one `canary` per action")
-	}
-	can, err := parseCanary(c)
-	if err != nil {
-		return err
-	}
-	act.Canary = &can
-	return nil
-}
-
 // addCollect parses a collect child and attaches it to act, rejecting a second
 // collect block.
 func addCollect(act *Action, c *kdl.Node) error {
@@ -1328,16 +1284,12 @@ func parseCall(n *kdl.Node) (Call, error) {
 			}
 			cl.As = v
 		case "compensate":
-			comp, err := parseCompensation(c)
-			if err != nil {
-				return Call{}, err
-			}
-			cl.Compensate = &comp
+			return Call{}, fmt.Errorf("`compensate` is no longer supported: cli-guard does not perform automatic rollback (fail-closed)")
 		default:
 			if reservedActionKeywords[c.Name()] {
 				return Call{}, fmt.Errorf("call: %q is reserved for a future version (fail-closed)", c.Name())
 			}
-			return Call{}, fmt.Errorf("call: unknown body node %q (want args | as | compensate; fail-closed)", c.Name())
+			return Call{}, fmt.Errorf("call: unknown body node %q (want args | as; fail-closed)", c.Name())
 		}
 	}
 	return cl, nil
@@ -1364,83 +1316,6 @@ func parseArgBinds(n *kdl.Node, label string) ([]ArgBind, error) {
 		binds = append(binds, ArgBind{Name: a.Name(), Value: v})
 	}
 	return binds, nil
-}
-
-// parseCompensation reads a `compensate <verb> <resource> { args {...} }` child:
-// the granted leaf fired to undo its parent call on a later failure.
-func parseCompensation(n *kdl.Node) (Compensation, error) {
-	args := n.Arguments()
-	if len(args) != 2 {
-		return Compensation{}, fmt.Errorf("compensate needs a verb and a resource, e.g. `compensate delete snapshot { ... }`")
-	}
-	comp := Compensation{Verb: args[0].String(), Resource: args[1].String()}
-	for _, c := range n.Children().Nodes {
-		if c.Name() != "args" {
-			return Compensation{}, fmt.Errorf("compensate: unknown body node %q (want args; fail-closed)", c.Name())
-		}
-		binds, err := parseArgBinds(c, "compensate")
-		if err != nil {
-			return Compensation{}, err
-		}
-		comp.Args = binds
-	}
-	return comp, nil
-}
-
-// parseCanary reads a `canary <verb> <resource> { ... }` block. Every, Window,
-// DegradedWhen, and As are mandatory (an unbounded watch is unreviewable).
-func parseCanary(n *kdl.Node) (Canary, error) {
-	args := n.Arguments()
-	if len(args) != 2 {
-		return Canary{}, fmt.Errorf("canary needs a verb and a resource, e.g. `canary get health { ... }`")
-	}
-	can := Canary{Verb: args[0].String(), Resource: args[1].String()}
-	for _, c := range n.Children().Nodes {
-		if err := applyCanaryChild(&can, c); err != nil {
-			return Canary{}, err
-		}
-	}
-	switch {
-	case can.Every == "":
-		return Canary{}, fmt.Errorf("canary: `every` is required (the sample interval)")
-	case can.Window == "":
-		return Canary{}, fmt.Errorf("canary: `window` is required (no unbounded watch exists in the grammar)")
-	case can.DegradedWhen == "":
-		return Canary{}, fmt.Errorf("canary: `degraded-when` is required (the JMESPath that triggers rollback)")
-	case can.As == "":
-		return Canary{}, fmt.Errorf("canary: `as` is required (the binding name for each sampled response)")
-	}
-	return can, nil
-}
-
-// applyCanaryChild dispatches one child node of a canary body onto can; the
-// scalar fields share one single-arg path keyed by a table.
-func applyCanaryChild(can *Canary, c *kdl.Node) error {
-	if c.Name() == "args" {
-		binds, err := parseArgBinds(c, "canary")
-		if err != nil {
-			return err
-		}
-		can.Args = binds
-		return nil
-	}
-	scalars := map[string]*string{
-		"every": &can.Every, "window": &can.Window,
-		"degraded-when": &can.DegradedWhen, "healthy-when": &can.HealthyWhen, "as": &can.As,
-	}
-	target, ok := scalars[c.Name()]
-	if !ok {
-		if reservedActionKeywords[c.Name()] {
-			return fmt.Errorf("canary: %q is reserved for a future version (fail-closed)", c.Name())
-		}
-		return fmt.Errorf("canary: unknown body node %q (want args | every | window | degraded-when | healthy-when | as; fail-closed)", c.Name())
-	}
-	v, err := singleArg(c)
-	if err != nil {
-		return fmt.Errorf("canary %s: %w (durations quote: `every \"5s\"`)", c.Name(), err)
-	}
-	*target = v
-	return nil
 }
 
 // parsePoll reads a `poll <verb> <resource> { args {...}; until; every; timeout;

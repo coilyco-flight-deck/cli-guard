@@ -9,8 +9,8 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// ecoGuardfile is the promote shape the eco pipeline uses: an ssh wrap with pinned
-// steps, an scp apply, a snapshot-threading rollback, and a canary on the health leaf.
+// sequenceGuardfile exercises ordered exec steps, a transport override, and
+// `$step.field` data-flow without embedding deployment policy.
 const ecoGuardfile = `wrap ward-kdl ops eco server {
 	exec ssh {
 		argv-prefix "kai@kai-server"
@@ -19,24 +19,15 @@ const ecoGuardfile = `wrap ward-kdl ops eco server {
 	can run apply { bin scp; argv "-r" }
 	can run restart { argv bash "/scripts/restart.sh" }
 	can run health { argv bash "/scripts/health.sh" }
-	can run rollback { argv bash "/scripts/rollback.sh" }
 	action promote {
-		describe "guarded promote: snapshot, apply, restart, health, canary"
+		describe "snapshot, apply, restart, health"
 		input mod { positional; required; help "mod name" }
 		call run snapshot {
 			as snap
-			compensate run rollback { args "$snap.last_line" }
 		}
 		call run apply { args "$mod" }
 		call run restart
 		call run health
-		canary run health {
-			every "5ms"
-			window "60ms"
-			degraded-when "exit_code != ` + "`0`" + `"
-			healthy-when "kv.server_ready == '1' && kv.journal_clean == '1'"
-			as health
-		}
 	}
 }`
 
@@ -47,11 +38,9 @@ type capturedCall struct {
 }
 
 // scriptedCapture fakes step commands: outputs and exits keyed by an argv
-// substring, recording every call. healthExits scripts successive health runs.
+// substring, recording every call.
 type scriptedCapture struct {
-	calls       []capturedCall
-	healthExits []int
-	healthSeen  int
+	calls []capturedCall
 }
 
 func (s *scriptedCapture) run(_ context.Context, bin string, argv, _ []string) ([]byte, []byte, int, error) {
@@ -61,16 +50,8 @@ func (s *scriptedCapture) run(_ context.Context, bin string, argv, _ []string) (
 	case strings.Contains(joined, "snapshot.sh"):
 		return []byte(">>> copying\nsnap-20260703-1\n"), nil, 0, nil
 	case strings.Contains(joined, "health.sh"):
-		exit := 0
-		if s.healthSeen < len(s.healthExits) {
-			exit = s.healthExits[s.healthSeen]
-		}
-		s.healthSeen++
 		out := "service_active=1 journal_clean=1 server_ready=1"
-		if exit != 0 {
-			out = "service_active=0 journal_clean=1 server_ready=0"
-		}
-		return []byte(out), nil, exit, nil
+		return []byte(out), nil, 0, nil
 	default:
 		return []byte("ok"), nil, 0, nil
 	}
@@ -108,14 +89,14 @@ func runAction(t *testing.T, src string, capture CaptureRunner, argv ...string) 
 }
 
 // TestExecActionGreenPath proves the full sequence fires in order over the pinned
-// transport, the scp step drops the ssh argv-prefix, and a healthy canary ends clean.
+// transport, and the scp step drops the ssh argv-prefix.
 func TestExecActionGreenPath(t *testing.T) {
 	rec := &scriptedCapture{}
 	if err := runAction(t, ecoGuardfile, rec.run, "promote", "EcoTelemetry"); err != nil {
 		t.Fatalf("green promote: %v", err)
 	}
 	got := binsOf(rec.calls)
-	want := []string{"ssh:snapshot.sh", "scp", "ssh:restart.sh", "ssh:health.sh", "ssh:health.sh"}
+	want := []string{"ssh:snapshot.sh", "scp", "ssh:restart.sh", "ssh:health.sh"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("call order = %v, want %v", got, want)
 	}
@@ -128,24 +109,23 @@ func TestExecActionGreenPath(t *testing.T) {
 	}
 }
 
-// TestExecActionStepFailureRollsBack proves a failing forward step (restart)
-// fires the snapshot compensation with the $snap.last_line data-flow.
-func TestExecActionStepFailureRollsBack(t *testing.T) {
+// TestExecActionStepFailureStopsSequence proves a failing step does not run a
+// later call or infer a recovery action.
+func TestExecActionStepFailureStopsSequence(t *testing.T) {
 	src := strings.Replace(ecoGuardfile, `can run restart { argv bash "/scripts/restart.sh" }`,
 		`can run restart { argv bash "/scripts/fail.sh" }`, 1)
 	rec := &scriptedCapture{}
 	failing := &failWrapCapture{inner: rec}
 	err := runAction(t, src, failing.run, "promote", "EcoTelemetry")
 	if err == nil {
-		t.Fatal("expected a rollback exit, got nil")
+		t.Fatal("expected a failed action, got nil")
 	}
 	coded := exitcode.From(err)
-	if coded == nil || coded.Kind() != "action_rolled_back" {
-		t.Fatalf("error = %v, want action_rolled_back", err)
+	if coded == nil || coded.Kind() != "action_failed" {
+		t.Fatalf("error = %v, want action_failed", err)
 	}
-	last := rec.calls[len(rec.calls)-1]
-	if !strings.Contains(strings.Join(last.argv, " "), "rollback.sh snap-20260703-1") {
-		t.Errorf("compensation argv = %v, want rollback.sh with the snapshot id", last.argv)
+	if got := binsOf(rec.calls); strings.Join(got, ",") != "ssh:snapshot.sh,scp,ssh:fail.sh" {
+		t.Errorf("calls = %v, want sequence to stop at fail.sh", got)
 	}
 }
 
@@ -158,25 +138,6 @@ func (f *failWrapCapture) run(ctx context.Context, bin string, argv, env []strin
 		return nil, []byte("boom"), 7, nil
 	}
 	return f.inner.run(ctx, bin, argv, env)
-}
-
-// TestExecActionCanaryDegradesRollsBack proves a degraded canary sample (the
-// health script exiting non-zero) drives the rollback path, not a bare error.
-func TestExecActionCanaryDegradesRollsBack(t *testing.T) {
-	// forward health passes (exit 0), the first canary sample degrades (exit 1)
-	rec := &scriptedCapture{healthExits: []int{0, 1}}
-	err := runAction(t, ecoGuardfile, rec.run, "promote", "EcoTelemetry")
-	if err == nil {
-		t.Fatal("expected canary_degraded, got nil")
-	}
-	coded := exitcode.From(err)
-	if coded == nil || coded.Kind() != "canary_degraded" {
-		t.Fatalf("error = %v, want canary_degraded", err)
-	}
-	last := binsOf(rec.calls)
-	if !strings.HasSuffix(strings.Join(last, ","), "ssh:health.sh,ssh:rollback.sh") {
-		t.Errorf("call tail = %v, want the degraded sample then the rollback", last)
-	}
 }
 
 // TestExecActionDryRunFiresNothing proves --dry-run renders the plan without
@@ -192,7 +153,7 @@ func TestExecActionDryRunFiresNothing(t *testing.T) {
 }
 
 // TestExecActionMetacharInputRefused proves the step-layer policy gate refuses a
-// metacharacter-carrying arg before spawn, and the engine rolls completed steps back.
+// metacharacter-carrying arg before spawn.
 func TestExecActionMetacharInputRefused(t *testing.T) {
 	rec := &scriptedCapture{}
 	err := runAction(t, ecoGuardfile, rec.run, "promote", "Eco;rm -rf /")
@@ -204,8 +165,8 @@ func TestExecActionMetacharInputRefused(t *testing.T) {
 			t.Fatalf("the gated apply step still spawned: %v", rec.calls)
 		}
 	}
-	if got := binsOf(rec.calls); !strings.HasSuffix(strings.Join(got, ","), "rollback.sh") {
-		t.Errorf("calls = %v, want the snapshot compensated after the refusal", got)
+	if got := binsOf(rec.calls); strings.Join(got, ",") != "ssh:snapshot.sh" {
+		t.Errorf("calls = %v, want sequence to stop before apply", got)
 	}
 }
 
@@ -225,8 +186,8 @@ func TestExecActionUnknownGrantFailsClosed(t *testing.T) {
 // TestExecActionSealedStepRejectsArgs proves a sealed grant cannot take step
 // args (the seal pins the whole invocation).
 func TestExecActionSealedStepRejectsArgs(t *testing.T) {
-	src := strings.Replace(ecoGuardfile, `can run rollback { argv bash "/scripts/rollback.sh" }`,
-		`can run rollback { argv bash "/scripts/rollback.sh"; sealed }`, 1)
+	src := strings.Replace(ecoGuardfile, `can run apply { bin scp; argv "-r" }`,
+		`can run apply { bin scp; argv "-r"; sealed }`, 1)
 	gf, err := Parse([]byte(src))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -239,8 +200,8 @@ func TestExecActionSealedStepRejectsArgs(t *testing.T) {
 // TestExecActionNamedArgsRejected proves the exec dialect refuses the spec
 // dialect's named `args { name value }` form on steps (positional only).
 func TestExecActionNamedArgsRejected(t *testing.T) {
-	src := strings.Replace(ecoGuardfile, `compensate run rollback { args "$snap.last_line" }`,
-		`compensate run rollback { args { id "$snap.last_line" } }`, 1)
+	src := strings.Replace(ecoGuardfile, `call run apply { args "$mod" }`,
+		`call run apply { args { id "$mod" } }`, 1)
 	gf, err := Parse([]byte(src))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)

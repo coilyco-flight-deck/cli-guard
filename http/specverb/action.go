@@ -56,10 +56,6 @@ type actionDescriptor struct {
 	// action, mutually exclusive with poll/call.
 	Collect *collectStep
 
-	// Canary is the resolved health-window watch fired after the call steps; on
-	// mid-window degradation it drives the rollback path. Call actions only.
-	Canary *stepflow.Canary
-
 	// MountVerb/MountResource: the mount form shadows that leaf path instead of
 	// mounting under the `action` noun. Empty for a named action.
 	MountVerb     string

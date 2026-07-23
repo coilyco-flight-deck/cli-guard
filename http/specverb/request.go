@@ -37,7 +37,7 @@ type runtime struct {
 	wrap func(verb.Spec) cli.ActionFunc
 
 	// stepRun fires an action's steps; the runtime is the default HTTP
-	// implementation, a test may inject a fake. See docs/specverb-rollback.md.
+	// implementation; a test may inject a fake.
 	stepRun stepflow.Runner
 }
 

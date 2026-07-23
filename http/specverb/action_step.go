@@ -1,6 +1,5 @@
-// The runtime's HTTP implementation of the stepflow transport seam: firing,
-// sampling, and planning one resolved action step. The sequence/rollback/canary
-// engine itself lives in pkg/stepflow. See docs/specverb-rollback.md.
+// The runtime's HTTP implementation of the stepflow transport seam: firing and
+// planning one resolved action step.
 
 package specverb
 
@@ -21,12 +20,6 @@ func (rt *runtime) Fire(ctx context.Context, c *cli.Command, leaf stepflow.Leaf,
 		return nil, nil, err
 	}
 	return rt.fireCallAudited(ctx, op, method, url, body, contentType, c)
-}
-
-// Sample takes one canary observation. Over HTTP a failed request is a
-// transport failure, so sampling and firing share one implementation.
-func (rt *runtime) Sample(ctx context.Context, c *cli.Command, leaf stepflow.Leaf, args []guardfile.ArgBind, resolve stepflow.Resolve) (any, []byte, error) {
-	return rt.Fire(ctx, c, leaf, args, resolve)
 }
 
 // Plan is the HTTP implementation of the dry-run seam: it builds the request
