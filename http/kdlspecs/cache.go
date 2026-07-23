@@ -40,30 +40,22 @@ func cacheKey(guardfilePath string) (string, error) {
 	return hex.EncodeToString(sum[:])[:16], nil
 }
 
-// cacheKeyForGroup keys the cache by runtime name plus sorted member paths, so
-// renamed builds do not share a materialized main.go or executable.
-func cacheKeyForGroup(g *group) (string, error) {
-	abs := make([]string, len(g.Members))
+// cacheKeyForGroup keys the cache by runtime name plus root-relative identities.
+// Absolute locations are excluded, preserving a re-rooted tree's cache identity.
+func cacheKeyForGroup(g *group) string {
+	paths := make([]string, len(g.Members))
 	for i, m := range g.Members {
-		a, err := filepath.Abs(m.Path)
-		if err != nil {
-			return "", fmt.Errorf("kdl-specs: resolve guardfile path: %w", err)
-		}
-		abs[i] = a
+		paths[i] = filepath.ToSlash(m.Path)
 	}
-	sort.Strings(abs)
-	parts := append([]string{"binary=" + g.runtimeBinary()}, abs...)
+	sort.Strings(paths)
+	parts := append([]string{"binary=" + g.runtimeBinary()}, paths...)
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
-	return hex.EncodeToString(sum[:])[:16], nil
+	return hex.EncodeToString(sum[:])[:16]
 }
 
 // cacheDirForGroup returns the materialized module dir for a merged binary.
-func cacheDirForGroup(g *group) (string, error) {
-	key, err := cacheKeyForGroup(g)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(cacheRoot(), key), nil
+func cacheDirForGroup(g *group) string {
+	return filepath.Join(cacheRoot(), cacheKeyForGroup(g))
 }
 
 // stamp records the inputs the cached binary was built from. run rebuilds when

@@ -47,7 +47,7 @@ func TestReadMemberDispatchesExec(t *testing.T) {
 	if err := os.WriteFile(gfPath, []byte(execFixture), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	m, err := readMember(gfPath)
+	m, err := readMember(gfPath, filepath.Base(gfPath))
 	if err != nil {
 		t.Fatalf("readMember: %v", err)
 	}
@@ -63,6 +63,135 @@ func TestReadMemberDispatchesExec(t *testing.T) {
 	if m.Params.SpecLockName != "" || m.Params.SpecURL != "" {
 		t.Errorf("exec member should have no spec lock/url, got %+v", m.Params)
 	}
+}
+
+func writeMember(t *testing.T, root, name, src string) string {
+	t.Helper()
+	path := filepath.Join(root, name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestProjectRootDiscoversArbitraryNestedMembersInStableOrder(t *testing.T) {
+	dir := t.TempDir()
+	writeMember(t, dir, "forge/writes.kdl", guardfileFixture)
+	selected := writeMember(t, dir, "cloud/reads.kdl", guardfileFixture)
+	// A fleet configuration is recognized as unrelated project KDL and ignored.
+	writeMember(t, dir, "fleet.kdl", `agents { schema-version 2; agent codex { binary codex } }`)
+	g, err := loadGroup(Options{ProjectRoot: dir, GuardfilePath: selected})
+	if err != nil {
+		t.Fatalf("loadGroup: %v", err)
+	}
+	if got, want := []string{g.Members[0].Path, g.Members[1].Path}, []string{"cloud/reads.kdl", "forge/writes.kdl"}; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("member order = %v, want %v", got, want)
+	}
+	for _, m := range g.Members {
+		if m.Params.GuardfileName != m.Path {
+			t.Errorf("embed identity = %q, want %q", m.Params.GuardfileName, m.Path)
+		}
+	}
+	main, err := g.render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"//go:embed cloud/reads.kdl", "//go:embed forge/writes.kdl"} {
+		if !strings.Contains(string(main), want) {
+			t.Errorf("rendered source missing %q", want)
+		}
+	}
+}
+
+func TestProjectRootUsesDistinctArtifactsForSameBasename(t *testing.T) {
+	dir := t.TempDir()
+	writeMember(t, dir, "cloud/api.kdl", strings.Replace(guardfileFixture, "ops forgejo", "ops cloud", 1))
+	selected := writeMember(t, dir, "forge/api.kdl", guardfileFixture)
+	g, err := loadGroup(Options{ProjectRoot: dir, GuardfilePath: selected})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []string{g.Members[0].Params.SpecLockName, g.Members[1].Params.SpecLockName}
+	want := []string{"cloud/forgejo.swagger.lock.json", "forge/forgejo.swagger.lock.json"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("lock names = %v, want %v", got, want)
+	}
+	if got[0] == got[1] || refDocName(g.Members[0]) == refDocName(g.Members[1]) {
+		t.Errorf("same-basename members must keep separate artifact names: locks=%v docs=%q,%q", got, refDocName(g.Members[0]), refDocName(g.Members[1]))
+	}
+}
+
+func TestMaterializeModuleDirPreservesNestedMemberArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	mems := []member{
+		{Path: "cloud/api.kdl", Params: codegen.Params{GuardfileName: "cloud/api.kdl", SpecLockName: "cloud/api.lock.json"}, Bytes: []byte("cloud")},
+		{Path: "forge/api.kdl", Params: codegen.Params{GuardfileName: "forge/api.kdl", SpecLockName: "forge/api.lock.json"}, Bytes: []byte("forge")},
+	}
+	if err := materializeModuleDir(dir, []byte("package main\n"), mems, map[string][]byte{"cloud/api.kdl": []byte("cloud lock"), "forge/api.kdl": []byte("forge lock")}); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{
+		"cloud/api.kdl":       "cloud",
+		"forge/api.kdl":       "forge",
+		"cloud/api.lock.json": "cloud lock",
+		"forge/api.lock.json": "forge lock",
+	} {
+		got, err := os.ReadFile(filepath.Join(dir, path))
+		if err != nil || string(got) != want {
+			t.Errorf("artifact %s = %q, %v; want %q", path, got, err, want)
+		}
+	}
+}
+
+func TestProjectRootRequiresSelectorForMultipleBinaries(t *testing.T) {
+	dir := t.TempDir()
+	selected := writeMember(t, dir, "a.kdl", guardfileFixture)
+	writeMember(t, dir, "b.kdl", strings.Replace(guardfileFixture, "wrap ward-kdl", "wrap other", 1))
+	if _, err := loadGroup(Options{ProjectRoot: dir}); err == nil || !strings.Contains(err.Error(), "pass --guardfile") || !strings.Contains(err.Error(), "other") {
+		t.Fatalf("multi-binary discovery error = %v", err)
+	}
+	g, err := loadGroup(Options{ProjectRoot: dir, GuardfilePath: selected})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Members) != 1 || g.Binary != "ward-kdl" {
+		t.Errorf("selected group = %+v", g)
+	}
+}
+
+func TestProjectRootFailsClosedForConflictingMemberLock(t *testing.T) {
+	dir := t.TempDir()
+	selected := writeMember(t, dir, "a.kdl", guardfileFixture)
+	writeMember(t, dir, "b.kdl", strings.Replace(guardfileFixture, "ops forgejo", "ops alternate", 1))
+	if _, err := loadGroup(Options{ProjectRoot: dir, GuardfilePath: selected}); err == nil || !strings.Contains(err.Error(), "conflicting spec lock") {
+		t.Fatalf("conflicting lock error = %v", err)
+	}
+}
+
+func TestProjectRootFailsClosedForMalformedOperationAndSymlinkEscape(t *testing.T) {
+	t.Run("malformed intended member", func(t *testing.T) {
+		dir := t.TempDir()
+		writeMember(t, dir, "broken.kdl", "wrap ward-kdl {")
+		if _, err := loadGroup(Options{ProjectRoot: dir}); err == nil || !strings.Contains(err.Error(), "intended operation") {
+			t.Fatalf("malformed operation error = %v", err)
+		}
+	})
+	t.Run("symlink escape", func(t *testing.T) {
+		dir := t.TempDir()
+		outside := filepath.Join(t.TempDir(), "outside.kdl")
+		if err := os.WriteFile(outside, []byte(guardfileFixture), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(dir, "escape.kdl")); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		if _, err := loadGroup(Options{ProjectRoot: dir}); err == nil || !strings.Contains(err.Error(), "escapes project root") {
+			t.Fatalf("symlink escape error = %v", err)
+		}
+	})
 }
 
 func TestLoadGroupMergesSpecAndExec(t *testing.T) {
@@ -125,14 +254,8 @@ func TestLoadGroupKeepsSourceBinaryWhenRuntimeNameChanges(t *testing.T) {
 			t.Errorf("renamed main.go missing %q", want)
 		}
 	}
-	defaultKey, err := cacheKeyForGroup(defaultGroup)
-	if err != nil {
-		t.Fatalf("default cache key: %v", err)
-	}
-	renamedKey, err := cacheKeyForGroup(renamedGroup)
-	if err != nil {
-		t.Fatalf("renamed cache key: %v", err)
-	}
+	defaultKey := cacheKeyForGroup(defaultGroup)
+	renamedKey := cacheKeyForGroup(renamedGroup)
 	if defaultKey == renamedKey {
 		t.Errorf("renamed build reused default cache key %q", defaultKey)
 	}

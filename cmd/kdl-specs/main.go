@@ -28,8 +28,8 @@ func exitCode(err error) int {
 	return 1
 }
 
-// app builds the driver command tree. The shared --guardfile is a persistent
-// root flag so every verb reads the same value.
+// app builds the driver command tree. Shared discovery flags are persistent so
+// every verb reads the same project boundary and optional member selector.
 func app() *cli.Command {
 	return &cli.Command{
 		Name:  "kdl-specs",
@@ -37,7 +37,11 @@ func app() *cli.Command {
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:  "guardfile",
-				Usage: "path to the consumer's KDL Guardfile (default: the lone *.guardfile.kdl in cwd)",
+				Usage: "operation KDL member selecting its wrap binary",
+			},
+			&cli.StringFlag{
+				Name:  "project-root",
+				Usage: "recursive KDL discovery root (members are identified by parsed wrap declarations)",
 			},
 			// --out on the root keeps the legacy one-shot signature working.
 			// Local so it does not collide with gen's own --out on subcommands.
@@ -57,8 +61,7 @@ func app() *cli.Command {
 			if c.String("out") == "" {
 				return cli.ShowAppHelp(c)
 			}
-			gf := resolveGuardfile(c)
-			return kdlspecs.Gen(kdlspecs.Options{GuardfilePath: gf, BinaryName: c.String("binary"), Out: c.String("out")})
+			return kdlspecs.Gen(options(c, c.String("out"), c.String("binary")))
 		},
 	}
 }
@@ -76,8 +79,7 @@ func genCmd() *cli.Command {
 			binaryNameFlag(),
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
-			gf := resolveGuardfile(c)
-			return kdlspecs.Gen(kdlspecs.Options{GuardfilePath: gf, BinaryName: c.String("binary"), Out: c.String("out")})
+			return kdlspecs.Gen(options(c, c.String("out"), c.String("binary")))
 		},
 	}
 }
@@ -91,9 +93,9 @@ func lockCmd() *cli.Command {
 			&cli.StringFlag{Name: "cli-guard-replace", Usage: "local cli-guard checkout to build against (dev locks only)"},
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
-			gf := resolveGuardfile(c)
 			return kdlspecs.Lock(kdlspecs.Options{
-				GuardfilePath:   gf,
+				GuardfilePath:   resolveGuardfile(c),
+				ProjectRoot:     c.String("project-root"),
 				CLIGuardRef:     c.String("cli-guard-ref"),
 				CLIGuardReplace: c.String("cli-guard-replace"),
 			})
@@ -106,8 +108,7 @@ func skewCmd() *cli.Command {
 		Name:  "skew",
 		Usage: "report drift between the committed spec lock and live upstream (exit 3 on drift)",
 		Action: func(_ context.Context, c *cli.Command) error {
-			gf := resolveGuardfile(c)
-			return kdlspecs.Skew(kdlspecs.Options{GuardfilePath: gf})
+			return kdlspecs.Skew(options(c, "", ""))
 		},
 	}
 }
@@ -122,9 +123,9 @@ func buildCmd() *cli.Command {
 			&cli.StringFlag{Name: "set-version", Usage: "release version stamped into the binary's --version via -ldflags (default \"dev\")"},
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
-			gf := resolveGuardfile(c)
 			return kdlspecs.Build(kdlspecs.Options{
-				GuardfilePath: gf,
+				GuardfilePath: resolveGuardfile(c),
+				ProjectRoot:   c.String("project-root"),
 				BinaryName:    c.String("binary"),
 				Out:           c.String("out"),
 				Version:       c.String("set-version"),
@@ -141,8 +142,7 @@ func runCmd() *cli.Command {
 			binaryNameFlag(),
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
-			gf := resolveGuardfile(c)
-			return kdlspecs.Run(kdlspecs.Options{GuardfilePath: gf, BinaryName: c.String("binary"), Args: c.Args().Slice()})
+			return kdlspecs.Run(kdlspecs.Options{GuardfilePath: resolveGuardfile(c), ProjectRoot: c.String("project-root"), BinaryName: c.String("binary"), Args: c.Args().Slice()})
 		},
 	}
 }
@@ -151,4 +151,8 @@ func runCmd() *cli.Command {
 // The driver (kdlspecs.loadGroup) owns discovery and the merge-vs-error rules.
 func resolveGuardfile(c *cli.Command) string {
 	return c.String("guardfile")
+}
+
+func options(c *cli.Command, out, binary string) kdlspecs.Options {
+	return kdlspecs.Options{GuardfilePath: resolveGuardfile(c), ProjectRoot: c.String("project-root"), BinaryName: binary, Out: out}
 }
