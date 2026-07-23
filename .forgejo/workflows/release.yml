@@ -50,9 +50,12 @@ jobs:
       - id: tag
         uses: coilysiren/agentic-os/actions/tag-bump@main
 
-      - name: Build packaged specgen CLI
+      - name: Build packaged specgen CLI and package metadata
         if: ${{ steps.tag.outputs.new_tag != '' }}
-        run: make release-artifacts VERSION="${{ steps.tag.outputs.new_tag }}" DIST_DIR=dist
+        run: |
+          make release-artifacts VERSION="${{ steps.tag.outputs.new_tag }}" DIST_DIR=dist
+          make release-package VERSION="${{ steps.tag.outputs.new_tag }}" DIST_DIR=dist
+          make release-check VERSION="${{ steps.tag.outputs.new_tag }}" DIST_DIR=dist
 
       - id: create
         if: ${{ steps.tag.outputs.new_tag != '' }}
@@ -110,6 +113,73 @@ jobs:
         with:
           release_id: ${{ steps.create.outputs.release_id }}
           file: dist/SHA256SUMS
+
+      - name: Upload specgen Homebrew formula
+        if: ${{ steps.tag.outputs.new_tag != '' }}
+        uses: coilysiren/agentic-os/actions/upload-release-asset@main
+        with:
+          release_id: ${{ steps.create.outputs.release_id }}
+          file: dist/specgen.rb
+
+      - name: Upload specgen Scoop manifest
+        if: ${{ steps.tag.outputs.new_tag != '' }}
+        uses: coilysiren/agentic-os/actions/upload-release-asset@main
+        with:
+          release_id: ${{ steps.create.outputs.release_id }}
+          file: dist/specgen.json
+
+      - name: Update the Homebrew tap
+        if: ${{ steps.tag.outputs.new_tag != '' }}
+        env:
+          TAP_WRITE_TOKEN: ${{ secrets.TAP_WRITE_TOKEN }}
+          TAG: ${{ steps.tag.outputs.new_tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAP_WRITE_TOKEN:-}" ]; then
+            echo "::warning::TAP_WRITE_TOKEN is absent; skipping Homebrew update" >&2
+            exit 0
+          fi
+          git clone --depth 1 \
+            https://forgejo.coilysiren.me/coilyco-flight-deck/homebrew-tap.git tap
+          cp dist/specgen.rb tap/Formula/specgen.rb
+          cd tap
+          git add Formula/specgen.rb
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git config user.name "coilyco-ops"
+          git config user.email "coilyco-ops@coilysiren.me"
+          git commit -m "chore(specgen): bump formula to ${TAG} [skip ci]"
+          git push \
+            "https://coilyco-ops:${TAP_WRITE_TOKEN}@forgejo.coilysiren.me/coilyco-flight-deck/homebrew-tap.git" \
+            HEAD:main
+
+      - name: Update the Scoop bucket
+        if: ${{ steps.tag.outputs.new_tag != '' }}
+        env:
+          SCOOP_WRITE_TOKEN: ${{ secrets.SCOOP_WRITE_TOKEN }}
+          TAG: ${{ steps.tag.outputs.new_tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SCOOP_WRITE_TOKEN:-}" ]; then
+            echo "::warning::SCOOP_WRITE_TOKEN is absent; skipping Scoop update" >&2
+            exit 0
+          fi
+          git clone --depth 1 \
+            https://forgejo.coilysiren.me/coilyco-flight-deck/scoop-bucket.git bucket
+          cp dist/specgen.json bucket/bucket/specgen.json
+          cd bucket
+          git add bucket/specgen.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git config user.name "coilyco-ops"
+          git config user.email "coilyco-ops@coilysiren.me"
+          git commit -m "chore(specgen): bump manifest to ${TAG} [skip ci]"
+          git push \
+            "https://coilyco-ops:${SCOOP_WRITE_TOKEN}@forgejo.coilysiren.me/coilyco-flight-deck/scoop-bucket.git" \
+            HEAD:main
+
       - name: Alert Telegram on release failure
         if: ${{ failure() && github.ref == 'refs/heads/release' }}
         env:

@@ -23,14 +23,20 @@ last-known-good, and only gate-green shas release.
   workflow first verifies the matching draft tag exists, then the **release**
   job: `tag-bump` applies the automatic minor bump (major stays hand-driven),
   creates the tag, then
-  builds the six-platform `specgen` matrix, creates the Forgejo release, and
-  attaches every binary plus `SHA256SUMS`. The writes use the auto-issued job
-  token, so only the promote push needs the cross-repo secret.
+  builds the six-platform `specgen` matrix, renders and verifies the Homebrew
+  formula plus Scoop manifest, creates the Forgejo release, and attaches every
+  binary plus `SHA256SUMS`, `specgen.rb`, and `specgen.json`. It then updates
+  the shared Homebrew tap and Scoop bucket. Release creation uses the
+  auto-issued job token. Package-repository pushes use the repo-scoped
+  `TAP_WRITE_TOKEN` and `SCOOP_WRITE_TOKEN` secrets provisioned by
+  infrastructure's bot-token scripts.
 
 The release assets cover Linux, macOS, and Windows on amd64 and arm64. The
 stamped `specgen` version is also the default cli-guard ref frozen by
 `specgen lock`. A tagged `go install` is the source-install alternative.
-cli-guard ships no Homebrew formula, so there is no formula-bump job here.
+Homebrew and Scoop metadata carry the same release URLs and hashes as the
+attached binaries. `make release-check` verifies that contract before
+publication.
 
 ## Tag-only by design: cli-guard does not bump its consumers
 

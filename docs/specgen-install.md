@@ -1,6 +1,20 @@
 # install specgen
 
-Each cli-guard tag publishes raw `specgen` binaries for Linux, macOS, and
+Homebrew on macOS or Linux:
+
+```sh
+brew tap coilyco-flight-deck/tap https://forgejo.coilysiren.me/coilyco-flight-deck/homebrew-tap.git
+brew install coilyco-flight-deck/tap/specgen
+```
+
+Scoop on Windows:
+
+```sh
+scoop bucket add coilyco https://forgejo.coilysiren.me/coilyco-flight-deck/scoop-bucket.git
+scoop install coilyco/specgen
+```
+
+Each cli-guard tag also publishes raw `specgen` binaries for Linux, macOS, and
 Windows on amd64 and arm64. Verify the selected binary against the release's
 `SHA256SUMS`, rename it to `specgen` (or `specgen.exe`), and place it on
 `PATH`.

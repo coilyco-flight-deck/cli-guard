@@ -23,9 +23,22 @@ hand-written Go source.
 
 ## Install specgen
 
-Tagged Forgejo releases publish raw `specgen` binaries for Linux, macOS, and
-Windows on amd64 and arm64, plus `SHA256SUMS`. Go users can install the same
-tagged driver directly:
+Homebrew users on macOS or Linux can install from the coilyco tap:
+
+```sh
+brew tap coilyco-flight-deck/tap https://forgejo.coilysiren.me/coilyco-flight-deck/homebrew-tap.git
+brew install coilyco-flight-deck/tap/specgen
+```
+
+Scoop users on Windows can install from the coilyco bucket:
+
+```sh
+scoop bucket add coilyco https://forgejo.coilysiren.me/coilyco-flight-deck/scoop-bucket.git
+scoop install coilyco/specgen
+```
+
+Tagged Forgejo releases also publish raw `specgen` binaries for Linux, macOS,
+and Windows on amd64 and arm64, plus `SHA256SUMS`. Go users can install directly:
 
 ```sh
 GOPRIVATE=forgejo.coilysiren.me go install forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cmd/specgen@vX.Y.Z

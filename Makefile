@@ -1,4 +1,4 @@
-.PHONY: build test vet lint tidy fmt cover docs docs-cli docs-serve godoc-update release-artifacts pre-commit
+.PHONY: build test vet lint tidy fmt cover docs docs-cli docs-serve godoc-update release-artifacts release-package release-check pre-commit
 
 build: ## Build all packages.
 	go build ./...
@@ -35,6 +35,12 @@ godoc-update: ## Regenerate godoc-current.txt; commit the diff to land API chang
 
 release-artifacts: ## Build the tagged specgen binary matrix and SHA256SUMS.
 	./scripts/build-specgen-release.sh "$(VERSION)" "$(or $(DIST_DIR),dist)"
+
+release-package: ## Render Homebrew and Scoop metadata from tagged specgen binaries.
+	./scripts/render-specgen-packaging.sh "$(VERSION)" "$(or $(DIST_DIR),dist)"
+
+release-check: ## Verify specgen checksums, package metadata, and native version.
+	./scripts/check-specgen-release.sh "$(VERSION)" "$(or $(DIST_DIR),dist)"
 
 pre-commit: ## Run every repository hook.
 	pre-commit run --all-files
