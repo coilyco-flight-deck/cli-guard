@@ -81,6 +81,37 @@ func TestMountActionShadowsLeaf(t *testing.T) {
 	}
 }
 
+// TestMountActionQueryProjectsCombinedResponse proves a shadow preserves the
+// generated leaf's universal response-projection flag on its combined result.
+func TestMountActionQueryProjectsCombinedResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/kai/demo":
+			_, _ = w.Write([]byte(`{"full_name":"kai/demo"}`))
+		case "/repos/kai/demo/issues":
+			_, _ = w.Write([]byte(`[{"number":1,"title":"first"}]`))
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	cfg := Config{Guardfile: mountActionGuardfile(t), Spec: actionSpec(t), BaseURL: srv.URL,
+		Providers: map[string]Provider{"ssm": func(context.Context, string) (string, error) { return "x", nil }}}
+	out, err := runTree(t, cfg, "forgejo", "repo", "get", "kai/demo", "--query", "issues[].{number:number}", "--output", "json")
+	if err != nil {
+		t.Fatalf("run with --query: %v", err)
+	}
+	var projected []map[string]any
+	if err := json.Unmarshal([]byte(out), &projected); err != nil {
+		t.Fatalf("projected output is not a JSON array: %v\n%s", err, out)
+	}
+	if len(projected) != 1 || projected[0]["number"] != float64(1) {
+		t.Errorf("projection = %#v, want one issue number", projected)
+	}
+}
+
 // TestMountActionSuppressesGeneratedLeaf proves the generated `repo get` leaf is
 // gone from the describe surface, the action having mounted in its place.
 func TestMountActionSuppressesGeneratedLeaf(t *testing.T) {

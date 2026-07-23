@@ -222,7 +222,7 @@ func (rt *runtime) runCallAction(ctx context.Context, c *cli.Command, ad actionD
 	if err != nil {
 		return err
 	}
-	if err := rt.renderCallResult(ad, bindings, lastRaw, c.String(flagOutput)); err != nil {
+	if err := rt.renderCallResult(ad, bindings, lastRaw, c.String(flagQuery), c.String(flagOutput)); err != nil {
 		return err
 	}
 	return rt.applyFailWhen(ad, lastRaw, stepflow.CondScope(jmesVars, bindings))
@@ -230,9 +230,9 @@ func (rt *runtime) runCallAction(ctx context.Context, c *cli.Command, ad actionD
 
 // renderCallResult prints a call action's output: a mount action (Combine) emits
 // every `as` binding as one object; a named action prints just its final response.
-func (rt *runtime) renderCallResult(ad actionDescriptor, bindings map[string]any, lastRaw []byte, output string) error {
+func (rt *runtime) renderCallResult(ad actionDescriptor, bindings map[string]any, lastRaw []byte, query, output string) error {
 	if !ad.Combine {
-		return renderFinal(lastRaw, output)
+		return renderFinal(lastRaw, query, output)
 	}
 	combined := map[string]any{}
 	for _, step := range ad.Calls {
@@ -244,7 +244,7 @@ func (rt *runtime) renderCallResult(ad actionDescriptor, bindings map[string]any
 	if err != nil {
 		return exitcode.New(exitcode.Internal, "internal", err, "")
 	}
-	return renderFinal(raw, output)
+	return renderFinal(raw, query, output)
 }
 
 // fireCallAudited fires one call through the verb pipeline so it writes its own

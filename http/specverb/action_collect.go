@@ -216,7 +216,7 @@ func (rt *runtime) collectAllPages(ctx context.Context, c *cli.Command, ad actio
 // Shared by the live page-walk and the cache-hit path so both emit identically.
 func (rt *runtime) finishCollect(ad actionDescriptor, all []any, raw []byte, jmesVars map[string]any, c *cli.Command) error {
 	jmesVars[ad.Collect.As] = all
-	if err := renderFinal(raw, c.String(flagOutput)); err != nil {
+	if err := renderFinal(raw, c.String(flagQuery), c.String(flagOutput)); err != nil {
 		return err
 	}
 	return rt.applyFailWhen(ad, raw, jmesVars)

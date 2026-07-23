@@ -269,6 +269,7 @@ func (rt *runtime) buildActionGroup(descs []actionDescriptor) *cli.Command {
 func (rt *runtime) buildActionLeaf(ad actionDescriptor) *cli.Command {
 	flags := []cli.Flag{
 		&cli.BoolFlag{Name: flagDryRun, Usage: "print the action plan (the call sequence and compiled until) without firing it"},
+		&cli.StringFlag{Name: flagQuery, Usage: "JMESPath projection applied to the final response"},
 		&cli.StringFlag{Name: flagOutput, Usage: "output format: yaml | yaml-stream | json | text | table"},
 	}
 	if ad.cacheable() {
@@ -633,7 +634,7 @@ func (rt *runtime) runPoll(ctx context.Context, c *cli.Command, ad actionDescrip
 		}
 	}
 
-	if err := renderFinal(finalRaw, c.String(flagOutput)); err != nil {
+	if err := renderFinal(finalRaw, c.String(flagQuery), c.String(flagOutput)); err != nil {
 		return err
 	}
 	return rt.applyFailWhen(ad, finalRaw, jmesVars)
@@ -655,10 +656,10 @@ func (rt *runtime) fireLeafAudited(ctx context.Context, ad actionDescriptor, met
 	return decoded, raw, err
 }
 
-// renderFinal prints the loop's final response through respfmt, honoring
-// --output so an action reads the same as a single verb.
-func renderFinal(raw []byte, output string) error {
-	rendered, err := respfmt.Render(raw, "", output)
+// renderFinal prints a composite action's final response through respfmt,
+// honoring --query and --output so it reads the same as a generated leaf.
+func renderFinal(raw []byte, query, output string) error {
+	rendered, err := respfmt.Render(raw, query, output)
 	if err != nil {
 		return exitcode.New(exitcode.Internal, "internal", err, "the response was not valid JSON")
 	}
