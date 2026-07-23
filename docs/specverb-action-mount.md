@@ -40,8 +40,9 @@ Three things follow from the two-arg form:
   the shadow replaces the CLI leaf, never the grant.
 - **It combines.** A mount call-action renders **every** `as` binding together
   as one object (`{issue: ..., comments: [...]}`), not just the final call's
-  response the way a named `call` action does. `--output` formats it like any
-  other response (YAML sorts the keys).
+  response the way a named `call` action does. `--query` can project that
+  combined response and `--output` formats it like any other response (YAML
+  sorts the keys).
 - **It keeps the leaf's audit identity.** The envelope row is named for the
   shadowed path (`<group>.<resource>.<verb>`, e.g. `ward.ops.forgejo.issue.view`)
   so audit and metrics for that verb stay continuous. Each inner call still

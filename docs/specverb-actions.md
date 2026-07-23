@@ -16,7 +16,6 @@ sugar over the allowlist, never an escape from it. See [specverb.md](specverb.md
    the compiled `until`, firing nothing.
 5. **One expression engine.** Conditions are JMESPath, the same engine `--query`
    uses (`http/respfmt`), extended with native `$input` variables.
-
 ## Grammar
 
 ```kdl
