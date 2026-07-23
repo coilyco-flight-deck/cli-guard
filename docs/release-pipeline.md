@@ -23,13 +23,13 @@ last-known-good, and only gate-green shas release.
   workflow first verifies the matching draft tag exists, then the **release**
   job: `tag-bump` applies the automatic minor bump (major stays hand-driven),
   creates the tag, then
-  builds the six-platform `kdl-specs` matrix, creates the Forgejo release, and
+  builds the six-platform `specgen` matrix, creates the Forgejo release, and
   attaches every binary plus `SHA256SUMS`. The writes use the auto-issued job
   token, so only the promote push needs the cross-repo secret.
 
 The release assets cover Linux, macOS, and Windows on amd64 and arm64. The
-stamped `kdl-specs` version is also the default cli-guard ref frozen by
-`kdl-specs lock`. A tagged `go install` is the source-install alternative.
+stamped `specgen` version is also the default cli-guard ref frozen by
+`specgen lock`. A tagged `go install` is the source-install alternative.
 cli-guard ships no Homebrew formula, so there is no formula-bump job here.
 
 ## Tag-only by design: cli-guard does not bump its consumers

@@ -1,4 +1,4 @@
-# kdl-specs materialization
+# specgen materialization
 
 `run` and `build` materialize the generated consumer binary out-of-band. The consumer keeps policy and locks in source control, but never needs to commit generated Go files or build glue.
 

@@ -40,5 +40,5 @@ Origin: the KDL description node.
 
 ## See also
 
-- [kdl-specs.md](kdl-specs.md) - the no-code driver over these specs.
+- [specgen.md](specgen.md) - the no-code driver over these specs.
 - [fleetconfig.md](fleetconfig.md) - the fleet-config dialect.

@@ -34,7 +34,7 @@ func cacheRoot() string {
 func cacheKey(guardfilePath string) (string, error) {
 	abs, err := filepath.Abs(guardfilePath)
 	if err != nil {
-		return "", fmt.Errorf("kdl-specs: resolve guardfile path: %w", err)
+		return "", fmt.Errorf("specgen: resolve guardfile path: %w", err)
 	}
 	sum := sha256.Sum256([]byte(abs))
 	return hex.EncodeToString(sum[:])[:16], nil
@@ -103,10 +103,10 @@ func readStamp(dir string) (*stamp, bool) {
 func writeStamp(dir string, s stamp) error {
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
-		return fmt.Errorf("kdl-specs: marshal stamp: %w", err)
+		return fmt.Errorf("specgen: marshal stamp: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, stampName), append(b, '\n'), 0o600); err != nil {
-		return fmt.Errorf("kdl-specs: write stamp: %w", err)
+		return fmt.Errorf("specgen: write stamp: %w", err)
 	}
 	return nil
 }

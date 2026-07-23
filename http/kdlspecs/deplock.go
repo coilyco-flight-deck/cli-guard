@@ -50,10 +50,10 @@ func writeDepLock(path string, dl *DepLock) error {
 	sort.Strings(dl.GoSum)
 	b, err := json.MarshalIndent(dl, "", "  ")
 	if err != nil {
-		return fmt.Errorf("kdl-specs: marshal %s: %w", LockName, err)
+		return fmt.Errorf("specgen: marshal %s: %w", LockName, err)
 	}
 	if err := os.WriteFile(path, append(b, '\n'), 0o644); err != nil { //nolint:gosec // committed source-of-truth lock, not a secret
-		return fmt.Errorf("kdl-specs: write %s: %w", path, err)
+		return fmt.Errorf("specgen: write %s: %w", path, err)
 	}
 	return nil
 }
@@ -66,10 +66,10 @@ func readDepLock(path string) (*DepLock, error) {
 	}
 	var dl DepLock
 	if err := json.Unmarshal(b, &dl); err != nil {
-		return nil, fmt.Errorf("kdl-specs: parse %s: %w", path, err)
+		return nil, fmt.Errorf("specgen: parse %s: %w", path, err)
 	}
 	if dl.Version != depLockVersion {
-		return nil, fmt.Errorf("kdl-specs: %s schema version %d unsupported (want %d); re-run 'kdl-specs lock'", LockName, dl.Version, depLockVersion)
+		return nil, fmt.Errorf("specgen: %s schema version %d unsupported (want %d); re-run 'specgen lock'", LockName, dl.Version, depLockVersion)
 	}
 	return &dl, nil
 }
@@ -78,7 +78,7 @@ func readDepLock(path string) (*DepLock, error) {
 // back to module build info, which already carries the installed tag.
 var buildVersion string
 
-// DriverVersion reports the installed kdl-specs version. Release binaries use
+// DriverVersion reports the installed specgen version. Release binaries use
 // their stamped tag, Go installs use build info, and source reports "(devel)".
 func DriverVersion() string {
 	if buildVersion != "" {
@@ -138,23 +138,23 @@ func resolveDepLock(dir, ref, replace string) (*DepLock, error) {
 	if replace != "" {
 		abs, err := filepath.Abs(replace)
 		if err != nil {
-			return nil, fmt.Errorf("kdl-specs: resolve cli-guard replace path: %w", err)
+			return nil, fmt.Errorf("specgen: resolve cli-guard replace path: %w", err)
 		}
 		fmt.Fprintf(&b, "\nreplace %s => %s\n", cliGuardModule, abs)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(b.String()), 0o600); err != nil {
-		return nil, fmt.Errorf("kdl-specs: seed build go.mod: %w", err)
+		return nil, fmt.Errorf("specgen: seed build go.mod: %w", err)
 	}
 	if err := runGo(dir, "mod", "tidy"); err != nil {
 		return nil, err
 	}
 	goMod, err := os.ReadFile(filepath.Join(dir, "go.mod")) //nolint:gosec // path under driver-owned temp dir
 	if err != nil {
-		return nil, fmt.Errorf("kdl-specs: read resolved go.mod: %w", err)
+		return nil, fmt.Errorf("specgen: read resolved go.mod: %w", err)
 	}
 	goSum, err := os.ReadFile(filepath.Join(dir, "go.sum")) //nolint:gosec // path under driver-owned temp dir
 	if err != nil {
-		return nil, fmt.Errorf("kdl-specs: read resolved go.sum: %w", err)
+		return nil, fmt.Errorf("specgen: read resolved go.sum: %w", err)
 	}
 	cg := cgVersion
 	if replace != "" {
@@ -199,14 +199,14 @@ func writeModuleFiles(dir string, dl *DepLock) error {
 		mod += "\n"
 	}
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(mod), 0o600); err != nil {
-		return fmt.Errorf("kdl-specs: write build go.mod: %w", err)
+		return fmt.Errorf("specgen: write build go.mod: %w", err)
 	}
 	sum := strings.Join(dl.GoSum, "\n")
 	if sum != "" {
 		sum += "\n"
 	}
 	if err := os.WriteFile(filepath.Join(dir, "go.sum"), []byte(sum), 0o600); err != nil {
-		return fmt.Errorf("kdl-specs: write build go.sum: %w", err)
+		return fmt.Errorf("specgen: write build go.sum: %w", err)
 	}
 	return nil
 }

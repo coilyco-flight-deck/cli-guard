@@ -37,6 +37,6 @@ Unknown nodes fail closed. Per-operation grants guard a kwarg (`deny-when secret
 
 ## Driver integration
 
-`kdl-specs` merges exec consumers into a spec binary; `execverb.Describe` gives doc parity. See [mixed transports](specverb-mixed-transports.md).
+`specgen` merges exec consumers into a spec binary; `execverb.Describe` gives doc parity. See [mixed transports](specverb-mixed-transports.md).
 
 Design: the security-pure-engine refactor. `sealed` is the single-resource variant.

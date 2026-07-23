@@ -1,4 +1,4 @@
-package main
+package specgencli
 
 import (
 	"bytes"
@@ -10,16 +10,14 @@ import (
 )
 
 func TestVersionReportsDriverAndDefaultCLIGuardRef(t *testing.T) {
-	cmd := app()
 	var out bytes.Buffer
-	cmd.Writer = &out
 
-	if err := cmd.Run(context.Background(), []string{"kdl-specs", "--version"}); err != nil {
-		t.Fatalf("run --version: %v", err)
+	if code := Run(context.Background(), []string{"specgen", "--version"}, &out, &out); code != 0 {
+		t.Fatalf("run --version exit code = %d, want 0", code)
 	}
 
 	want := fmt.Sprintf(
-		"kdl-specs version %s (cli-guard ref %s)\n",
+		"specgen version %s (cli-guard ref %s)\n",
 		kdlspecs.DriverVersion(),
 		kdlspecs.DefaultCLIGuardRef(),
 	)

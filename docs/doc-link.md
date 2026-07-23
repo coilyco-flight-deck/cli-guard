@@ -31,7 +31,7 @@ The node gates nothing, so it composes with every surface shape: spec verbs, `ex
 
 ## Why generated, not hand-written
 
-A consumer's per-area reference doc is regenerated on every build (`kdl-specs gen`/`build`), so a hand-added back-link at the bottom is wiped on the next regeneration. Emitting the footer from a guardfile node makes the back-link **generated** too: it survives every regeneration because it is re-emitted from the source. This is the enabler for the generated ward docs, whose reference pages could not point back to their `docs/ward-kdl.md` hub without it.
+A consumer's per-area reference doc is regenerated on every build (`specgen gen`/`build`), so a hand-added back-link at the bottom is wiped on the next regeneration. Emitting the footer from a guardfile node makes the back-link **generated** too: it survives every regeneration because it is re-emitted from the source. This is the enabler for the generated ward docs, whose reference pages could not point back to their `docs/ward-kdl.md` hub without it.
 
 ## See also
 

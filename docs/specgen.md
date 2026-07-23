@@ -1,17 +1,17 @@
-# the no-code driver (kdl-specs / cmd/kdl-specs)
+# the no-code driver (specgen / cmd/specgen)
 
-`ward-kdl` is a **no-code** CLI: the consumer authors policy plus committed locks, never Go or build glue. `kdl-specs` is the uv-style driver. Every spec may carry a top-level [`description`](kdl-description.md) node: standing context, not a comment header.
+`ward-kdl` is a **no-code** CLI: the consumer authors policy plus committed locks, never Go or build glue. `specgen` is the uv-style driver. Every spec may carry a top-level [`description`](kdl-description.md) node: standing context, not a comment header.
 
 ## Install
 
-See [install kdl-specs](kdl-specs-install.md) for release binaries, checksums,
+See [install specgen](specgen-install.md) for release binaries, checksums,
 `go install`, and the driver-to-framework version contract.
 
 ## Discovery and merging
 
 A `--guardfile` selects a **binary**, not the whole build: members compose only when their parsed `wrap <binary>` name (`Group[0]`) agrees. A different wrap name is a **separate** binary, never merged in.
 
-For a project that spans folders, pass `--project-root <dir>`. It is an explicit recursive discovery boundary; a `--guardfile <path>` inside it selects that member's binary group. See [kdl-specs discovery](kdl-specs-discovery.md) for membership, mixed-dialect, identity, and fail-closed rules.
+For a project that spans folders, pass `--project-root <dir>`. It is an explicit recursive discovery boundary; a `--guardfile <path>` inside it selects that member's binary group. See [specgen discovery](specgen-discovery.md) for membership, mixed-dialect, identity, and fail-closed rules.
 
 `gen`, `build`, and `run` accept `--binary <name>` to rename only the generated command and cache/build output; discovery and policy identity still come from `wrap`.
 
@@ -27,7 +27,7 @@ Locks and reference docs are per member and preserve root-relative directories; 
 
 ## Out-of-band materialization
 
-`run` and `build` share the [materialization](kdl-specs-materialization.md) cache, keyed by generated binary name and root-relative member identities.
+`run` and `build` share the [materialization](specgen-materialization.md) cache, keyed by generated binary name and root-relative member identities.
 
 ## The two locks
 
@@ -36,6 +36,6 @@ The committed build artifacts are:
 - **`<spec>.lock.json`** - one pruned embedded API snapshot per member, placed beneath that member's root-relative directory when `--project-root` is used.
 - **`specverb.lock`** - one frozen Go dependency graph per binary.
 
-See [kdl-specs-materialization.md](kdl-specs-materialization.md) for cache and offline-build detail.
+See [specgen-materialization.md](specgen-materialization.md) for cache and offline-build detail.
 
 Origin: the KDL specs surface.

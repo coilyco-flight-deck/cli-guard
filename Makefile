@@ -33,8 +33,8 @@ docs-serve: ## Serve mkdocs locally with live reload on 127.0.0.1:8000.
 godoc-update: ## Regenerate godoc-current.txt; commit the diff to land API changes.
 	./scripts/check-godoc-current.sh --update
 
-release-artifacts: ## Build the tagged kdl-specs binary matrix and SHA256SUMS.
-	./scripts/build-kdl-specs-release.sh "$(VERSION)" "$(or $(DIST_DIR),dist)"
+release-artifacts: ## Build the tagged specgen binary matrix and SHA256SUMS.
+	./scripts/build-specgen-release.sh "$(VERSION)" "$(or $(DIST_DIR),dist)"
 
 pre-commit: ## Run every repository hook.
 	pre-commit run --all-files

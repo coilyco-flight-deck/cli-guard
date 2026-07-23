@@ -50,7 +50,7 @@ jobs:
       - id: tag
         uses: coilysiren/agentic-os/actions/tag-bump@main
 
-      - name: Build packaged kdl-specs CLI
+      - name: Build packaged specgen CLI
         if: ${{ steps.tag.outputs.new_tag != '' }}
         run: make release-artifacts VERSION="${{ steps.tag.outputs.new_tag }}" DIST_DIR=dist
 
@@ -62,47 +62,47 @@ jobs:
           name: ${{ steps.tag.outputs.new_tag }}
           body: ${{ steps.tag.outputs.changelog }}
 
-      - name: Upload kdl-specs-linux-amd64
+      - name: Upload specgen-linux-amd64
         if: ${{ steps.tag.outputs.new_tag != '' }}
         uses: coilysiren/agentic-os/actions/upload-release-asset@main
         with:
           release_id: ${{ steps.create.outputs.release_id }}
-          file: dist/kdl-specs-linux-amd64
+          file: dist/specgen-linux-amd64
 
-      - name: Upload kdl-specs-linux-arm64
+      - name: Upload specgen-linux-arm64
         if: ${{ steps.tag.outputs.new_tag != '' }}
         uses: coilysiren/agentic-os/actions/upload-release-asset@main
         with:
           release_id: ${{ steps.create.outputs.release_id }}
-          file: dist/kdl-specs-linux-arm64
+          file: dist/specgen-linux-arm64
 
-      - name: Upload kdl-specs-darwin-amd64
+      - name: Upload specgen-darwin-amd64
         if: ${{ steps.tag.outputs.new_tag != '' }}
         uses: coilysiren/agentic-os/actions/upload-release-asset@main
         with:
           release_id: ${{ steps.create.outputs.release_id }}
-          file: dist/kdl-specs-darwin-amd64
+          file: dist/specgen-darwin-amd64
 
-      - name: Upload kdl-specs-darwin-arm64
+      - name: Upload specgen-darwin-arm64
         if: ${{ steps.tag.outputs.new_tag != '' }}
         uses: coilysiren/agentic-os/actions/upload-release-asset@main
         with:
           release_id: ${{ steps.create.outputs.release_id }}
-          file: dist/kdl-specs-darwin-arm64
+          file: dist/specgen-darwin-arm64
 
-      - name: Upload kdl-specs-windows-amd64
+      - name: Upload specgen-windows-amd64
         if: ${{ steps.tag.outputs.new_tag != '' }}
         uses: coilysiren/agentic-os/actions/upload-release-asset@main
         with:
           release_id: ${{ steps.create.outputs.release_id }}
-          file: dist/kdl-specs-windows-amd64.exe
+          file: dist/specgen-windows-amd64.exe
 
-      - name: Upload kdl-specs-windows-arm64
+      - name: Upload specgen-windows-arm64
         if: ${{ steps.tag.outputs.new_tag != '' }}
         uses: coilysiren/agentic-os/actions/upload-release-asset@main
         with:
           release_id: ${{ steps.create.outputs.release_id }}
-          file: dist/kdl-specs-windows-arm64.exe
+          file: dist/specgen-windows-arm64.exe
 
       - name: Upload SHA256SUMS
         if: ${{ steps.tag.outputs.new_tag != '' }}

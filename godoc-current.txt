@@ -1312,8 +1312,12 @@ shell-only consumers. See docs/architecture.md for payload flow and flags.
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cmd/kdl-specs
 
-Command kdl-specs is the no-code uv-style driver for a spec-driven consumer CLI:
-gen / lock / skew / build / run. See docs/kdl-specs.md.
+Command kdl-specs is the compatibility entrypoint for consumers that have not
+migrated their Go invocation path to cmd/specgen.
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cmd/specgen
+
+Command specgen is the no-code driver for generating guarded consumer CLIs.
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/egress
 
@@ -1777,7 +1781,7 @@ docs/specverb.md.
 
 Process replacement (syscall.Exec) and cache locking (flock) on Unix.
 
-Package kdlspecs is the no-code driver behind cmd/kdl-specs: the uv-style verb
+Package kdlspecs is the no-code driver behind cmd/specgen: the uv-style verb
 surface (gen / lock / skew / run) over a Guardfile. See docs/specverb.md.
 
 CONSTANTS
@@ -1789,9 +1793,9 @@ const LockName = "specverb.lock"
 
 VARIABLES
 
-var ErrNoLock = errors.New("missing committed lock; run 'kdl-specs lock' first")
+var ErrNoLock = errors.New("missing committed lock; run 'specgen lock' first")
     ErrNoLock is returned by run and skew when a required committed lock is
-    absent, so the caller can point the user at `kdl-specs lock`.
+    absent, so the caller can point the user at `specgen lock`.
 
 var ErrSkew = errors.New("spec skew detected")
     ErrSkew is returned by skew when the committed spec lock drifts from
@@ -1803,14 +1807,14 @@ FUNCTIONS
 func Build(opts Options) error
     Build materializes the consumer binary out-of-band (same cache +
     staleness path as Run) and copies it to opts.Out instead of execing it.
-    See kdl-specs.md.
+    See specgen.md.
 
 func DefaultCLIGuardRef() string
     DefaultCLIGuardRef is the cli-guard module query a lock operation will
     freeze when the caller does not pass --cli-guard-ref.
 
 func DriverVersion() string
-    DriverVersion reports the installed kdl-specs version. Release binaries use
+    DriverVersion reports the installed specgen version. Release binaries use
     their stamped tag, Go installs use build info, and source reports "(devel)".
 
 func Gen(opts Options) error
@@ -1872,7 +1876,7 @@ const (
 	TransportExec = "exec"
 )
     Transport is the dialect one merged member speaks: spec (HTTP/specverb) or
-    exec (wrapped binary/execverb). See docs/kdl-specs.md.
+    exec (wrapped binary/execverb). See docs/specgen.md.
 
 
 FUNCTIONS
@@ -1897,7 +1901,7 @@ type Params struct {
 	Binary        string // binary name, e.g. ward-kdl (Guardfile group[0])
 	GuardfileName string // embedded Guardfile filename, e.g. forgejo.guardfile.kdl
 	SpecLockName  string // committed, embedded spec lock filename, e.g. forgejo.swagger.lock.json
-	SpecURL       string // upstream Swagger URL; the `kdl-specs lock` source and bootstrap fallback
+	SpecURL       string // upstream Swagger URL; the `specgen lock` source and bootstrap fallback
 	SpecEnvVar    string // env var overriding the embedded lock, e.g. WARD_KDL_SPEC
 
 	// Providers are the value-source provider names this member's guardfile uses,
@@ -1914,7 +1918,7 @@ func Plan(gf *guardfile.Guardfile, guardfileName string) (Params, error)
 
 func PlanExec(group, providers []string, guardfileName string) (Params, error)
     PlanExec derives an exec member's Params from its wrap group and the
-    provider names its env injections use; no upstream spec. See kdl-specs.md.
+    provider names its env injections use; no upstream spec. See specgen.md.
 
 type SetParams struct {
 	Binary  string
@@ -2297,7 +2301,7 @@ func Mount(root *cli.Command, cfg Config) error
 
 func Prune(spec []byte, gf *guardfile.Guardfile) ([]byte, error)
     Prune returns a minimal spec doc holding only the operations gf grants and
-    their reachable schemas. Dispatches on version. See docs/kdl-specs.md.
+    their reachable schemas. Dispatches on version. See docs/specgen.md.
 
 
 TYPES
@@ -2531,6 +2535,19 @@ func CallerIdentity(fetch func() ([]byte, error)) ([]byte, error)
 func Invalidate() error
     Invalidate drops the cached entry for the active profile. Callers that know
     they just rotated credentials or assumed a different role can use
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/internal/specgencli
+
+package specgencli // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/internal/specgencli"
+
+Package specgencli owns the shared command tree behind the canonical specgen
+binary and its temporary kdl-specs compatibility entrypoint.
+
+FUNCTIONS
+
+func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int
+    Run executes the specgen command tree and returns its process exit code.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/agentclaim

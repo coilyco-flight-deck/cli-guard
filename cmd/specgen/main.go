@@ -1,5 +1,4 @@
-// Command kdl-specs is the compatibility entrypoint for consumers that have
-// not migrated their Go invocation path to cmd/specgen.
+// Command specgen is the no-code driver for generating guarded consumer CLIs.
 package main
 
 import (

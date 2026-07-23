@@ -44,7 +44,7 @@ The auth schemes (header-token, bearer, query-param dual-secret), the deny seman
 
 One generic action backs every verb: path params positional, query/body fields as typed flags, `--body-file`, fixed-body toggles, injected-resolver auth, `--dry-run`, the `respfmt` render rail - see [specverb-request.md](specverb-request.md).
 
-`specverb.Mount(root, Config)` grafts the built group onto root, generating the intermediate path groups the `wrap` line names. `codegen.Render` generates a consumer's whole `main.go` from the Guardfile (AWS SDK kept out of cli-guard); the no-code `kdl-specs` driver wraps it in a `gen` / `lock` / `skew` / `run` surface, see [kdl-specs.md](kdl-specs.md).
+`specverb.Mount(root, Config)` grafts the built group onto root, generating the intermediate path groups the `wrap` line names. `codegen.Render` generates a consumer's whole `main.go` from the Guardfile (AWS SDK kept out of cli-guard); the no-code `specgen` driver wraps it in a `gen` / `lock` / `skew` / `run` surface, see [specgen.md](specgen.md).
 
 ## Spec durability
 
