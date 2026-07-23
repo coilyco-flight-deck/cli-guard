@@ -26,7 +26,7 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 ### HTTP request surface (`http/`)
 
 - **egress** - Per-run CONNECT proxy with consumer allowlist.
-- **guardfile** / **specverb** / **opcore** / **kdl-specs** / **codegen** - Spec-driven HTTP verbs and code generation. See [specverb.md](specverb.md) and [features-detail.md](features-detail.md).
+- **guardfile** / **specverb** / **opcore** / **kdl-specs** / **codegen** - HTTP verbs/codegen; kdl-specs supports `--project-root`. See [kdl-specs.md](kdl-specs.md) and [features-detail.md](features-detail.md).
 - **complex actions** - `wrap`-block `poll`/`call`/`collect` verbs; the mount form shadows its leaf. See [specverb-actions.md](specverb-actions.md).
 - **guarded rollback** - `compensate` + `canary` health-window rollback. See [specverb-rollback.md](specverb-rollback.md).
 - **respfmt** - JSON renderer + JMESPath, five formats.

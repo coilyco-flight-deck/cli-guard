@@ -30,6 +30,16 @@ func TestCacheKeyStableAndPathScoped(t *testing.T) {
 	}
 }
 
+func TestCacheKeyForGroupUsesRelativeMemberIdentity(t *testing.T) {
+	a := &group{Binary: "ward", Members: []member{{Path: "cloud/read.kdl"}, {Path: "forge/write.kdl"}}}
+	b := &group{Binary: "ward", Members: []member{{Path: "cloud/read.kdl", SourcePath: "/elsewhere/cloud/read.kdl"}, {Path: "forge/write.kdl", SourcePath: "/elsewhere/forge/write.kdl"}}}
+	ak := cacheKeyForGroup(a)
+	bk := cacheKeyForGroup(b)
+	if ak != bk {
+		t.Errorf("re-rooted groups have cache keys %q and %q", ak, bk)
+	}
+}
+
 func TestStaleDetectsEveryInput(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "bin", "ward-kdl")

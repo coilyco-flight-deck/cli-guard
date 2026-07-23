@@ -24,6 +24,7 @@ import (
 // Options are the inputs shared by every driver verb.
 type Options struct {
 	GuardfilePath   string   // path to the consumer's KDL Guardfile
+	ProjectRoot     string   // explicit recursive KDL project boundary (empty keeps legacy directory discovery)
 	BinaryName      string   // gen/build/run: generated CLI/binary name (empty = Guardfile wrap binary)
 	Out             string   // gen: main.go output path (debug; cache when empty). build: binary output dir or path
 	Args            []string // run: arguments passed through to the materialized binary
@@ -42,18 +43,21 @@ var ErrSkew = errors.New("spec skew detected")
 // member is one guardfile in a merged build. A spec member carries GF (with a
 // spec lock + doc); an exec member carries ExecGF (policy only). See driver doc.
 type member struct {
-	Path   string
-	GF     *guardfile.Guardfile // spec dialect; nil for exec members
-	ExecGF *execverb.Guardfile  // exec dialect; nil for spec members
-	Params codegen.Params
-	Bytes  []byte
+	// Path is the slash-normalized path relative to group.Dir. It is the
+	// member's stable identity; never use an absolute path in generated inputs.
+	Path string
+	// SourcePath is the validated on-disk path used only while loading source.
+	SourcePath string
+	GF         *guardfile.Guardfile // spec dialect; nil for exec members
+	ExecGF     *execverb.Guardfile  // exec dialect; nil for spec members
+	Params     codegen.Params
+	Bytes      []byte
 }
 
 // isExec reports whether the member speaks the exec dialect.
 func (m member) isExec() bool { return m.Params.Transport == codegen.TransportExec }
 
-// group is the set of guardfiles that compose one merged binary - every
-// *.guardfile.kdl in a directory that shares a wrap binary name (Group[0]).
+// group is the operation members that compose one merged binary.
 type group struct {
 	Dir           string
 	Binary        string
@@ -117,7 +121,7 @@ func sniffTransport(src []byte) (string, error) {
 
 // readMember reads a single guardfile, sniffs its transport, and parses+plans
 // it with the matching dialect.
-func readMember(path string) (member, error) {
+func readMember(path, identity string) (member, error) {
 	b, err := os.ReadFile(path) //nolint:gosec // operator-supplied policy input
 	if err != nil {
 		return member{}, fmt.Errorf("kdl-specs: read guardfile: %w", err)
@@ -131,11 +135,11 @@ func readMember(path string) (member, error) {
 		if err != nil {
 			return member{}, fmt.Errorf("kdl-specs: parse exec guardfile %s: %w", path, err)
 		}
-		p, err := codegen.PlanExec(egf.Group, egf.Providers(), filepath.Base(path))
+		p, err := codegen.PlanExec(egf.Group, egf.Providers(), identity)
 		if err != nil {
 			return member{}, err
 		}
-		return member{Path: path, ExecGF: egf, Params: p, Bytes: b}, nil
+		return member{Path: identity, SourcePath: path, ExecGF: egf, Params: p, Bytes: b}, nil
 	}
 	// Resolve `inherit` into one self-contained document before the typed parse,
 	// so every downstream stage sees the merged grant set (docs/specverb-inherit.md).
@@ -147,44 +151,182 @@ func readMember(path string) (member, error) {
 	if err != nil {
 		return member{}, fmt.Errorf("kdl-specs: parse guardfile %s: %w", path, err)
 	}
-	p, err := codegen.Plan(gf, filepath.Base(path))
+	p, err := codegen.Plan(gf, identity)
 	if err != nil {
 		return member{}, err
 	}
-	return member{Path: path, GF: gf, Params: p, Bytes: flat}, nil
+	// A lock stays beside its member's root-relative source identity. This keeps
+	// identically named members in separate folders from sharing an artifact.
+	p.SpecLockName = filepath.ToSlash(filepath.Join(filepath.Dir(identity), p.SpecLockName))
+	return member{Path: identity, SourcePath: path, GF: gf, Params: p, Bytes: flat}, nil
 }
 
-// loadGroup discovers the guardfiles that make up one merged binary, the common
-// prelude of every verb. See docs/kdl-specs.md for the discovery rules.
-func loadGroup(opts Options) (*group, error) {
-	dir := "."
-	var selector string
-	if opts.GuardfilePath != "" {
-		dir = filepath.Dir(opts.GuardfilePath)
-		sel, err := readMember(opts.GuardfilePath)
+// operationIntent reports whether malformed KDL is clearly an operation member.
+// Such source fails rather than being silently skipped as unrelated project KDL.
+func operationIntent(src []byte) bool {
+	for _, line := range strings.Split(string(src), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "wrap" || strings.HasPrefix(line, "wrap ") || strings.HasPrefix(line, "wrap{") {
+			return true
+		}
+	}
+	return false
+}
+
+func projectRoot(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("kdl-specs: resolve project root: %w", err)
+	}
+	root, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("kdl-specs: resolve project root: %w", err)
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		return "", fmt.Errorf("kdl-specs: stat project root: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("kdl-specs: project root %s is not a directory", path)
+	}
+	return root, nil
+}
+
+func memberIdentity(root, path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("kdl-specs: resolve member %s: %w", path, err)
+	}
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("kdl-specs: member %s escapes project root %s", path, root)
+	}
+	return filepath.ToSlash(rel), nil
+}
+
+// discoverProjectMembers recursively finds operation KDL in root.
+// Parsed KDL without wrap is unrelated; malformed source mentioning wrap fails.
+func discoverProjectMembers(root string) ([]member, error) {
+	var paths []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("kdl-specs: walk project: %w", err)
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			if _, err := memberIdentity(root, path); err != nil {
+				return err
+			}
+		}
+		if d.IsDir() || filepath.Ext(path) != ".kdl" {
+			return nil
+		}
+		paths = append(paths, path)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(paths)
+	var members []member
+	seenSource := map[string]string{}
+	for _, path := range paths {
+		m, found, err := projectMember(root, path, seenSource)
 		if err != nil {
 			return nil, err
 		}
-		selector = sel.Params.Binary
+		if found {
+			members = append(members, m)
+		}
 	}
+	sort.Slice(members, func(i, j int) bool { return members[i].Path < members[j].Path })
+	return members, nil
+}
+
+func projectMember(root, path string, seenSource map[string]string) (member, bool, error) {
+	identity, err := memberIdentity(root, path)
+	if err != nil {
+		return member{}, false, err
+	}
+	if prior, ok := seenSource[identity]; ok {
+		return member{}, false, fmt.Errorf("kdl-specs: duplicate logical member %s (%s and %s)", identity, prior, path)
+	}
+	seenSource[identity] = path
+	src, err := os.ReadFile(path) //nolint:gosec // operator-supplied policy input
+	if err != nil {
+		return member{}, false, fmt.Errorf("kdl-specs: read member %s: %w", identity, err)
+	}
+	doc, err := kdl.ParseString(string(src))
+	if err != nil {
+		if operationIntent(src) {
+			return member{}, false, fmt.Errorf("kdl-specs: parse intended operation member %s: %w", identity, err)
+		}
+		return member{}, false, nil
+	}
+	if doc.GetNode("wrap") == nil {
+		return member{}, false, nil
+	}
+	m, err := readMember(path, identity)
+	return m, err == nil, err
+}
+
+func legacyMembers(dir, selected string) ([]member, error) {
 	matches, err := filepath.Glob(filepath.Join(dir, "*.guardfile.kdl"))
 	if err != nil {
 		return nil, fmt.Errorf("kdl-specs: discover guardfiles: %w", err)
 	}
-	if len(matches) == 0 {
-		if opts.GuardfilePath != "" {
-			return nil, fmt.Errorf("kdl-specs: no *.guardfile.kdl beside %s", opts.GuardfilePath)
+	if selected != "" {
+		found := false
+		for _, p := range matches {
+			if p == selected {
+				found = true
+			}
 		}
-		return nil, errors.New("kdl-specs: no *.guardfile.kdl in cwd (set --guardfile)")
+		if !found {
+			matches = append(matches, selected)
+		}
 	}
 	sort.Strings(matches)
-	byBinary := map[string][]member{}
-	order := []string{}
+	var members []member
 	for _, path := range matches {
-		mem, err := readMember(path)
+		m, err := readMember(path, filepath.Base(path))
 		if err != nil {
 			return nil, err
 		}
+		members = append(members, m)
+	}
+	return members, nil
+}
+
+func validateArtifacts(members []member) error {
+	seenLocks := map[string]string{}
+	for _, m := range members {
+		if m.isExec() {
+			continue
+		}
+		if prior, ok := seenLocks[m.Params.SpecLockName]; ok {
+			return fmt.Errorf("kdl-specs: conflicting spec lock %s for %s and %s", m.Params.SpecLockName, prior, m.Path)
+		}
+		seenLocks[m.Params.SpecLockName] = m.Path
+	}
+	return nil
+}
+
+// loadGroup discovers the operation members that make up one merged binary.
+// --project-root is recursive and content-driven; absent it, legacy discovery remains.
+func loadGroup(opts Options) (*group, error) {
+	dir, selector, members, err := discover(opts)
+	if err != nil {
+		return nil, err
+	}
+	if len(members) == 0 {
+		if opts.ProjectRoot != "" {
+			return nil, fmt.Errorf("kdl-specs: no operation KDL members in project root %s", dir)
+		}
+		return nil, errors.New("kdl-specs: no *.guardfile.kdl in cwd (set --guardfile or --project-root)")
+	}
+	byBinary := map[string][]member{}
+	order := []string{}
+	for _, mem := range members {
 		if _, seen := byBinary[mem.Params.Binary]; !seen {
 			order = append(order, mem.Params.Binary)
 		}
@@ -201,7 +343,60 @@ func loadGroup(opts Options) (*group, error) {
 	if !ok {
 		return nil, fmt.Errorf("kdl-specs: no guardfile for binary %q in %s", selector, dir)
 	}
+	if err := validateArtifacts(members); err != nil {
+		return nil, err
+	}
 	return newGroup(dir, selector, members, opts.BinaryName)
+}
+
+func discover(opts Options) (string, string, []member, error) {
+	if opts.ProjectRoot == "" {
+		return discoverLegacy(opts.GuardfilePath)
+	}
+	return discoverRoot(opts.ProjectRoot, opts.GuardfilePath)
+}
+
+func discoverLegacy(selected string) (string, string, []member, error) {
+	dir := "."
+	selector := ""
+	if selected != "" {
+		dir = filepath.Dir(selected)
+		sel, err := readMember(selected, filepath.Base(selected))
+		if err != nil {
+			return "", "", nil, err
+		}
+		selector = sel.Params.Binary
+	}
+	members, err := legacyMembers(dir, selected)
+	return dir, selector, members, err
+}
+
+func discoverRoot(root, selected string) (string, string, []member, error) {
+	dir, err := projectRoot(root)
+	if err != nil {
+		return "", "", nil, err
+	}
+	selector, err := selectedBinary(dir, selected)
+	if err != nil {
+		return "", "", nil, err
+	}
+	members, err := discoverProjectMembers(dir)
+	return dir, selector, members, err
+}
+
+func selectedBinary(root, selected string) (string, error) {
+	if selected == "" {
+		return "", nil
+	}
+	identity, err := memberIdentity(root, selected)
+	if err != nil {
+		return "", err
+	}
+	sel, err := readMember(selected, identity)
+	if err != nil {
+		return "", err
+	}
+	return sel.Params.Binary, nil
 }
 
 // render emits the merged main.go from the members' pre-planned params, mixing
@@ -244,10 +439,7 @@ func Gen(opts Options) error {
 	}
 	out := opts.Out
 	if out == "" {
-		dir, err := cacheDirForGroup(g)
-		if err != nil {
-			return err
-		}
+		dir := cacheDirForGroup(g)
 		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return fmt.Errorf("kdl-specs: create cache dir: %w", err)
 		}
@@ -282,6 +474,9 @@ func refDocName(m member) string {
 func emitExecReferenceDoc(dir string, m member) error {
 	surface := execverb.Describe(m.ExecGF)
 	path := filepath.Join(dir, refDocName(m))
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return fmt.Errorf("kdl-specs: create reference doc dir: %w", err)
+	}
 	if err := os.WriteFile(path, []byte(surface.Markdown()), 0o644); err != nil { //nolint:gosec // human-facing committed reference
 		return fmt.Errorf("kdl-specs: write exec reference doc: %w", err)
 	}
@@ -311,6 +506,9 @@ func writeReferenceDoc(dir string, m member, specBytes []byte) error {
 		return fmt.Errorf("kdl-specs: build reference surface: %w", err)
 	}
 	path := filepath.Join(dir, refDocName(m))
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return fmt.Errorf("kdl-specs: create reference doc dir: %w", err)
+	}
 	if err := os.WriteFile(path, []byte(surface.Markdown()), 0o644); err != nil { //nolint:gosec // human-facing committed reference
 		return fmt.Errorf("kdl-specs: write reference doc: %w", err)
 	}
@@ -326,7 +524,7 @@ func lockSpecs(g *group) (map[string][]byte, error) {
 		if m.isExec() {
 			continue
 		}
-		full, err := loadFullSpec(g.Dir, m)
+		full, err := loadFullSpec(m)
 		if err != nil {
 			return nil, fmt.Errorf("kdl-specs: load spec %s: %w", m.Params.GuardfileName, err)
 		}
@@ -337,6 +535,9 @@ func lockSpecs(g *group) (map[string][]byte, error) {
 			return nil, fmt.Errorf("kdl-specs: prune spec %s: %w", m.Params.GuardfileName, err)
 		}
 		specLockPath := filepath.Join(g.Dir, m.Params.SpecLockName)
+		if err := os.MkdirAll(filepath.Dir(specLockPath), 0o750); err != nil {
+			return nil, fmt.Errorf("kdl-specs: create spec lock dir: %w", err)
+		}
 		if err := os.WriteFile(specLockPath, specBytes, 0o644); err != nil { //nolint:gosec // committed spec snapshot, not a secret
 			return nil, fmt.Errorf("kdl-specs: write spec lock: %w", err)
 		}
@@ -348,9 +549,9 @@ func lockSpecs(g *group) (map[string][]byte, error) {
 
 // loadFullSpec returns the member's full upstream spec: a spec vendored beside
 // the guardfile is read directly, else fetched from the derived URL.
-func loadFullSpec(dir string, m member) ([]byte, error) {
+func loadFullSpec(m member) ([]byte, error) {
 	if m.GF != nil && m.GF.Spec != "" {
-		local := filepath.Join(dir, m.GF.Spec)
+		local := filepath.Join(filepath.Dir(m.SourcePath), m.GF.Spec)
 		if b, rerr := os.ReadFile(local); rerr == nil { //nolint:gosec // operator-vendored spec beside the guardfile
 			fmt.Fprintf(os.Stderr, "kdl-specs: read vendored spec %s\n", m.GF.Spec)
 			return b, nil
@@ -516,10 +717,7 @@ func materialize(opts Options) (string, *group, error) {
 	if err != nil {
 		return "", g, err
 	}
-	cdir, err := cacheDirForGroup(g)
-	if err != nil {
-		return "", g, err
-	}
+	cdir := cacheDirForGroup(g)
 	main, err := g.render()
 	if err != nil {
 		return "", g, err
@@ -542,9 +740,9 @@ func materialize(opts Options) (string, *group, error) {
 // hashMembers combines the raw guardfile bytes of a group (members are
 // pre-sorted by path) into one staleness hash.
 func hashMembers(mems []member) string {
-	bss := make([][]byte, len(mems))
-	for i, m := range mems {
-		bss[i] = m.Bytes
+	bss := make([][]byte, 0, len(mems)*2)
+	for _, m := range mems {
+		bss = append(bss, []byte(m.Path+"\x00"), m.Bytes)
 	}
 	return hashConcat(bss...)
 }
@@ -652,7 +850,11 @@ func materializeModuleDir(dir string, main []byte, mems []member, specByPath map
 		}
 	}
 	for name, b := range files {
-		if err := os.WriteFile(filepath.Join(dir, name), b, 0o600); err != nil {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			return fmt.Errorf("kdl-specs: create embed dir: %w", err)
+		}
+		if err := os.WriteFile(path, b, 0o600); err != nil {
 			return fmt.Errorf("kdl-specs: write %s: %w", name, err)
 		}
 	}
