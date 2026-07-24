@@ -189,10 +189,14 @@ func TestRenderRejectsEmptyGroup(t *testing.T) {
 
 func TestDeriveLockName(t *testing.T) {
 	cases := map[string]string{
-		"forgejo.swagger.v1.json": "forgejo.swagger.lock.json.gz",
-		"trello.openapi.json":     "trello.openapi.lock.json.gz",
-		"tailscale.openapi.yaml":  "tailscale.openapi.lock.json.gz",
-		"weird.spec":              "weird.spec.lock.gz",
+		"forgejo.swagger.v1.json":    "forgejo.swagger.lock.json.gz",
+		"forgejo.swagger.v1.json.gz": "forgejo.swagger.lock.json.gz",
+		"trello.openapi.json":        "trello.openapi.lock.json.gz",
+		"trello.openapi.json.gz":     "trello.openapi.lock.json.gz",
+		"tailscale.openapi.yaml":     "tailscale.openapi.lock.json.gz",
+		"tailscale.openapi.yaml.gz":  "tailscale.openapi.lock.json.gz",
+		"weird.spec":                 "weird.spec.lock.gz",
+		"weird.spec.gz":              "weird.spec.lock.gz",
 	}
 	for in, want := range cases {
 		if got := deriveLockName(in); got != want {

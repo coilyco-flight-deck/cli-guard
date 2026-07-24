@@ -175,15 +175,16 @@ func RenderParams(sp SetParams) ([]byte, error) {
 // deriveLockName maps the Guardfile spec filename to the committed gzip lock
 // name. The encoded payload expands to pruned JSON. See specgen.md.
 func deriveLockName(spec string) string {
-	if strings.HasSuffix(spec, ".v1.json") {
-		return strings.TrimSuffix(spec, ".v1.json") + ".lock.json.gz"
+	logicalSpec := strings.TrimSuffix(spec, ".gz")
+	if strings.HasSuffix(logicalSpec, ".v1.json") {
+		return strings.TrimSuffix(logicalSpec, ".v1.json") + ".lock.json.gz"
 	}
 	for _, sfx := range []string{".openapi.json", ".openapi.yaml", ".openapi.yml"} {
-		if strings.HasSuffix(spec, sfx) {
-			return strings.TrimSuffix(spec, sfx) + ".openapi.lock.json.gz"
+		if strings.HasSuffix(logicalSpec, sfx) {
+			return strings.TrimSuffix(logicalSpec, sfx) + ".openapi.lock.json.gz"
 		}
 	}
-	return spec + ".lock.gz"
+	return logicalSpec + ".lock.gz"
 }
 
 // deriveSpecURL turns the Guardfile base-url into the Swagger fetch URL: the
