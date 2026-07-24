@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const maxDecodedSpecLockBytes = 128 << 20
+const maxDecodedSpecBytes = 128 << 20
 
 // encodeSpecLock returns a deterministic gzip representation of the pruned JSON
 // contract. The zero-value gzip header carries no timestamp or source filename.
@@ -33,20 +33,24 @@ func encodeSpecLock(decoded []byte) ([]byte, error) {
 // decodeSpecLock expands a committed gzip lock into the JSON contract consumed
 // by skew, reference generation, cache hashing, and materialization.
 func decodeSpecLock(encoded []byte) ([]byte, error) {
+	return decodeGzipSpec(encoded, "spec lock", maxDecodedSpecBytes)
+}
+
+func decodeGzipSpec(encoded []byte, label string, maxBytes int64) ([]byte, error) {
 	zr, err := gzip.NewReader(bytes.NewReader(encoded))
 	if err != nil {
-		return nil, fmt.Errorf("open gzip stream: %w", err)
+		return nil, fmt.Errorf("open gzip %s: %w", label, err)
 	}
-	decoded, readErr := io.ReadAll(io.LimitReader(zr, maxDecodedSpecLockBytes+1))
+	decoded, readErr := io.ReadAll(io.LimitReader(zr, maxBytes+1))
 	closeErr := zr.Close()
 	if readErr != nil {
-		return nil, fmt.Errorf("decompress spec lock: %w", readErr)
+		return nil, fmt.Errorf("decompress %s: %w", label, readErr)
 	}
 	if closeErr != nil {
-		return nil, fmt.Errorf("close gzip stream: %w", closeErr)
+		return nil, fmt.Errorf("close gzip %s: %w", label, closeErr)
 	}
-	if len(decoded) > maxDecodedSpecLockBytes {
-		return nil, fmt.Errorf("decoded spec lock exceeds %d bytes", maxDecodedSpecLockBytes)
+	if int64(len(decoded)) > maxBytes {
+		return nil, fmt.Errorf("decoded %s exceeds %d bytes", label, maxBytes)
 	}
 	return decoded, nil
 }

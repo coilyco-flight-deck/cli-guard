@@ -560,9 +560,13 @@ func lockSpecs(g *group) (map[string][]byte, error) {
 func loadFullSpec(m member) ([]byte, error) {
 	if m.GF != nil && m.GF.Spec != "" {
 		local := filepath.Join(filepath.Dir(m.SourcePath), m.GF.Spec)
-		if b, rerr := os.ReadFile(local); rerr == nil { //nolint:gosec // operator-vendored spec beside the guardfile
+		b, readErr := readSpecSource(local)
+		if readErr == nil {
 			fmt.Fprintf(os.Stderr, "specgen: read vendored spec %s\n", m.GF.Spec)
 			return b, nil
+		}
+		if !os.IsNotExist(readErr) {
+			return nil, fmt.Errorf("read vendored spec %s: %w", m.GF.Spec, readErr)
 		}
 	}
 	return fetchSpec(m.Params.SpecURL)

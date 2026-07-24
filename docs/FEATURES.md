@@ -26,7 +26,7 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 ### HTTP request surface (`http/`)
 
 - **egress** - Per-run CONNECT proxy with consumer allowlist.
-- **guardfile** / **specverb** / **opcore** / **codegen** / **cmd/specgen** - HTTP/codegen driver with `.specgen/` discovery and encoded API locks. See [specgen.md](specgen.md) and [features-detail.md](features-detail.md).
+- **Specgen HTTP/codegen stack** - `.specgen/` discovery, [gzip sources](specgen-vendored-sources.md), and encoded locks. See [specgen.md](specgen.md) and [features-detail.md](features-detail.md).
 - **complex actions** - `wrap`-block `poll`/`call`/`collect` verbs; the mount form shadows its leaf. See [specverb-actions.md](specverb-actions.md).
 - **respfmt** - JSON renderer + JMESPath, five formats.
 - **ghcache** / **ghidcache** / **ghratelimit** / **stscache** - Response, id, rate-limit, STS caches.
