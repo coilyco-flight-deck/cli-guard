@@ -494,7 +494,7 @@ func emitExecReferenceDoc(dir string, m member) error {
 // emitReferenceDocFromLock writes one member's reference doc from its committed
 // spec lock, or no-ops with a note when the lock is absent (pre-lock gen).
 func emitReferenceDocFromLock(dir string, m member) error {
-	specBytes, err := os.ReadFile(filepath.Join(dir, m.Params.SpecLockName)) //nolint:gosec // committed spec snapshot
+	specBytes, err := readSpecLock(dir, m)
 	if err != nil {
 		if os.IsNotExist(err) {
 			fmt.Fprintf(os.Stderr, "specgen: skipped reference doc (no spec lock %s; run lock)\n", m.Params.SpecLockName)
@@ -545,11 +545,12 @@ func lockSpecs(g *group) (map[string][]byte, error) {
 		if err := os.MkdirAll(filepath.Dir(specLockPath), 0o750); err != nil {
 			return nil, fmt.Errorf("specgen: create spec lock dir: %w", err)
 		}
-		if err := os.WriteFile(specLockPath, specBytes, 0o644); err != nil { //nolint:gosec // committed spec snapshot, not a secret
+		encodedSize, err := writeSpecLock(specLockPath, specBytes)
+		if err != nil {
 			return nil, fmt.Errorf("specgen: write spec lock: %w", err)
 		}
 		specs[m.Path] = specBytes
-		fmt.Fprintf(os.Stderr, "specgen: locked %s (%d bytes, pruned from %d)\n", m.Params.SpecLockName, len(specBytes), len(full))
+		fmt.Fprintf(os.Stderr, "specgen: locked %s (%d encoded bytes, %d decoded, pruned from %d)\n", m.Params.SpecLockName, encodedSize, len(specBytes), len(full))
 	}
 	return specs, nil
 }
@@ -625,7 +626,7 @@ func Skew(opts Options) error {
 		if m.isExec() {
 			continue // exec members have no upstream spec to drift against
 		}
-		committed, err := os.ReadFile(filepath.Join(g.Dir, m.Params.SpecLockName)) //nolint:gosec // committed spec snapshot
+		committed, err := readSpecLock(g.Dir, m)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return fmt.Errorf("specgen: no spec lock %s: %w", m.Params.SpecLockName, ErrNoLock)
@@ -703,7 +704,7 @@ func materialize(opts Options) (string, *group, error) {
 		if m.isExec() {
 			continue
 		}
-		specBytes, err := os.ReadFile(filepath.Join(g.Dir, m.Params.SpecLockName)) //nolint:gosec // committed spec snapshot
+		specBytes, err := readSpecLock(g.Dir, m)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return "", g, fmt.Errorf("specgen: no spec lock %s: %w", m.Params.SpecLockName, ErrNoLock)

@@ -152,7 +152,7 @@ func TestProjectRootUsesDistinctArtifactsForSameBasename(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := []string{g.Members[0].Params.SpecLockName, g.Members[1].Params.SpecLockName}
-	want := []string{"cloud/forgejo.swagger.lock.json", "forge/forgejo.swagger.lock.json"}
+	want := []string{"cloud/forgejo.swagger.lock.json.gz", "forge/forgejo.swagger.lock.json.gz"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("lock names = %v, want %v", got, want)
 	}
@@ -164,17 +164,17 @@ func TestProjectRootUsesDistinctArtifactsForSameBasename(t *testing.T) {
 func TestMaterializeModuleDirPreservesNestedMemberArtifacts(t *testing.T) {
 	dir := t.TempDir()
 	mems := []member{
-		{Path: "cloud/api.kdl", Params: codegen.Params{GuardfileName: "cloud/api.kdl", SpecLockName: "cloud/api.lock.json"}, Bytes: []byte("cloud")},
-		{Path: "forge/api.kdl", Params: codegen.Params{GuardfileName: "forge/api.kdl", SpecLockName: "forge/api.lock.json"}, Bytes: []byte("forge")},
+		{Path: "cloud/api.kdl", Params: codegen.Params{GuardfileName: "cloud/api.kdl", SpecLockName: "cloud/api.lock.json.gz"}, Bytes: []byte("cloud")},
+		{Path: "forge/api.kdl", Params: codegen.Params{GuardfileName: "forge/api.kdl", SpecLockName: "forge/api.lock.json.gz"}, Bytes: []byte("forge")},
 	}
 	if err := materializeModuleDir(dir, []byte("package main\n"), mems, map[string][]byte{"cloud/api.kdl": []byte("cloud lock"), "forge/api.kdl": []byte("forge lock")}); err != nil {
 		t.Fatal(err)
 	}
 	for path, want := range map[string]string{
-		"cloud/api.kdl":       "cloud",
-		"forge/api.kdl":       "forge",
-		"cloud/api.lock.json": "cloud lock",
-		"forge/api.lock.json": "forge lock",
+		"cloud/api.kdl":          "cloud",
+		"forge/api.kdl":          "forge",
+		"cloud/api.lock.json.gz": "cloud lock",
+		"forge/api.lock.json.gz": "forge lock",
 	} {
 		got, err := os.ReadFile(filepath.Join(dir, path))
 		if err != nil || string(got) != want {
