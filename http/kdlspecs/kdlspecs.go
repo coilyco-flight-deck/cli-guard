@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -72,6 +73,21 @@ func (g *group) runtimeBinary() string {
 		return g.RuntimeBinary
 	}
 	return g.Binary
+}
+
+// runtimeExecutable is the platform-specific filesystem name for the generated
+// app. The logical urfave command name remains runtimeBinary on every platform.
+func (g *group) runtimeExecutable() string {
+	return executablePathForOS(runtime.GOOS, g.runtimeBinary())
+}
+
+// executablePathForOS gives Windows executables their required .exe suffix
+// without changing an explicit suffix or any non-Windows path.
+func executablePathForOS(goos, path string) string {
+	if goos == "windows" && !strings.EqualFold(filepath.Ext(path), ".exe") {
+		return path + ".exe"
+	}
+	return path
 }
 
 // normalizeBinaryName checks a caller-supplied generated binary name before it
@@ -734,7 +750,7 @@ func materialize(opts Options) (string, *group, error) {
 	if err != nil {
 		return "", g, err
 	}
-	binPath := filepath.Join(cdir, "bin", g.runtimeBinary())
+	binPath := filepath.Join(cdir, "bin", g.runtimeExecutable())
 	want := stamp{
 		GuardfileHash:    hashMembers(g.Members),
 		SpecLockHash:     hashConcat(orderedSpecs(g.Members, specByPath)...),
@@ -759,9 +775,13 @@ func hashMembers(mems []member) string {
 	return hashConcat(bss...)
 }
 
-// resolveBuildDest turns Build's --out into the binary's destination, following
-// go build -o: an existing dir (or trailing separator) takes the binary name.
+// resolveBuildDest follows go build -o: directories take the binary name, while
+// explicit paths stay explicit. Windows adds .exe to either form when absent.
 func resolveBuildDest(out, binary string) (string, error) {
+	return resolveBuildDestForOS(runtime.GOOS, out, binary)
+}
+
+func resolveBuildDestForOS(goos, out, binary string) (string, error) {
 	if out == "" {
 		return "", fmt.Errorf("specgen: build needs an output path (--out)")
 	}
@@ -771,6 +791,7 @@ func resolveBuildDest(out, binary string) (string, error) {
 	} else if info, err := os.Stat(out); err == nil && info.IsDir() {
 		dest = filepath.Join(out, binary)
 	}
+	dest = executablePathForOS(goos, dest)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
 		return "", fmt.Errorf("specgen: create output dir: %w", err)
 	}

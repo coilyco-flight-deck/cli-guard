@@ -281,6 +281,17 @@ func TestLoadGroupKeepsSourceBinaryWhenRuntimeNameChanges(t *testing.T) {
 	if renamedGroup.runtimeBinary() != "ward" {
 		t.Errorf("runtime binary: got %q want ward", renamedGroup.runtimeBinary())
 	}
+	for _, tc := range []struct {
+		goos string
+		want string
+	}{
+		{goos: "linux", want: "ward"},
+		{goos: "windows", want: "ward.exe"},
+	} {
+		if got := executablePathForOS(tc.goos, renamedGroup.runtimeBinary()); got != tc.want {
+			t.Errorf("%s runtime executable: got %q want %q", tc.goos, got, tc.want)
+		}
+	}
 	main, err := renamedGroup.render()
 	if err != nil {
 		t.Fatalf("render: %v", err)
@@ -416,38 +427,56 @@ func TestBuildRefusesWithoutLocks(t *testing.T) {
 }
 
 func TestResolveBuildDest(t *testing.T) {
-	dir := t.TempDir()
-	if _, err := resolveBuildDest("", "forgejo-guardrail"); err == nil {
-		t.Error("empty out should error")
+	for _, tc := range []struct {
+		goos   string
+		suffix string
+	}{
+		{goos: "linux"},
+		{goos: "windows", suffix: ".exe"},
+	} {
+		t.Run(tc.goos, func(t *testing.T) {
+			dir := t.TempDir()
+			if _, err := resolveBuildDestForOS(tc.goos, "", "forgejo-guardrail"); err == nil {
+				t.Error("empty out should error")
+			}
+			// Existing directory -> binary name joined on.
+			got, err := resolveBuildDestForOS(tc.goos, dir, "forgejo-guardrail")
+			if err != nil {
+				t.Fatalf("dir dest: %v", err)
+			}
+			if want := filepath.Join(dir, "forgejo-guardrail"+tc.suffix); got != want {
+				t.Errorf("dir dest: got %q want %q", got, want)
+			}
+			// Trailing separator on a not-yet-existing dir -> treated as a directory.
+			sub := filepath.Join(dir, "out") + string(os.PathSeparator)
+			got, err = resolveBuildDestForOS(tc.goos, sub, "forgejo-guardrail")
+			if err != nil {
+				t.Fatalf("trailing-sep dest: %v", err)
+			}
+			if want := filepath.Join(dir, "out", "forgejo-guardrail"+tc.suffix); got != want {
+				t.Errorf("trailing-sep dest: got %q want %q", got, want)
+			}
+			// Explicit file path -> platform-normalized, parent created.
+			file := filepath.Join(dir, "nested", "mybin")
+			got, err = resolveBuildDestForOS(tc.goos, file, "forgejo-guardrail")
+			if err != nil {
+				t.Fatalf("file dest: %v", err)
+			}
+			if want := file + tc.suffix; got != want {
+				t.Errorf("file dest: got %q want %q", got, want)
+			}
+			if _, err := os.Stat(filepath.Dir(file)); err != nil {
+				t.Errorf("parent dir not created: %v", err)
+			}
+		})
 	}
-	// Existing directory -> binary name joined on.
-	got, err := resolveBuildDest(dir, "forgejo-guardrail")
-	if err != nil {
-		t.Fatalf("dir dest: %v", err)
-	}
-	if want := filepath.Join(dir, "forgejo-guardrail"); got != want {
-		t.Errorf("dir dest: got %q want %q", got, want)
-	}
-	// Trailing separator on a not-yet-existing dir -> treated as a directory.
-	sub := filepath.Join(dir, "out") + string(os.PathSeparator)
-	got, err = resolveBuildDest(sub, "forgejo-guardrail")
-	if err != nil {
-		t.Fatalf("trailing-sep dest: %v", err)
-	}
-	if want := filepath.Join(dir, "out", "forgejo-guardrail"); got != want {
-		t.Errorf("trailing-sep dest: got %q want %q", got, want)
-	}
-	// Explicit file path -> used verbatim, parent created.
-	file := filepath.Join(dir, "nested", "mybin")
-	got, err = resolveBuildDest(file, "forgejo-guardrail")
-	if err != nil {
-		t.Fatalf("file dest: %v", err)
-	}
-	if got != file {
-		t.Errorf("file dest: got %q want %q", got, file)
-	}
-	if _, err := os.Stat(filepath.Dir(file)); err != nil {
-		t.Errorf("parent dir not created: %v", err)
+}
+
+func TestExecutablePathForOSDoesNotDuplicateEXE(t *testing.T) {
+	for _, path := range []string{"aguard.exe", "aguard.EXE"} {
+		if got := executablePathForOS("windows", path); got != path {
+			t.Errorf("executablePathForOS(windows, %q) = %q", path, got)
+		}
 	}
 }
 
