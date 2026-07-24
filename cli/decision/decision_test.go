@@ -77,6 +77,7 @@ func TestCoordinatePtr_NotNilOnMissingFile(t *testing.T) {
 	}
 	if c == nil {
 		t.Fatal("CoordinatePtr returned nil on missing file; expected Strictest fallback")
+		return
 	}
 	if c.DataSecurity != profile.DataSecurityMax {
 		t.Errorf("data_security = %q, want max", c.DataSecurity)
