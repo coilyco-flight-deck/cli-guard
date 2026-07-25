@@ -11,7 +11,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:v0.255.0
+    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:release
     steps:
       - uses: actions/checkout@v6
       - name: Configure Go scratch
@@ -101,7 +101,7 @@ jobs:
           PY
   lint:
     runs-on: ubuntu-latest
-    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:v0.255.0
+    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:release
     steps:
       - uses: actions/checkout@v6
       - name: Configure Go scratch
@@ -185,7 +185,7 @@ jobs:
           PY
   govulncheck:
     runs-on: ubuntu-latest
-    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:v0.255.0
+    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:release
     steps:
       - uses: actions/checkout@v6
       - name: Configure Go scratch

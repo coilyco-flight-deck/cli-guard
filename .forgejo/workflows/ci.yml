@@ -1,9 +1,9 @@
 # Forgejo-canonical CI gate. Mirrors the pre-commit suite (vet, build, test,
 # golangci-lint, godoc-current, go mod tidy, secret scan) so the gate is enforced
-# on the canonical remote inside the pinned dev-base image. The GitHub mirror's
+# on the canonical remote inside the moving :release dev-base image. The GitHub mirror's
 # .github/workflows/ci.yml stays the PR-gated twin.
 #
-# The pinned dev-base image already carries Go, golangci-lint, and trufflehog,
+# The moving :release dev-base image already carries Go, golangci-lint, and trufflehog,
 # so the jobs run the same toolchain a dispatched agent lands in. Pin the image
 # deliberately, never :latest.
 
@@ -20,7 +20,7 @@ permissions:
 jobs:
   test:
     runs-on: docker
-    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:latest
+    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:release
     steps:
       - uses: actions/checkout@v6
         with:
@@ -116,7 +116,7 @@ jobs:
           PY
   lint:
     runs-on: docker
-    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:latest
+    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:release
     steps:
       - uses: actions/checkout@v6
       - name: Configure Go scratch
@@ -200,7 +200,7 @@ jobs:
           PY
   secrets:
     runs-on: docker
-    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:latest
+    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:release
     steps:
       - uses: actions/checkout@v6
         with:

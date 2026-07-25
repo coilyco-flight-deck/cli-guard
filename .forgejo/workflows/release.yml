@@ -25,7 +25,7 @@ permissions:
 jobs:
   release:
     runs-on: docker
-    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:latest
+    container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:release
     outputs:
       tag: ${{ steps.tag.outputs.new_tag }}
       version: ${{ steps.tag.outputs.new_version }}
