@@ -23,7 +23,7 @@ type Guardfile struct {
 	Env        []EnvVar     // environment vars set on the wrapped process
 	Grants     []Grant      // mounted leaves
 	Whens      []WhenClause // wrap-level passthrough guards (never pass/only pass), enforced on every leaf - the host gate
-	DocLinks   []DocLink    // `doc-link` footer pointers rendered in the generated reference doc
+	DocLinks   []DocLink    // `doc-link` footer pointers rendered in describe output
 
 	// Allow lists bare binaries that each mount as an independent open-passthrough
 	// funnel: inspect-list sugar, mutually exclusive with exec/can run (docs/execverb.md).
@@ -42,8 +42,8 @@ type Guardfile struct {
 	passthrough bool
 }
 
-// DocLink is one `doc-link` footer entry: a `## See also` back-pointer from the
-// generated reference doc to a hand-written companion doc. See docs/doc-link.md.
+// DocLink is one `doc-link` footer entry: a `## See also` back-pointer from
+// describe output to a hand-written companion doc. See docs/doc-link.md.
 type DocLink struct {
 	Href string // link target: a relative path or URL
 	Text string // link text; defaults to Href when omitted

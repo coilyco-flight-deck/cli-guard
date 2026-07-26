@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/kdlspecs/codegen"
+	"gopkg.in/yaml.v3"
 )
 
 const guardfileFixture = `wrap ward-kdl ops forgejo {
@@ -27,6 +28,29 @@ const execFixture = `wrap ward-kdl ops aws {
 	can run sts get-caller-identity
 	can run s3 ls {
 		deny-when arg0 matches "*tfstate*"
+	}
+}`
+
+const skillSpecFixture = `{
+	"swagger": "2.0",
+	"info": {"title": "test", "version": "1"},
+	"paths": {
+		"/repos/{owner}/{repo}": {
+			"get": {
+				"operationId": "repoGet",
+				"parameters": [
+					{"name": "owner", "in": "path", "required": true, "type": "string"},
+					{"name": "repo", "in": "path", "required": true, "type": "string"}
+				],
+				"responses": {"200": {"description": "ok"}}
+			}
+		},
+		"/user/repos": {
+			"post": {
+				"operationId": "createCurrentUserRepo",
+				"responses": {"201": {"description": "created"}}
+			}
+		}
 	}
 }`
 
@@ -156,8 +180,8 @@ func TestProjectRootUsesDistinctArtifactsForSameBasename(t *testing.T) {
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("lock names = %v, want %v", got, want)
 	}
-	if got[0] == got[1] || refDocName(g.Members[0]) == refDocName(g.Members[1]) {
-		t.Errorf("same-basename members must keep separate artifact names: locks=%v docs=%q,%q", got, refDocName(g.Members[0]), refDocName(g.Members[1]))
+	if got[0] == got[1] {
+		t.Errorf("same-basename members must keep separate lock names: %v", got)
 	}
 }
 
@@ -328,7 +352,7 @@ func TestLoadGroupRejectsInvalidRuntimeBinaryName(t *testing.T) {
 	}
 }
 
-func TestGenEmitsExecReferenceDoc(t *testing.T) {
+func TestGenDoesNotEmitReferenceDocs(t *testing.T) {
 	dir := t.TempDir()
 	gfPath := filepath.Join(dir, "aws.guardfile.kdl")
 	if err := os.WriteFile(gfPath, []byte(execFixture), 0o600); err != nil {
@@ -337,13 +361,93 @@ func TestGenEmitsExecReferenceDoc(t *testing.T) {
 	if err := Gen(Options{GuardfilePath: gfPath, Out: filepath.Join(dir, "main.go")}); err != nil {
 		t.Fatalf("Gen: %v", err)
 	}
-	doc, err := os.ReadFile(filepath.Join(dir, "aws.guardfile.md"))
-	if err != nil {
-		t.Fatalf("read exec reference doc: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "aws.guardfile.md")); !os.IsNotExist(err) {
+		t.Fatalf("Gen wrote retired reference doc: %v", err)
 	}
-	for _, want := range []string{"# ward-kdl ops aws", "Exec-dialect CLI", "## ward-kdl ops aws s3 ls", "denies when arg0 matches"} {
-		if !strings.Contains(string(doc), want) {
-			t.Errorf("exec reference doc missing %q", want)
+}
+
+func TestGenWritesDeterministicMixedTransportSkill(t *testing.T) {
+	dir := t.TempDir()
+	specPath := filepath.Join(dir, "forgejo.guardfile.kdl")
+	execPath := filepath.Join(dir, "aws.guardfile.kdl")
+	if err := os.WriteFile(specPath, []byte(guardfileFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(execPath, []byte(execFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeSpecLock(filepath.Join(dir, "forgejo.swagger.lock.json.gz"), []byte(skillSpecFixture)); err != nil {
+		t.Fatal(err)
+	}
+	skillsOut := filepath.Join(dir, "skills")
+	opts := Options{
+		GuardfilePath: specPath,
+		BinaryName:    "fixtureguard",
+		Out:           filepath.Join(dir, "main.go"),
+		SkillsOut:     skillsOut,
+	}
+	if err := Gen(opts); err != nil {
+		t.Fatalf("Gen: %v", err)
+	}
+
+	skillPath := filepath.Join(skillsOut, "fixtureguard", "SKILL.md")
+	indexPath := filepath.Join(skillsOut, "fixtureguard", "references", "commands.yaml")
+	firstSkill, err := os.ReadFile(skillPath)
+	if err != nil {
+		t.Fatalf("read SKILL.md: %v", err)
+	}
+	firstIndex, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("read commands.yaml: %v", err)
+	}
+	if err := Gen(opts); err != nil {
+		t.Fatalf("Gen second pass: %v", err)
+	}
+	secondSkill, _ := os.ReadFile(skillPath)
+	secondIndex, _ := os.ReadFile(indexPath)
+	if string(firstSkill) != string(secondSkill) || string(firstIndex) != string(secondIndex) {
+		t.Fatal("generated skill output changed across identical inputs")
+	}
+
+	parts := strings.SplitN(string(firstSkill), "---", 3)
+	if len(parts) != 3 {
+		t.Fatalf("SKILL.md lacks frontmatter:\n%s", firstSkill)
+	}
+	var meta struct {
+		Name        string `yaml:"name"`
+		Description string `yaml:"description"`
+	}
+	if err := yaml.Unmarshal([]byte(parts[1]), &meta); err != nil {
+		t.Fatalf("parse SKILL.md frontmatter: %v", err)
+	}
+	if meta.Name != "fixtureguard" || meta.Description == "" {
+		t.Errorf("frontmatter = %+v", meta)
+	}
+	if strings.Contains(string(firstSkill), "get-caller-identity") || strings.Contains(string(firstSkill), "repoGet") {
+		t.Errorf("SKILL.md copied exhaustive command detail:\n%s", firstSkill)
+	}
+
+	var index struct {
+		Commands []struct {
+			Path []string `yaml:"path"`
+		} `yaml:"commands"`
+	}
+	if err := yaml.Unmarshal(firstIndex, &index); err != nil {
+		t.Fatalf("parse commands.yaml: %v", err)
+	}
+	paths := map[string]bool{}
+	for _, entry := range index.Commands {
+		paths[strings.Join(entry.Path, " ")] = true
+	}
+	for _, want := range []string{
+		"fixtureguard ops aws sts get-caller-identity",
+		"fixtureguard ops aws s3 ls",
+		"fixtureguard ops forgejo describe",
+		"fixtureguard ops forgejo repos read",
+		"fixtureguard ops forgejo repos create",
+	} {
+		if !paths[want] {
+			t.Errorf("commands.yaml missing reachable command %q; got %v", want, paths)
 		}
 	}
 }

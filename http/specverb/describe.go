@@ -393,8 +393,7 @@ func (rt *runtime) buildDescribeLeaf(gf *guardfile.Guardfile, surface *Surface) 
 	}
 }
 
-// Markdown renders the surface as the readable reference doc: the same artifact
-// the describe verb prints and the driver writes beside the Guardfile at build time.
+// Markdown renders the pulled surface that the describe verb prints.
 func (s *Surface) Markdown() string {
 	return renderProse(s)
 }
@@ -515,8 +514,7 @@ func writeFetchGuards(b *strings.Builder, whens []FetchWhenInfo) {
 	}
 }
 
-// writeSeeAlso appends the `## See also` footer, one bullet per doc-link, so the
-// generated reference doc points back to its companion docs. No-op when empty.
+// writeSeeAlso appends the `## See also` footer, one bullet per doc-link.
 func writeSeeAlso(b *strings.Builder, links []guardfile.DocLink) {
 	if len(links) == 0 {
 		return

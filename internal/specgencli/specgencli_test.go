@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/kdlspecs"
@@ -23,5 +24,18 @@ func TestVersionReportsDriverAndDefaultCLIGuardRef(t *testing.T) {
 	)
 	if got := out.String(); got != want {
 		t.Fatalf("--version output = %q, want %q", got, want)
+	}
+}
+
+func TestHelpExposesExplicitSkillOutputRoot(t *testing.T) {
+	var out bytes.Buffer
+
+	if code := Run(context.Background(), []string{"specgen", "--help"}, &out, &out); code != 0 {
+		t.Fatalf("run --help exit code = %d, want 0", code)
+	}
+	for _, want := range []string{"--skills-out string", "<root>/<binary>/SKILL.md", "references/commands.yaml"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("--help missing %q:\n%s", want, out.String())
+		}
 	}
 }

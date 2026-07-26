@@ -19,6 +19,8 @@ cli-guard is a **security-boundary** framework for [urfave/cli][urfave/cli] v3 a
 The repository also ships **`specgen`**, an installable no-code driver that turns
 KDL policy plus committed locks into standalone guarded CLIs without hand-written
 Go. It discovers `.specgen/` and can generate, lock, check skew, build, and run.
+An explicit `--skills-out` path also renders a concise native agent skill plus
+a lazy command index from the merged command tree.
 
 ## Install specgen
 

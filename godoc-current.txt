@@ -260,9 +260,8 @@ type DocLink struct {
 	Text string // link text; defaults to Href when omitted
 	Desc string // optional trailing description after the link
 }
-    DocLink is one `doc-link` footer entry: a `## See also` back-pointer
-    from the generated reference doc to a hand-written companion doc. See
-    docs/doc-link.md.
+    DocLink is one `doc-link` footer entry: a `## See also` back-pointer from
+    describe output to a hand-written companion doc. See docs/doc-link.md.
 
 type EnvVar struct {
 	Name     string
@@ -340,7 +339,7 @@ type Guardfile struct {
 	Env        []EnvVar     // environment vars set on the wrapped process
 	Grants     []Grant      // mounted leaves
 	Whens      []WhenClause // wrap-level passthrough guards (never pass/only pass), enforced on every leaf - the host gate
-	DocLinks   []DocLink    // `doc-link` footer pointers rendered in the generated reference doc
+	DocLinks   []DocLink    // `doc-link` footer pointers rendered in describe output
 
 	// Allow lists bare binaries that each mount as an independent open-passthrough
 	// funnel: inspect-list sugar, mutually exclusive with exec/can run (docs/execverb.md).
@@ -395,8 +394,7 @@ func Describe(gf *Guardfile) *Surface
     command tree, so the driver and docs can read it directly.
 
 func (s *Surface) Markdown() string
-    Markdown renders the surface as the committed reference doc, the
-    exec-dialect analog of specverb's Surface.Markdown().
+    Markdown renders the exec dialect's pulled describe surface.
 
 type WhenClause struct {
 	// Selector names the argv slot: flag name, `any-arg`, or `argN`. Empty when
@@ -1589,9 +1587,8 @@ type DocLink struct {
 	Text string // link text; defaults to Href when omitted
 	Desc string // optional trailing description after the link
 }
-    DocLink is one `doc-link` footer entry: a `## See also` back-pointer
-    from the generated reference doc to a hand-written companion doc. See
-    docs/doc-link.md.
+    DocLink is one `doc-link` footer entry: a `## See also` back-pointer from
+    describe output to a hand-written companion doc. See docs/doc-link.md.
 
 type Fetch struct {
 	Name     string
@@ -1679,7 +1676,7 @@ type Guardfile struct {
 	Restrict     []Restriction
 	Actions      []Action
 	Fetches      []Fetch
-	DocLinks     []DocLink // `doc-link` footer pointers rendered in the generated reference doc
+	DocLinks     []DocLink // `doc-link` footer pointers rendered in describe output
 }
     Guardfile is the parsed form of one wrap block.
 
@@ -1818,12 +1815,12 @@ func DriverVersion() string
     their stamped tag, Go installs use build info, and source reports "(devel)".
 
 func Gen(opts Options) error
-    Gen renders the merged consumer main.go (cache, or --out for inspection) and
-    refreshes each member's reference doc from its committed spec lock.
+    Gen renders the merged consumer main.go into the cache or --out. Agent skill
+    output is opt-in through Options.SkillsOut.
 
 func Lock(opts Options) error
     Lock refreshes both committed locks: each member's pruned spec lock and the
-    one specverb.lock (the frozen build module). The `uv lock` analog.
+    one specverb.lock (the frozen build module). Skill output remains opt-in.
 
 func Run(opts Options) error
     Run materializes the consumer binary out-of-band (building only when
@@ -1858,6 +1855,7 @@ type Options struct {
 	CLIGuardRef     string   // lock: cli-guard module query to pin (version/commit); empty = auto
 	CLIGuardReplace string   // lock: local cli-guard checkout to replace with (dev locks only)
 	Version         string   // build: release version stamped into the binary via -ldflags (empty = "dev")
+	SkillsOut       string   // explicit skill root; empty writes no agent-facing artifacts
 }
     Options are the inputs shared by every driver verb.
 
@@ -2089,7 +2087,7 @@ func (f Field) QueryName() string
     UpstreamName preserves the historical Name-to-wire mapping.
 
 func (f Field) TypeLabel() string
-    TypeLabel renders the flag's type for help and the reference doc.
+    TypeLabel renders the flag's type for help and describe output.
 
 type Operation struct {
 	Desc Descriptor
@@ -2492,9 +2490,7 @@ func Describe(cfg Config) (*Surface, error)
     like Build.
 
 func (s *Surface) Markdown() string
-    Markdown renders the surface as the readable reference doc: the same
-    artifact the describe verb prints and the driver writes beside the Guardfile
-    at build time.
+    Markdown renders the pulled surface that the describe verb prints.
 
 type VerbInfo struct {
 	Name        string         `json:"name"`                 // dotted audit name, e.g. ward.ops.forgejo.repo.create
@@ -3796,8 +3792,8 @@ func RepoRoot(cwd string) string
 
 package skillgen // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/skillgen"
 
-Package skillgen renders an urfave/cli v3 command tree into either a flat
-markdown lookup table or a structured yaml document. Pairs with
+Package skillgen renders an urfave/cli v3 command tree into agent-facing
+discovery artifacts without making those artifacts runtime authority.
 
 FUNCTIONS
 
@@ -3807,18 +3803,28 @@ func RenderMarkdown(commands []*cli.Command, root string) string
 
 func RenderYAML(commands []*cli.Command, root string) (string, error)
     RenderYAML walks commands and emits a yaml document of Entry rows under a
-    top-level `commands:` key. Each path is prefixed with root
+    top-level `commands:` key. Each path is prefixed with root.
 
 
 TYPES
+
+type Bundle struct {
+	Name         string
+	Skill        string
+	CommandsYAML string
+}
+    Bundle is one native agent skill plus its lazy command index.
+
+func RenderSkill(commands []*cli.Command, root string) (Bundle, error)
+    RenderSkill builds a concise SKILL.md plus a complete lazy command index.
+    Live help and describe output remain authoritative for command behavior.
 
 type Entry struct {
 	Path    []string `yaml:"path"`
 	Summary string   `yaml:"summary,omitempty"`
 	Flags   []string `yaml:"flags,omitempty"`
 }
-    Entry is one leaf verb in the structured (yaml) form of the command tree.
-    Programmatic consumers (an external orchestrator, a plan-time
+    Entry is one reachable leaf in the structured YAML command index.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/stepflow

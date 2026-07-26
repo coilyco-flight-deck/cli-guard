@@ -49,6 +49,10 @@ func app() *cli.Command {
 				Name:  "project-root",
 				Usage: "recursive KDL discovery root (members are identified by parsed wrap declarations)",
 			},
+			&cli.StringFlag{
+				Name:  "skills-out",
+				Usage: "explicit skill root; writes <root>/<binary>/SKILL.md and references/commands.yaml",
+			},
 			// --out on the root keeps the legacy one-shot signature working.
 			// Local so it does not collide with gen's own --out on subcommands.
 			&cli.StringFlag{Name: "out", Hidden: true, Local: true},
@@ -104,6 +108,7 @@ func lockCmd() *cli.Command {
 				ProjectRoot:     c.String("project-root"),
 				CLIGuardRef:     c.String("cli-guard-ref"),
 				CLIGuardReplace: c.String("cli-guard-replace"),
+				SkillsOut:       c.String("skills-out"),
 			})
 		},
 	}
@@ -135,6 +140,7 @@ func buildCmd() *cli.Command {
 				BinaryName:    c.String("binary"),
 				Out:           c.String("out"),
 				Version:       c.String("set-version"),
+				SkillsOut:     c.String("skills-out"),
 			})
 		},
 	}
@@ -148,7 +154,13 @@ func runCmd() *cli.Command {
 			binaryNameFlag(),
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
-			return kdlspecs.Run(kdlspecs.Options{GuardfilePath: resolveGuardfile(c), ProjectRoot: c.String("project-root"), BinaryName: c.String("binary"), Args: c.Args().Slice()})
+			return kdlspecs.Run(kdlspecs.Options{
+				GuardfilePath: resolveGuardfile(c),
+				ProjectRoot:   c.String("project-root"),
+				BinaryName:    c.String("binary"),
+				Args:          c.Args().Slice(),
+				SkillsOut:     c.String("skills-out"),
+			})
 		},
 	}
 }
@@ -160,5 +172,11 @@ func resolveGuardfile(c *cli.Command) string {
 }
 
 func options(c *cli.Command, out, binary string) kdlspecs.Options {
-	return kdlspecs.Options{GuardfilePath: resolveGuardfile(c), ProjectRoot: c.String("project-root"), BinaryName: binary, Out: out}
+	return kdlspecs.Options{
+		GuardfilePath: resolveGuardfile(c),
+		ProjectRoot:   c.String("project-root"),
+		BinaryName:    binary,
+		Out:           out,
+		SkillsOut:     c.String("skills-out"),
+	}
 }

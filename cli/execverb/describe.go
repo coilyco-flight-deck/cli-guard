@@ -1,5 +1,5 @@
 // The describe model for the exec dialect: the in-engine view of the mounted
-// surface, source for the committed reference doc. See docs/execverb.md.
+// surface and source for live describe output. See docs/execverb.md.
 
 package execverb
 
@@ -121,8 +121,7 @@ func guardSentence(wc WhenClause) string {
 	return clause
 }
 
-// Markdown renders the surface as the committed reference doc, the exec-dialect
-// analog of specverb's Surface.Markdown().
+// Markdown renders the exec dialect's pulled describe surface.
 func (s *Surface) Markdown() string {
 	if s.Inspect {
 		return s.markdownInspect()
@@ -189,8 +188,7 @@ func (s *Surface) markdownInspect() string {
 	return b.String()
 }
 
-// writeSeeAlso appends the `## See also` footer, one bullet per doc-link, so the
-// generated reference doc points back to its companion docs. No-op when empty.
+// writeSeeAlso appends the `## See also` footer, one bullet per doc-link.
 func writeSeeAlso(b *strings.Builder, links []DocLink) {
 	if len(links) == 0 {
 		return

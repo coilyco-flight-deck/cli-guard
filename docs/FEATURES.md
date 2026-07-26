@@ -45,7 +45,7 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 - **stepflow** - Transport-agnostic ordered sequence engine with explicit data threading.
 - **ttlcache** - Generic TTL-keyed cache.
 - **workdir** - Working-directory resolver.
-- **skillgen** - Render a cli command tree to markdown/yaml.
+- **skillgen** - Render deterministic native agent skills from CLI command trees.
 - **broker** / **credseed** - Credential broker + env seeder. See [broker.md](broker.md).
 - **scan** / **attribution** / **flock** / **version** / **issueref** / **ownertrust** - Ward-lifted helpers. See [ward-helpers.md](ward-helpers.md).
 - **agentid** - Canonical agent-id generator (Go port).

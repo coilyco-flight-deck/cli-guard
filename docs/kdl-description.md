@@ -31,8 +31,8 @@ convention.
 ## How it surfaces
 
 - **The two guardfile dialects** (http/guardfile, exec) flow the prose into the
-  describe surface (`<cli> ... describe`) and the generated reference doc,
-  rendered as a paragraph under the H1.
+  describe surface (`<cli> ... describe`), rendered as a paragraph under the
+  H1.
 - **fleetconfig** parses it into `Fleet.Description` for the consumer (e.g.
   `ward-kdl`) to surface.
 

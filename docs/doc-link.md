@@ -1,6 +1,10 @@
 # `doc-link` footer
 
-A wrap block may carry one or more `doc-link` nodes. Each renders as a `## See also` bullet at the end of the generated reference doc, a back-pointer from that doc to a hand-written companion doc (typically the consumer's hub doc). The node is shared by both dialects: the exec-dialect [`execverb.Surface.Markdown`](execverb.md) and the spec-dialect [describe surface](specverb-describe.md).
+A wrap block may carry one or more `doc-link` nodes. Each renders as a `## See
+also` bullet at the end of pulled describe output, a back-pointer to a
+hand-written companion doc. The node is shared by both dialects: the
+exec-dialect [`execverb.Surface.Markdown`](execverb.md) and the spec-dialect
+[describe surface](specverb-describe.md).
 
 ```kdl
 wrap ward-kdl ops forgejo {
@@ -29,11 +33,14 @@ Renders:
 
 The node gates nothing, so it composes with every surface shape: spec verbs, `exec` funnels, and `allow` inspect lists all carry the footer. The parser fails closed on a block body or more than three arguments.
 
-## Why generated, not hand-written
+## Why it stays in policy
 
-A consumer's per-area reference doc is regenerated on every build (`specgen gen`/`build`), so a hand-added back-link at the bottom is wiped on the next regeneration. Emitting the footer from a guardfile node makes the back-link **generated** too: it survives every regeneration because it is re-emitted from the source. This is the enabler for the generated ward docs, whose reference pages could not point back to their `docs/ward-kdl.md` hub without it.
+The generated CLI cannot recover a source-tree relationship from its binary
+path. Keeping the link beside the policy lets every pulled describe render
+reproduce the hand-written documentation relationship without making generated
+Markdown a committed source.
 
 ## See also
 
 - [execverb.md](execverb.md) - the exec dialect and its grammar.
-- [specverb-describe.md](specverb-describe.md) - the describe model and the reference-doc build.
+- [specverb-describe.md](specverb-describe.md) - the describe model and generated skill.

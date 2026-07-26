@@ -1,6 +1,8 @@
 # the no-code driver (specgen / cmd/specgen)
 
-`ward-kdl` is a **no-code** CLI: the consumer authors policy plus committed locks, never Go or build glue. `specgen` is the uv-style driver. Every spec may carry a top-level [`description`](kdl-description.md) node: standing context, not a comment header.
+`ward-kdl` is a **no-code** CLI: the consumer authors policy plus committed
+locks, never Go or build glue. `specgen` is its driver. Every spec may carry a
+top-level [`description`](kdl-description.md) node for standing context.
 
 ## Install
 
@@ -13,17 +15,28 @@ A `--guardfile` selects a **binary**, not the whole build: members compose only 
 
 A repository can place its recursive project under `.specgen/` and invoke the driver without discovery flags. Pass `--project-root <dir>` for another explicit boundary; a `--guardfile <path>` inside it selects that member's binary group. See [specgen discovery](specgen-discovery.md) for membership, mixed-dialect, identity, and fail-closed rules.
 
-`gen`, `build`, and `run` accept `--binary <name>` to rename only the generated command and cache/build output; discovery and policy identity still come from `wrap`.
+`gen`, `build`, and `run` accept `--binary <name>` to rename the generated
+command and build output. Discovery and policy identity still come from `wrap`.
 
-Locks and reference docs are per member and preserve root-relative directories; `main.go` and `specverb.lock` are per binary. The override env var is keyed on the full wrap group. Spec and exec members can share one binary - see [mixed transports](specverb-mixed-transports.md).
+Locks are per member and preserve root-relative directories. `main.go`,
+`specverb.lock`, and generated skills are per binary. The override env var is
+keyed on the full wrap group. Spec and exec members can share one binary - see
+[mixed transports](specverb-mixed-transports.md).
 
 ## The five verbs
 
-- **`gen`** - render the merged `main.go` into the cache (or `--out` to inspect it), and write each member's root-relative reference doc (`<member>.md`) from the committed spec lock. A debug step; `run` materializes for you. `--binary <name>` overrides the generated app name for inspection or renamed builds.
-- **`lock`** - the deliberate online step. For each member, reads a [vendored source](specgen-vendored-sources.md) or fetches upstream Swagger, **prunes it to the granted surface**, writes the deterministic gzip lock, and refreshes its reference doc. It then resolves and freezes the merged module graph in `specverb.lock`. `--cli-guard-ref` pins the framework version; `--cli-guard-replace` points at a local checkout.
-- **`skew`** - for each member, prune live upstream to the same granted surface and diff it against the committed lock, each drift line prefixed with its member, so only operations the consumer exposes register as drift. Exit 3 on any drift, never writes; a fetch failure is a plain error, distinguishable from drift.
+- **`gen`** - render merged `main.go` into the cache, or use `--out` to inspect it.
+- **`lock`** - the deliberate online step. For each member, reads a [vendored source](specgen-vendored-sources.md) or fetches upstream Swagger, **prunes it to the granted surface**, and writes the deterministic gzip lock. It then resolves and freezes the merged module graph in `specverb.lock`. `--cli-guard-ref` pins the framework version; `--cli-guard-replace` points at a local checkout.
+- **`skew`** - prune live upstream to the granted surface and diff it against each committed lock. Exit 3 on drift and never write.
 - **`build`** - materialize the binary **out-of-band** (same cache + staleness path as `run`) and copy it to `--out` (default `bin`) instead of execing it. `--out` follows `go build -o`: a directory (or trailing `/`) takes the generated binary name, else it is the explicit file path. Windows adds `.exe` to either form when it is absent. `--binary <name>` sets that generated name, defaulting to the Guardfile-derived binary. `--set-version <v>` stamps the binary's `--version` via `-ldflags`, default `dev`. Refuses without committed locks.
-- **`run`** - materialize the consumer binary **out-of-band** and exec it with the passed-through args. `--binary <name>` uses the renamed generated app.
+- **`run`** - materialize the consumer binary **out-of-band** and exec it with passed-through args.
+
+## Generated agent skill
+
+Specgen writes no documentation or skill by default. The explicit persistent
+`--skills-out <root>` flag renders one deterministic native skill from the
+merged command tree. See [generated skills](specgen-skills.md) for its files,
+authority boundary, and lifecycle.
 
 ## Out-of-band materialization
 

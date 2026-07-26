@@ -16,9 +16,12 @@ An exec member carries no upstream spec, so it skips every spec-only seam:
 - **No fetch or skew** - `lock` and `skew` iterate spec members only; an exec member has nothing upstream to fetch or drift against.
 - **No SSM token** - `execverb.Mount` takes no auth token; the wrapped binary owns its own credentials.
 
-## Reference doc parity
+## Generated skill parity
 
-A spec member's reference doc comes from its committed spec lock (`specverb.Describe`); an exec member's comes from its parsed policy (`execverb.Describe`). Both land beside the guardfile as the same `<name>.md` artifact, refreshed by `gen` / `lock`.
+Specgen reconstructs both transports into the same merged urfave command tree
+when `--skills-out` is explicit. The generated skill stays concise, while its
+lazy `references/commands.yaml` index contains every reachable spec and exec
+leaf. Live `--help` and `describe` output remain authoritative.
 
 See [specgen.md](specgen.md) for the driver lifecycle and [execverb.md](execverb.md) for the exec dialect.
 

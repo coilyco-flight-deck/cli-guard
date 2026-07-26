@@ -75,7 +75,7 @@ func (f Field) QueryName() string {
 	return f.Name
 }
 
-// TypeLabel renders the flag's type for help and the reference doc.
+// TypeLabel renders the flag's type for help and describe output.
 func (f Field) TypeLabel() string {
 	if f.Type == "array" {
 		if f.Item != nil {

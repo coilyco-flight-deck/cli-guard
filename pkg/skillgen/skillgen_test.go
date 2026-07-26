@@ -77,3 +77,48 @@ func TestRenderYAML_StructuredShape(t *testing.T) {
 		t.Errorf("flags = %v, want 2", got.Flags)
 	}
 }
+
+func TestRenderSkillBuildsConciseNativeBundle(t *testing.T) {
+	first, err := skillgen.RenderSkill(sampleTree(), "Tool Guard")
+	if err != nil {
+		t.Fatalf("RenderSkill: %v", err)
+	}
+	second, err := skillgen.RenderSkill(sampleTree(), "Tool Guard")
+	if err != nil {
+		t.Fatalf("RenderSkill second pass: %v", err)
+	}
+	if first != second {
+		t.Fatal("RenderSkill is not deterministic")
+	}
+	if first.Name != "tool-guard" {
+		t.Errorf("skill name = %q, want tool-guard", first.Name)
+	}
+	for _, want := range []string{
+		"name: tool-guard",
+		"description: Use the guarded Tool Guard CLI",
+		"`Tool Guard --help`",
+		"`references/commands.yaml`",
+	} {
+		if !strings.Contains(first.Skill, want) {
+			t.Errorf("SKILL.md missing %q:\n%s", want, first.Skill)
+		}
+	}
+	if strings.Contains(first.Skill, "get-parameter") {
+		t.Errorf("SKILL.md copied exhaustive leaf help:\n%s", first.Skill)
+	}
+	var parsed struct {
+		Commands []skillgen.Entry `yaml:"commands"`
+	}
+	if err := yaml.Unmarshal([]byte(first.CommandsYAML), &parsed); err != nil {
+		t.Fatalf("parse generated command index: %v", err)
+	}
+	if len(parsed.Commands) != 1 || strings.Join(parsed.Commands[0].Path, " ") != "Tool Guard aws ssm get-parameter" {
+		t.Errorf("command index missing reachable leaf: %+v", parsed.Commands)
+	}
+}
+
+func TestRenderSkillRejectsEmptyRoot(t *testing.T) {
+	if _, err := skillgen.RenderSkill(sampleTree(), " "); err == nil {
+		t.Fatal("RenderSkill accepted an empty root")
+	}
+}
