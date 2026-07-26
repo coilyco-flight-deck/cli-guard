@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
-	neturl "net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
@@ -99,6 +99,10 @@ func fieldFlagsToCLI(ff []fieldFlag) []cli.Flag {
 			flags = append(flags, &cli.FloatFlag{Name: f.Name, Usage: usage})
 		case "array":
 			switch f.Items {
+			case "boolean":
+				// urfave/cli has no BoolSliceFlag. The action parses and validates
+				// each StringSlice value before the shared opcore query validator.
+				flags = append(flags, &cli.StringSliceFlag{Name: f.Name, Usage: usage})
 			case "integer":
 				flags = append(flags, &cli.IntSliceFlag{Name: f.Name, Usage: usage})
 			case "number":
@@ -155,14 +159,10 @@ func (rt *runtime) actionFor(desc opDescriptor) cli.ActionFunc {
 				fmt.Errorf("%s takes %d positional arg(s) %v, got %d", desc.Leaf, len(desc.PathParams), desc.PathParams, len(positional)),
 				"supply exactly the path parameters this verb names")
 		}
-		if err := rt.CheckRestrictions(desc.PathParams, positional); err != nil {
-			return err
-		}
-		base, err := rt.BaseForRequest(ctx, c.Bool(flagDryRun))
+		url, err := rt.resolveCLIURL(ctx, c, desc, positional)
 		if err != nil {
 			return err
 		}
-		url := base + opcore.FillPath(desc.Path, positional) + assembleQuery(c, desc.QueryFlags)
 		var body []byte
 		contentType := contentTypeJSON
 		var preview any
@@ -189,6 +189,21 @@ func (rt *runtime) actionFor(desc opDescriptor) cli.ActionFunc {
 		}
 		return rt.fire(ctx, desc.Method, url, body, contentType, c.String(flagQuery), c.String(flagOutput))
 	}
+}
+
+func (rt *runtime) resolveCLIURL(ctx context.Context, c *cli.Command, desc opDescriptor, positional []string) (string, error) {
+	query, err := resolveCLIQuery(c, desc)
+	if err != nil {
+		return "", err
+	}
+	if err := rt.CheckRestrictions(desc.PathParams, positional); err != nil {
+		return "", err
+	}
+	base, err := rt.BaseForRequest(ctx, c.Bool(flagDryRun))
+	if err != nil {
+		return "", err
+	}
+	return base + opcore.FillPath(desc.Path, positional) + query, nil
 }
 
 // contentTypeJSON is the body content type for every non-multipart verb.
@@ -256,22 +271,54 @@ func writeFilePart(w *multipart.Writer, field, path string) error {
 	return nil
 }
 
-// assembleQuery encodes the set query flags as a ?-prefixed query string, ""
-// when none are set. url.Values sorts keys, so the result is deterministic.
-func assembleQuery(c *cli.Command, flags []fieldFlag) string {
-	vals := neturl.Values{}
+// resolveCLIQuery adapts set CLI flags to typed opcore inputs, then delegates
+// validation, policy gating, aliasing, and repeated-key assembly to opcore.
+func resolveCLIQuery(c *cli.Command, desc opDescriptor) (string, error) {
+	values, err := queryValuesFromCLI(c, desc.QueryFlags)
+	if err != nil {
+		return "", err
+	}
+	query, err := (opcore.Operation{Desc: desc}).ResolveQuery(opcore.Args{QueryValues: values})
+	if err != nil {
+		return "", err
+	}
+	if len(query) == 0 {
+		return "", nil
+	}
+	return "?" + query.Encode(), nil
+}
+
+func queryValuesFromCLI(c *cli.Command, flags []fieldFlag) (map[string]any, error) {
+	values := map[string]any{}
 	for _, f := range flags {
 		if !c.IsSet(f.Name) {
 			continue
 		}
-		for _, value := range stringifyFlagValues(c, f) {
-			vals.Add(f.QueryName(), value)
+		value, err := queryFlagValue(c, f)
+		if err != nil {
+			return nil, err
 		}
+		values[f.Name] = value
 	}
-	if len(vals) == 0 {
-		return ""
+	return values, nil
+}
+
+func queryFlagValue(c *cli.Command, f fieldFlag) (any, error) {
+	if f.Type != "array" || f.Items != "boolean" {
+		return flagValue(c, f), nil
 	}
-	return "?" + vals.Encode()
+	raw := c.StringSlice(f.Name)
+	values := make([]bool, len(raw))
+	for i, value := range raw {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil || (value != "true" && value != "false") {
+			return nil, exitcode.New(exitcode.UserError, "user_error",
+				fmt.Errorf("query field %q item %d must be true or false", f.Name, i),
+				"supply each boolean array value as true or false")
+		}
+		values[i] = parsed
+	}
+	return values, nil
 }
 
 // assembleBody builds the body JSON from --body-file or the body flags; unset

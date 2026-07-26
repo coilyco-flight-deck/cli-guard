@@ -92,11 +92,11 @@ func TestQueryParamAuthDryRunRedacts(t *testing.T) {
 			t.Fatal("dry-run must not resolve an auth secret")
 			return "", nil
 		}}}
-	out, err := runTree(t, cfg, "trello", "cards", "create", "--name", "demo", "--dry-run", "--output", "json")
+	out, err := runTree(t, cfg, "trello", "cards", "create", "--name", "demo", "--idList", "abc", "--dry-run", "--output", "json")
 	if err != nil {
 		t.Fatalf("dry-run: %v", err)
 	}
-	for _, want := range []string{"key=", "token=", "redacted", "name=demo"} {
+	for _, want := range []string{"key=", "token=", "redacted", "name=demo", "idList=abc"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dry-run %q missing %q", out, want)
 		}

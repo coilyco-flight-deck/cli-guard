@@ -17,7 +17,8 @@ How the one generic action behind every mounted leaf assembles, previews, and fi
 A promoted local input that would shadow a reserved engine flag (`--dry-run`, `--query`, `--output`, `--body-file`), or a query/body name collision on one leaf, refuses to build - fail-closed, never silent shadowing. An explicit query alias changes only the outgoing parameter name. The local name still passes the reserved and duplicate checks, and two inputs cannot map to one outgoing parameter.
 
 Inline query blocks add bounds, required fields, and at-most-one groups through
-the shared schema and request runtime. See
+the shared schema and request runtime. The specverb CLI converts set flags to
+typed values and delegates the same pre-send validation to opcore. See
 [opcore-query-types.md](opcore-query-types.md).
 
 ## The shell-metachar gate is location-aware

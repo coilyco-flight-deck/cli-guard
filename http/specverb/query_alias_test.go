@@ -2,10 +2,16 @@ package specverb
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/verb"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/opcore"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/valuesource"
 	"github.com/urfave/cli/v3"
 )
 
@@ -35,8 +41,9 @@ func TestAssembleQueryUsesUpstreamName(t *testing.T) {
 	cmd := &cli.Command{
 		Flags: fieldFlagsToCLI([]fieldFlag{f}),
 		Action: func(_ context.Context, c *cli.Command) error {
-			got = assembleQuery(c, []fieldFlag{f})
-			return nil
+			var err error
+			got, err = resolveCLIQuery(c, opDescriptor{QueryFlags: []fieldFlag{f}})
+			return err
 		},
 	}
 	if err := cmd.Run(context.Background(), []string{"test", "--search_query", "cards"}); err != nil {
@@ -53,8 +60,9 @@ func TestAssembleQueryRepeatsArrayValuesInInputOrder(t *testing.T) {
 	cmd := &cli.Command{
 		Flags: fieldFlagsToCLI([]fieldFlag{f}),
 		Action: func(_ context.Context, c *cli.Command) error {
-			got = assembleQuery(c, []fieldFlag{f})
-			return nil
+			var err error
+			got, err = resolveCLIQuery(c, opDescriptor{QueryFlags: []fieldFlag{f}})
+			return err
 		},
 	}
 	if err := cmd.Run(context.Background(), []string{
@@ -67,5 +75,112 @@ func TestAssembleQueryRepeatsArrayValuesInInputOrder(t *testing.T) {
 	}
 	if got != "?author_id=second&author_id=first&author_id=third" {
 		t.Errorf("query = %q, want repeated keys in input order", got)
+	}
+}
+
+func TestBuildLeafRejectsInvalidTypedQueryBeforeUpstream(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	rt := typedQueryRuntime(srv)
+	cases := map[string][]string{
+		"integer below minimum": {"--limit", "0"},
+		"missing required":      {},
+		"array above max-items": {
+			"--limit", "1",
+			"--author_id", "a",
+			"--author_id", "b",
+			"--author_id", "c",
+		},
+		"mutually exclusive": {
+			"--limit", "1",
+			"--before", "10",
+			"--after", "20",
+		},
+		"invalid boolean array item": {
+			"--limit", "1",
+			"--enabled", "true",
+			"--enabled", "not-bool",
+		},
+	}
+	for name, args := range cases {
+		t.Run(name, func(t *testing.T) {
+			before := calls.Load()
+			leaf := rt.buildLeaf(typedQueryDescriptor())
+			err := leaf.Run(context.Background(), append([]string{"list"}, args...))
+			if err == nil {
+				t.Fatal("invalid typed query should fail")
+			}
+			if got := calls.Load(); got != before {
+				t.Fatalf("upstream calls = %d, want %d", got, before)
+			}
+		})
+	}
+}
+
+func TestBuildLeafTypedQueryPreservesRepeatedOrder(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	leaf := typedQueryRuntime(srv).buildLeaf(typedQueryDescriptor())
+	err := leaf.Run(context.Background(), []string{
+		"list",
+		"--limit", "10",
+		"--author_id", "second",
+		"--author_id", "first",
+		"--enabled", "true",
+		"--enabled", "false",
+	})
+	if err != nil {
+		t.Fatalf("run valid typed query: %v", err)
+	}
+	want := "author_id=second&author_id=first&enabled=true&enabled=false&limit=10"
+	if gotQuery != want {
+		t.Errorf("query = %q, want %q", gotQuery, want)
+	}
+}
+
+func typedQueryDescriptor() opDescriptor {
+	minimum := float64(1)
+	maximum := float64(100)
+	maxItems := 2
+	return opDescriptor{
+		VerbName: "test.message.list",
+		Leaf:     "list",
+		Method:   http.MethodGet,
+		Path:     "/messages",
+		QueryFlags: []fieldFlag{
+			{Name: "limit", Type: "integer", Required: true, Minimum: &minimum, Maximum: &maximum},
+			{Name: "author_id", Type: "array", Items: "string", MaxItems: &maxItems},
+			{Name: "enabled", Type: "array", Items: "boolean"},
+			{Name: "before", Type: "string"},
+			{Name: "after", Type: "string"},
+		},
+		QueryExclusive: [][]string{{"before", "after"}},
+	}
+}
+
+func typedQueryRuntime(srv *httptest.Server) *runtime {
+	return &runtime{
+		Runtime: opcore.NewRuntime(opcore.RuntimeConfig{
+			BaseURL: srv.URL,
+			Auth: guardfile.Auth{
+				Scheme: "bearer",
+				Header: "Authorization",
+				Prefix: "Bearer ",
+				Value:  guardfile.ValueChain{{Provider: "literal", Address: "test-token"}},
+			},
+			Providers: valuesource.Merge(nil),
+			Client:    srv.Client(),
+		}),
+		wrap: func(spec verb.Spec) cli.ActionFunc { return spec.Action },
 	}
 }

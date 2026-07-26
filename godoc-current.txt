@@ -2118,6 +2118,10 @@ func (o Operation) Resolve(ctx context.Context, a Args, dry bool) (Request, erro
     Resolve validates, gates, and assembles one request without firing it.
     Consumers use it when they need the resolved request shape.
 
+func (o Operation) ResolveQuery(a Args) (neturl.Values, error)
+    ResolveQuery validates, gates, aliases, and serializes query inputs without
+    assembling or firing the rest of the request.
+
 type Property struct {
 	Type         string // string|boolean|integer|number|array
 	Items        string // element type when Type==array

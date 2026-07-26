@@ -72,20 +72,30 @@ func (o Operation) Preview(a Args) (Request, error) {
 	return o.Resolve(context.Background(), a, true)
 }
 
+// ResolveQuery validates, gates, aliases, and serializes query inputs without
+// assembling or firing the rest of the request.
+func (o Operation) ResolveQuery(a Args) (neturl.Values, error) {
+	query, err := o.outgoingQuery(a)
+	if err != nil {
+		return nil, err
+	}
+	for name, values := range query {
+		if err := policy.ValidateArgSlice("query."+name, values); err != nil {
+			return nil, gateDenied(err)
+		}
+	}
+	return query, nil
+}
+
 // resolve runs the gate, restrictions, and assembly shared by Execute and
 // Preview, returning the resolved request. dry keeps base-url resolution offline.
 func (o Operation) resolve(ctx context.Context, a Args, dry bool) (Request, error) {
 	d := o.Desc
 	// Gate the URL-bound surface (query params, positional path values); body is
 	// exempt. Re-runs verb.Wrap's gate for a CLI leaf, idempotent when stacked.
-	query, err := o.outgoingQuery(a)
+	query, err := o.ResolveQuery(a)
 	if err != nil {
 		return Request{}, err
-	}
-	for name, values := range query {
-		if err := policy.ValidateArgSlice("query."+name, values); err != nil {
-			return Request{}, gateDenied(err)
-		}
 	}
 	pathVals, err := o.orderedPathValues(a.Path)
 	if err != nil {
@@ -259,6 +269,9 @@ func typedQueryValues(fields map[string]Field, name string, value any) ([]string
 	f, declared := fields[name]
 	if !declared {
 		return untypedQueryValues(name, value)
+	}
+	if f.Type == "" {
+		f.Type = "string"
 	}
 	if f.Type == "array" {
 		return typedQueryArrayValues(f, value)
