@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	neturl "net/url"
+	"reflect"
+	"strconv"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/policy"
@@ -17,12 +20,13 @@ type Operation struct {
 	RT   *Runtime
 }
 
-// Args is the operator input to one Operation, split by URL location: Path and
-// Query values reach the URL (the injection surface); Body does not.
+// Args splits an Operation's inputs by URL and body location. Query is the
+// compatible scalar surface, while QueryValues carries typed values and arrays.
 type Args struct {
-	Path  map[string]string
-	Query map[string]string
-	Body  map[string]any
+	Path        map[string]string
+	Query       map[string]string
+	QueryValues map[string]any
+	Body        map[string]any
 }
 
 // Request is a resolved-but-unfired call: the exact method, URL, and body the
@@ -74,12 +78,14 @@ func (o Operation) resolve(ctx context.Context, a Args, dry bool) (Request, erro
 	d := o.Desc
 	// Gate the URL-bound surface (query params, positional path values); body is
 	// exempt. Re-runs verb.Wrap's gate for a CLI leaf, idempotent when stacked.
-	if err := policy.ValidateArgs(a.Query); err != nil {
-		return Request{}, gateDenied(err)
-	}
-	query, err := o.outgoingQuery(a.Query)
+	query, err := o.outgoingQuery(a)
 	if err != nil {
 		return Request{}, err
+	}
+	for name, values := range query {
+		if err := policy.ValidateArgSlice("query."+name, values); err != nil {
+			return Request{}, gateDenied(err)
+		}
 	}
 	pathVals, err := o.orderedPathValues(a.Path)
 	if err != nil {
@@ -103,29 +109,429 @@ func (o Operation) resolve(ctx context.Context, a Args, dry bool) (Request, erro
 	return Request{Method: d.Method, URL: url, Body: body, ContentType: contentTypeJSON}, nil
 }
 
-// outgoingQuery maps local inputs onto upstream parameters while preserving
-// unknown-name pass-through and rejecting ambiguous supplied names.
-func (o Operation) outgoingQuery(supplied map[string]string) (map[string]string, error) {
-	localToWire := map[string]string{}
-	for _, f := range o.Desc.QueryFlags {
-		localToWire[f.Name] = f.QueryName()
+// outgoingQuery maps both query input surfaces onto repeated upstream values.
+// Unknown scalar names retain the historical pass-through behavior.
+func (o Operation) outgoingQuery(a Args) (neturl.Values, error) {
+	fields := queryFieldsByName(o.Desc.QueryFlags)
+	suppliedNames, err := queryInputNames(a)
+	if err != nil {
+		return nil, err
 	}
-	out := make(map[string]string, len(supplied))
-	owners := make(map[string]string, len(supplied))
-	for localName, value := range supplied {
-		wireName := localName
-		if declared, ok := localToWire[localName]; ok {
-			wireName = declared
+	if err := o.validateQueryPresence(suppliedNames); err != nil {
+		return nil, err
+	}
+
+	encoder := queryEncoder{
+		fields: fields,
+		out:    neturl.Values{},
+		owners: make(map[string]string, len(suppliedNames)),
+	}
+	for localName, value := range a.Query {
+		if err := encoder.addLegacy(localName, value); err != nil {
+			return nil, err
 		}
-		if prior, exists := owners[wireName]; exists {
-			return nil, exitcode.New(exitcode.UserError, "user_error",
-				fmt.Errorf("query inputs %q and %q both resolve to upstream parameter %q", prior, localName, wireName),
-				"supply only the declared local query input name")
+	}
+	for localName, value := range a.QueryValues {
+		if err := encoder.addTyped(localName, value); err != nil {
+			return nil, err
 		}
-		owners[wireName] = localName
-		out[wireName] = value
+	}
+	return encoder.out, nil
+}
+
+func queryFieldsByName(fields []Field) map[string]Field {
+	out := make(map[string]Field, len(fields))
+	for _, f := range fields {
+		out[f.Name] = f
+	}
+	return out
+}
+
+func queryInputNames(a Args) (map[string]bool, error) {
+	out := make(map[string]bool, len(a.Query)+len(a.QueryValues))
+	for name := range a.Query {
+		out[name] = true
+	}
+	for name := range a.QueryValues {
+		if out[name] {
+			return nil, queryUserError(
+				fmt.Errorf("query input %q was supplied through both Query and QueryValues", name),
+				"supply each query input through only one Args field")
+		}
+		out[name] = true
 	}
 	return out, nil
+}
+
+type queryEncoder struct {
+	fields map[string]Field
+	out    neturl.Values
+	owners map[string]string
+}
+
+func (e *queryEncoder) addLegacy(name, value string) error {
+	values, err := legacyQueryValues(e.fields, name, value)
+	if err != nil {
+		return err
+	}
+	return e.add(name, values)
+}
+
+func (e *queryEncoder) addTyped(name string, value any) error {
+	values, err := typedQueryValues(e.fields, name, value)
+	if err != nil {
+		return err
+	}
+	return e.add(name, values)
+}
+
+func (e *queryEncoder) add(localName string, values []string) error {
+	wireName := localName
+	if f, ok := e.fields[localName]; ok {
+		wireName = f.QueryName()
+	}
+	if prior, exists := e.owners[wireName]; exists {
+		return queryUserError(
+			fmt.Errorf("query inputs %q and %q both resolve to upstream parameter %q", prior, localName, wireName),
+			"supply only the declared local query input name")
+	}
+	e.owners[wireName] = localName
+	for _, value := range values {
+		e.out.Add(wireName, value)
+	}
+	return nil
+}
+
+// validateQueryPresence enforces required and at-most-one query declarations
+// using local input names, before any values reach the URL.
+func (o Operation) validateQueryPresence(supplied map[string]bool) error {
+	for _, f := range o.Desc.QueryFlags {
+		if f.Required && !supplied[f.Name] {
+			return queryUserError(
+				fmt.Errorf("required query field %q is missing", f.Name),
+				"supply the required query field")
+		}
+	}
+	for _, group := range o.Desc.QueryExclusive {
+		var present []string
+		for _, name := range group {
+			if supplied[name] {
+				present = append(present, name)
+			}
+		}
+		if len(present) > 1 {
+			return queryUserError(
+				fmt.Errorf("query fields %q are mutually exclusive", present),
+				"supply at most one field from the mutually-exclusive group")
+		}
+	}
+	return nil
+}
+
+// legacyQueryValues preserves the scalar wire spelling used by Args.Query. New
+// typed declarations still validate that spelling against their contract.
+func legacyQueryValues(fields map[string]Field, name, value string) ([]string, error) {
+	f, declared := fields[name]
+	if !declared || f.Type == "" || f.Type == "string" {
+		return []string{value}, nil
+	}
+	if f.Type == "array" {
+		if err := validateArrayLength(f, 1); err != nil {
+			return nil, err
+		}
+		if _, _, err := queryScalarValue(f.Items, value); err != nil {
+			return nil, fieldQueryError(f, err)
+		}
+		return []string{value}, nil
+	}
+	_, numeric, err := queryScalarValue(f.Type, value)
+	if err != nil {
+		return nil, fieldQueryError(f, err)
+	}
+	if err := validateNumericBounds(f, numeric); err != nil {
+		return nil, err
+	}
+	return []string{value}, nil
+}
+
+// typedQueryValues lowers one QueryValues entry while preserving array order.
+func typedQueryValues(fields map[string]Field, name string, value any) ([]string, error) {
+	f, declared := fields[name]
+	if !declared {
+		return untypedQueryValues(name, value)
+	}
+	if f.Type == "array" {
+		return typedQueryArrayValues(f, value)
+	}
+	return typedQueryScalarValues(f, value)
+}
+
+func typedQueryScalarValues(f Field, value any) ([]string, error) {
+	if isQuerySlice(value) {
+		return nil, fieldQueryError(f, fmt.Errorf("expected one %s value, got an array", f.Type))
+	}
+	if _, isString := value.(string); isString && f.Type != "string" {
+		return nil, fieldQueryError(f, fmt.Errorf("expected typed %s, got string", f.Type))
+	}
+	wire, numeric, err := queryScalarValue(f.Type, value)
+	if err != nil {
+		return nil, fieldQueryError(f, err)
+	}
+	if err := validateNumericBounds(f, numeric); err != nil {
+		return nil, err
+	}
+	return []string{wire}, nil
+}
+
+func typedQueryArrayValues(f Field, value any) ([]string, error) {
+	items, ok := querySlice(value)
+	if !ok {
+		return nil, fieldQueryError(f, fmt.Errorf("expected an array of %s values", f.Items))
+	}
+	if err := validateArrayLength(f, len(items)); err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(items))
+	for i, item := range items {
+		if _, isString := item.(string); isString && f.Items != "string" {
+			return nil, fieldQueryError(f, fmt.Errorf("item %d: expected typed %s, got string", i, f.Items))
+		}
+		wire, _, err := queryScalarValue(f.Items, item)
+		if err != nil {
+			return nil, fieldQueryError(f, fmt.Errorf("item %d: %w", i, err))
+		}
+		out = append(out, wire)
+	}
+	return out, nil
+}
+
+// untypedQueryValues keeps typed-map pass-through limited to scalar URL values
+// and scalar arrays. Objects and nested arrays fail closed.
+func untypedQueryValues(name string, value any) ([]string, error) {
+	if items, ok := querySlice(value); ok {
+		out := make([]string, 0, len(items))
+		for i, item := range items {
+			if isQuerySlice(item) {
+				return nil, queryUserError(
+					fmt.Errorf("query input %q item %d is a nested array", name, i),
+					"supply only scalar query values or scalar arrays")
+			}
+			wire, _, err := queryScalarValue("", item)
+			if err != nil {
+				return nil, queryUserError(
+					fmt.Errorf("query input %q item %d: %w", name, i, err),
+					"supply only string, boolean, integer, or number query values")
+			}
+			out = append(out, wire)
+		}
+		return out, nil
+	}
+	wire, _, err := queryScalarValue("", value)
+	if err != nil {
+		return nil, queryUserError(
+			fmt.Errorf("query input %q: %w", name, err),
+			"supply only string, boolean, integer, number, or scalar-array query values")
+	}
+	return []string{wire}, nil
+}
+
+// queryScalarValue validates one scalar and returns its URL spelling. numeric
+// is non-nil only for integer and number values.
+func queryScalarValue(want string, value any) (wire string, numeric *float64, err error) {
+	switch want {
+	case "string":
+		return stringQueryValue(value)
+	case "boolean":
+		return booleanQueryValue(value)
+	case "integer":
+		wire, number, ok := integerQueryValue(value)
+		if !ok {
+			return "", nil, fmt.Errorf("expected integer, got %T", value)
+		}
+		return wire, &number, nil
+	case "number":
+		wire, number, ok := numberQueryValue(value)
+		if !ok {
+			return "", nil, fmt.Errorf("expected finite number, got %T", value)
+		}
+		return wire, &number, nil
+	case "":
+		return inferredQueryValue(value)
+	default:
+		return "", nil, fmt.Errorf("unsupported query scalar type %q", want)
+	}
+}
+
+func stringQueryValue(value any) (string, *float64, error) {
+	v, ok := value.(string)
+	if !ok {
+		return "", nil, fmt.Errorf("expected string, got %T", value)
+	}
+	return v, nil, nil
+}
+
+func booleanQueryValue(value any) (string, *float64, error) {
+	switch v := value.(type) {
+	case bool:
+		return strconv.FormatBool(v), nil, nil
+	case string:
+		if v == "true" || v == "false" {
+			return v, nil, nil
+		}
+	}
+	return "", nil, fmt.Errorf("expected boolean, got %T", value)
+}
+
+func inferredQueryValue(value any) (string, *float64, error) {
+	switch value.(type) {
+	case string:
+		return stringQueryValue(value)
+	case bool:
+		return booleanQueryValue(value)
+	}
+	if wire, number, ok := integerQueryValue(value); ok {
+		return wire, &number, nil
+	}
+	if wire, number, ok := numberQueryValue(value); ok {
+		return wire, &number, nil
+	}
+	return "", nil, fmt.Errorf("unsupported query value type %T", value)
+}
+
+func integerQueryValue(value any) (string, float64, bool) {
+	switch v := value.(type) {
+	case float32:
+		return floatIntegerQueryValue(float64(v))
+	case float64:
+		return floatIntegerQueryValue(v)
+	case json.Number:
+		return stringIntegerQueryValue(v.String())
+	case string:
+		return stringIntegerQueryValue(v)
+	}
+	rv := reflect.ValueOf(value)
+	kind := rv.Kind()
+	if kind >= reflect.Int && kind <= reflect.Int64 {
+		v := rv.Int()
+		return strconv.FormatInt(v, 10), float64(v), true
+	}
+	if kind >= reflect.Uint && kind <= reflect.Uint64 {
+		v := rv.Uint()
+		return strconv.FormatUint(v, 10), float64(v), true
+	}
+	return "", 0, false
+}
+
+func floatIntegerQueryValue(value float64) (string, float64, bool) {
+	if !finiteIntegral(value) {
+		return "", 0, false
+	}
+	return strconv.FormatFloat(value, 'f', -1, 64), value, true
+}
+
+func stringIntegerQueryValue(value string) (string, float64, bool) {
+	integer, err := strconv.ParseInt(value, 10, 64)
+	if err == nil {
+		return value, float64(integer), true
+	}
+	number, err := strconv.ParseFloat(value, 64)
+	if err != nil || !finiteIntegral(number) {
+		return "", 0, false
+	}
+	return value, number, true
+}
+
+func numberQueryValue(value any) (string, float64, bool) {
+	if wire, number, ok := integerQueryValue(value); ok {
+		return wire, number, true
+	}
+	switch v := value.(type) {
+	case float32:
+		return finiteNumberQueryValue(float64(v), "")
+	case float64:
+		return finiteNumberQueryValue(v, "")
+	case json.Number:
+		return stringNumberQueryValue(v.String())
+	case string:
+		return stringNumberQueryValue(v)
+	default:
+		return "", 0, false
+	}
+}
+
+func stringNumberQueryValue(value string) (string, float64, bool) {
+	number, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return "", 0, false
+	}
+	return finiteNumberQueryValue(number, value)
+}
+
+func finiteNumberQueryValue(number float64, wire string) (string, float64, bool) {
+	if math.IsNaN(number) || math.IsInf(number, 0) {
+		return "", 0, false
+	}
+	if wire != "" {
+		return wire, number, true
+	}
+	return strconv.FormatFloat(number, 'g', -1, 64), number, true
+}
+
+func finiteIntegral(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0) && math.Trunc(v) == v
+}
+
+func querySlice(value any) ([]any, bool) {
+	if value == nil {
+		return nil, false
+	}
+	rv := reflect.ValueOf(value)
+	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
+		return nil, false
+	}
+	out := make([]any, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		out[i] = rv.Index(i).Interface()
+	}
+	return out, true
+}
+
+func isQuerySlice(value any) bool {
+	_, ok := querySlice(value)
+	return ok
+}
+
+func validateNumericBounds(f Field, numeric *float64) error {
+	if numeric == nil {
+		return nil
+	}
+	if f.Minimum != nil && *numeric < *f.Minimum {
+		return fieldQueryError(f, fmt.Errorf("value %g is below minimum %g", *numeric, *f.Minimum))
+	}
+	if f.Maximum != nil && *numeric > *f.Maximum {
+		return fieldQueryError(f, fmt.Errorf("value %g is above maximum %g", *numeric, *f.Maximum))
+	}
+	return nil
+}
+
+func validateArrayLength(f Field, length int) error {
+	if f.MinItems != nil && length < *f.MinItems {
+		return fieldQueryError(f, fmt.Errorf("array length %d is below min-items %d", length, *f.MinItems))
+	}
+	if f.MaxItems != nil && length > *f.MaxItems {
+		return fieldQueryError(f, fmt.Errorf("array length %d is above max-items %d", length, *f.MaxItems))
+	}
+	return nil
+}
+
+func fieldQueryError(f Field, err error) error {
+	return queryUserError(
+		fmt.Errorf("query field %q: %w", f.Name, err),
+		"supply a query value matching the declared type and bounds")
+}
+
+func queryUserError(err error, advice string) error {
+	return exitcode.New(exitcode.UserError, "user_error", err, advice)
 }
 
 // orderedPathValues lowers the path-arg map to the leaf's declared path-param
@@ -146,15 +552,11 @@ func (o Operation) orderedPathValues(path map[string]string) ([]string, error) {
 
 // assembleQuery encodes the query map as a ?-prefixed string, "" when empty.
 // url.Values sorts keys, so the result is deterministic.
-func assembleQuery(q map[string]string) string {
+func assembleQuery(q neturl.Values) string {
 	if len(q) == 0 {
 		return ""
 	}
-	vals := neturl.Values{}
-	for k, v := range q {
-		vals.Set(k, v)
-	}
-	return "?" + vals.Encode()
+	return "?" + q.Encode()
 }
 
 // assembleBody builds the body JSON: a state-toggle's FixedBody wins, else the

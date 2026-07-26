@@ -2033,28 +2033,31 @@ func (b *ArgBinder) RequireAllPaths() error
     never fires an under-bound URL.
 
 type Args struct {
-	Path  map[string]string
-	Query map[string]string
-	Body  map[string]any
+	Path        map[string]string
+	Query       map[string]string
+	QueryValues map[string]any
+	Body        map[string]any
 }
-    Args is the operator input to one Operation, split by URL location: Path and
-    Query values reach the URL (the injection surface); Body does not.
+    Args splits an Operation's inputs by URL and body location. Query is the
+    compatible scalar surface, while QueryValues carries typed values and
+    arrays.
 
 type Descriptor struct {
-	VerbName    string         // dotted audit name, e.g. ward.ops.forgejo.repo.create
-	Group       string         // CLI group noun, e.g. repo
-	Leaf        string         // CLI leaf verb, e.g. create
-	Method      string         // HTTP method
-	Path        string         // path template, e.g. /repos/{owner}/{repo}
-	PathParams  []string       // ordered positional args drawn from the path
-	BodyFlags   []Field        // request-body fields, including nested object/array shapes
-	QueryFlags  []Field        // scalar query params promoted to flags
-	FormFlags   []Field        // formData params; "file" types take a path
-	FixedBody   map[string]any // exact body for state-toggle leaves; no body flags mount
-	Destructive bool           // leaf mutates irreversibly (delete)
-	Grant       string         // the authorizing grant sentence, e.g. "can delete repos"
-	Describe    string         // optional Guardfile describe "..." note, "" if none
-	Proxy       *Proxy         // non-nil for an inline MCP proxy grant
+	VerbName       string         // dotted audit name, e.g. ward.ops.forgejo.repo.create
+	Group          string         // CLI group noun, e.g. repo
+	Leaf           string         // CLI leaf verb, e.g. create
+	Method         string         // HTTP method
+	Path           string         // path template, e.g. /repos/{owner}/{repo}
+	PathParams     []string       // ordered positional args drawn from the path
+	BodyFlags      []Field        // request-body fields, including nested object/array shapes
+	QueryFlags     []Field        // query params, including typed scalar-array shapes
+	QueryExclusive [][]string     // local query-name groups where at most one may be supplied
+	FormFlags      []Field        // formData params, where "file" types take a path
+	FixedBody      map[string]any // exact body for state-toggle leaves, with no body flags
+	Destructive    bool           // leaf mutates irreversibly (delete)
+	Grant          string         // the authorizing grant sentence, e.g. "can delete repos"
+	Describe       string         // optional Guardfile describe "..." note, "" if none
+	Proxy          *Proxy         // non-nil for an inline MCP proxy grant
 }
     Descriptor is the tiny per-operation payload the generic action binds to,
     isolated from the static request machinery.
@@ -2078,9 +2081,14 @@ type Field struct {
 	Raw          bool
 	Required     bool // required in the schema, enforced at request assembly
 	Desc         string
+	Minimum      *float64 // inclusive numeric lower bound
+	Maximum      *float64 // inclusive numeric upper bound
+	MinItems     *int     // inclusive array-length lower bound
+	MaxItems     *int     // inclusive array-length upper bound
 }
-    Field is one spec input. The flat cases lower to CLI flags, while a body
-    field may also carry nested object/array shape for neutral schema emission.
+    Field is one spec input. The flat cases lower to CLI flags, while body
+    fields may carry nested shape and query fields may carry numeric or array
+    bounds.
 
 func (f Field) QueryName() string
     QueryName returns the outgoing query parameter name for this field. An empty
@@ -2120,6 +2128,10 @@ type Property struct {
 	Location     string // path|query|body|form (neutral hint)
 	UpstreamName string // outgoing query parameter when it differs from the local property name
 	Description  string
+	Minimum      *float64
+	Maximum      *float64
+	MinItems     *int
+	MaxItems     *int
 }
     Property is one input in a Schema: its type (or array element type),
     the neutral where-it-goes hint, its help text, and any nested shape.
@@ -2218,8 +2230,9 @@ type RuntimeConfig struct {
     applied), a nil Client defaults to the redirect-guarding client.
 
 type Schema struct {
-	Properties map[string]Property // keyed by field name
-	Required   []string            // names that must be supplied, in a stable order
+	Properties        map[string]Property // keyed by field name
+	Required          []string            // names that must be supplied, in a stable order
+	MutuallyExclusive [][]string          // groups where at most one property may be supplied
 }
     Schema is the transport-neutral input surface of one Descriptor: every input
     it accepts, keyed by name, plus the subset that must be supplied. See docs.

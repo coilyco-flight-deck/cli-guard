@@ -53,7 +53,9 @@ wrap ward mcp forgejo {
 * **query / body** - flat `query`/`body` field-name lists still promote to
   `Field{Type:"string"}`. Query aliases use `query "local" upstream="wire"`.
   The local name owns the input surface. See [opcore-query-aliases.md](opcore-query-aliases.md).
-  `body { ... }` adds typed nested `field`/`object`/`array` schema blocks.
+  `query { ... }` adds typed, bounded, repeatable fields and at-most-one groups.
+  See [opcore-query-types.md](opcore-query-types.md). `body { ... }` adds typed
+  nested `field`/`object`/`array` schema blocks.
 * **set** - `set k=v...` becomes the leaf's `FixedBody`, keeping each value's
   KDL-native type (a boolean stays a boolean). A `set` toggle owns its body, so no
   body flags mount alongside it.

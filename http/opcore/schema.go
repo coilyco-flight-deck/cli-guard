@@ -8,8 +8,9 @@ import (
 // Schema is the transport-neutral input surface of one Descriptor: every input
 // it accepts, keyed by name, plus the subset that must be supplied. See docs.
 type Schema struct {
-	Properties map[string]Property // keyed by field name
-	Required   []string            // names that must be supplied, in a stable order
+	Properties        map[string]Property // keyed by field name
+	Required          []string            // names that must be supplied, in a stable order
+	MutuallyExclusive [][]string          // groups where at most one property may be supplied
 }
 
 // Property is one input in a Schema: its type (or array element type), the
@@ -24,6 +25,10 @@ type Property struct {
 	Location     string // path|query|body|form (neutral hint)
 	UpstreamName string // outgoing query parameter when it differs from the local property name
 	Description  string
+	Minimum      *float64
+	Maximum      *float64
+	MinItems     *int
+	MaxItems     *int
 }
 
 // Location constants label where a Property lowers onto the outgoing request.
@@ -37,7 +42,10 @@ const (
 // InputSchema projects a Descriptor onto its neutral input surface: path params
 // as required strings, query/body/form as fieldFlagsToCLI reads them, no FixedBody.
 func (d Descriptor) InputSchema() Schema {
-	s := Schema{Properties: map[string]Property{}}
+	s := Schema{
+		Properties:        map[string]Property{},
+		MutuallyExclusive: cloneStringGroups(d.QueryExclusive),
+	}
 	for _, name := range d.PathParams {
 		s.Properties[name] = Property{Type: "string", Location: LocationPath}
 		s.Required = append(s.Required, name)
@@ -65,6 +73,10 @@ func (f Field) toProperty(loc string) Property {
 		UpstreamName: f.UpstreamName,
 		Description:  f.Desc,
 		Raw:          f.Raw,
+		Minimum:      f.Minimum,
+		Maximum:      f.Maximum,
+		MinItems:     f.MinItems,
+		MaxItems:     f.MaxItems,
 	}
 	if f.Item != nil {
 		item := f.Item.toProperty("")
@@ -99,7 +111,39 @@ func (s Schema) JSONSchema() []byte {
 		sort.Strings(required)
 		doc["required"] = required
 	}
+	if exclusions := mutuallyExclusiveSchema(s.MutuallyExclusive); len(exclusions) > 0 {
+		doc["allOf"] = exclusions
+	}
 	out, _ := json.MarshalIndent(doc, "", "  ")
+	return out
+}
+
+// mutuallyExclusiveSchema lowers each at-most-one group to standard draft-07
+// pairwise `not required` constraints.
+func mutuallyExclusiveSchema(groups [][]string) []any {
+	var out []any
+	for _, group := range groups {
+		for i := 0; i < len(group); i++ {
+			for j := i + 1; j < len(group); j++ {
+				out = append(out, map[string]any{
+					"not": map[string]any{
+						"required": []string{group[i], group[j]},
+					},
+				})
+			}
+		}
+	}
+	return out
+}
+
+func cloneStringGroups(groups [][]string) [][]string {
+	if len(groups) == 0 {
+		return nil
+	}
+	out := make([][]string, len(groups))
+	for i, group := range groups {
+		out[i] = append([]string(nil), group...)
+	}
 	return out
 }
 
@@ -150,6 +194,18 @@ func (p Property) schemaEntry() map[string]any {
 	}
 	if p.UpstreamName != "" {
 		entry["x-opcore-upstream-name"] = p.UpstreamName
+	}
+	if p.Minimum != nil {
+		entry["minimum"] = *p.Minimum
+	}
+	if p.Maximum != nil {
+		entry["maximum"] = *p.Maximum
+	}
+	if p.MinItems != nil {
+		entry["minItems"] = *p.MinItems
+	}
+	if p.MaxItems != nil {
+		entry["maxItems"] = *p.MaxItems
 	}
 	return entry
 }

@@ -46,3 +46,26 @@ func TestAssembleQueryUsesUpstreamName(t *testing.T) {
 		t.Errorf("query = %q, want ?query=cards", got)
 	}
 }
+
+func TestAssembleQueryRepeatsArrayValuesInInputOrder(t *testing.T) {
+	f := opcore.Field{Name: "author_id", Type: "array", Items: "string"}
+	got := ""
+	cmd := &cli.Command{
+		Flags: fieldFlagsToCLI([]fieldFlag{f}),
+		Action: func(_ context.Context, c *cli.Command) error {
+			got = assembleQuery(c, []fieldFlag{f})
+			return nil
+		},
+	}
+	if err := cmd.Run(context.Background(), []string{
+		"test",
+		"--author_id", "second",
+		"--author_id", "first",
+		"--author_id", "third",
+	}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got != "?author_id=second&author_id=first&author_id=third" {
+		t.Errorf("query = %q, want repeated keys in input order", got)
+	}
+}

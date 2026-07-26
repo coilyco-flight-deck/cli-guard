@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	neturl "net/url"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -125,6 +127,164 @@ func TestQueryAliasMapsLocalInputToUpstreamParameter(t *testing.T) {
 	args.Query["query"] = "duplicate"
 	if _, err := op.Preview(args); kindOf(err) != "user_error" {
 		t.Fatalf("ambiguous local and upstream inputs: kind = %q, want user_error (err=%v)", kindOf(err), err)
+	}
+}
+
+func TestTypedQueryValuesSerializeRepeatedKeysInInputOrder(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+	op := newTestOp(srv, tokenAuth("s3cret"), nil)
+	minLimit, maxLimit := float64(1), float64(100)
+	minAuthors, maxAuthors := 1, 25
+	op.Desc.QueryFlags = []opcore.Field{
+		{Name: "limit", Type: "integer", Minimum: &minLimit, Maximum: &maxLimit},
+		{Name: "pinned", Type: "boolean"},
+		{Name: "score", Type: "number"},
+		{Name: "author_id", Type: "array", Items: "string", MinItems: &minAuthors, MaxItems: &maxAuthors},
+		{Name: "enabled", Type: "array", Items: "boolean"},
+		{Name: "page", Type: "array", Items: "integer"},
+		{Name: "weight", Type: "array", Items: "number"},
+		{Name: "search_query", UpstreamName: "query", Type: "string"},
+	}
+	req, err := op.Preview(opcore.Args{
+		Path: map[string]string{"owner": "kai", "repo": "aos"},
+		QueryValues: map[string]any{
+			"limit":        25,
+			"pinned":       true,
+			"score":        1.5,
+			"author_id":    []any{"second", "first", "third"},
+			"enabled":      []bool{true, false},
+			"page":         []int{3, 1, 2},
+			"weight":       []float64{2.5, 1.25},
+			"search_query": "platform",
+		},
+		Body: map[string]any{"title": "search"},
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	parsed, err := neturl.Parse(req.URL)
+	if err != nil {
+		t.Fatalf("parse URL: %v", err)
+	}
+	if got, want := parsed.Query()["author_id"], []string{"second", "first", "third"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("repeated author_id values = %v, want %v", got, want)
+	}
+	if got := parsed.Query().Get("limit"); got != "25" {
+		t.Errorf("limit = %q, want 25", got)
+	}
+	if got := parsed.Query().Get("pinned"); got != "true" {
+		t.Errorf("pinned = %q, want true", got)
+	}
+	if got := parsed.Query().Get("score"); got != "1.5" {
+		t.Errorf("score = %q, want 1.5", got)
+	}
+	if got, want := parsed.Query()["enabled"], []string{"true", "false"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("boolean array = %v, want %v", got, want)
+	}
+	if got, want := parsed.Query()["page"], []string{"3", "1", "2"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("integer array = %v, want %v", got, want)
+	}
+	if got, want := parsed.Query()["weight"], []string{"2.5", "1.25"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("number array = %v, want %v", got, want)
+	}
+	if got := parsed.Query().Get("query"); got != "platform" {
+		t.Errorf("aliased query = %q, want platform", got)
+	}
+	if parsed.Query().Has("search_query") {
+		t.Errorf("URL leaked local query name: %q", req.URL)
+	}
+}
+
+func TestTypedQueryValidationFailsBeforeUpstream(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("invalid typed query must not reach upstream")
+	}))
+	defer srv.Close()
+	op := newTestOp(srv, tokenAuth("s3cret"), nil)
+	minLimit, maxLimit := float64(1), float64(100)
+	minAuthors, maxAuthors := 1, 2
+	op.Desc.QueryFlags = []opcore.Field{
+		{Name: "limit", Type: "integer", Required: true, Minimum: &minLimit, Maximum: &maxLimit},
+		{Name: "author_id", Type: "array", Items: "string", MinItems: &minAuthors, MaxItems: &maxAuthors},
+	}
+	base := opcore.Args{
+		Path: map[string]string{"owner": "kai", "repo": "aos"},
+		Body: map[string]any{"title": "search"},
+	}
+	cases := map[string]map[string]any{
+		"below minimum":    {"limit": 0},
+		"above maximum":    {"limit": 101},
+		"wrong scalar":     {"limit": true},
+		"empty array":      {"limit": 10, "author_id": []string{}},
+		"array too long":   {"limit": 10, "author_id": []string{"a", "b", "c"}},
+		"wrong array item": {"limit": 10, "author_id": []any{"a", true}},
+	}
+	for name, values := range cases {
+		t.Run(name, func(t *testing.T) {
+			args := base
+			args.QueryValues = values
+			if _, err := op.Execute(context.Background(), args); kindOf(err) != "user_error" {
+				t.Fatalf("kind = %q, want user_error (err=%v)", kindOf(err), err)
+			}
+		})
+	}
+	if _, err := op.Execute(context.Background(), base); kindOf(err) != "user_error" {
+		t.Fatalf("missing required query: kind = %q, want user_error (err=%v)", kindOf(err), err)
+	}
+}
+
+func TestTypedQueryMutualExclusionFailsBeforeUpstream(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("mutually-exclusive query must not reach upstream")
+	}))
+	defer srv.Close()
+	op := newTestOp(srv, tokenAuth("s3cret"), nil)
+	op.Desc.QueryFlags = []opcore.Field{
+		{Name: "before", Type: "string"},
+		{Name: "after", Type: "string"},
+		{Name: "around", Type: "string"},
+	}
+	op.Desc.QueryExclusive = [][]string{{"before", "after", "around"}}
+	_, err := op.Execute(context.Background(), opcore.Args{
+		Path:        map[string]string{"owner": "kai", "repo": "aos"},
+		QueryValues: map[string]any{"before": "1", "after": "2"},
+		Body:        map[string]any{"title": "search"},
+	})
+	if kindOf(err) != "user_error" {
+		t.Fatalf("kind = %q, want user_error (err=%v)", kindOf(err), err)
+	}
+}
+
+func TestTypedQueryPolicyChecksEveryRepeatedValue(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("policy-denied query must not reach upstream")
+	}))
+	defer srv.Close()
+	op := newTestOp(srv, tokenAuth("s3cret"), nil)
+	op.Desc.QueryFlags = []opcore.Field{{Name: "author_id", Type: "array", Items: "string"}}
+	_, err := op.Execute(context.Background(), opcore.Args{
+		Path:        map[string]string{"owner": "kai", "repo": "aos"},
+		QueryValues: map[string]any{"author_id": []string{"safe", "bad;value"}},
+		Body:        map[string]any{"title": "search"},
+	})
+	if kindOf(err) != "policy_denied" {
+		t.Fatalf("kind = %q, want policy_denied (err=%v)", kindOf(err), err)
+	}
+}
+
+func TestQueryInputCannotUseBothArgsSurfaces(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+	op := newTestOp(srv, tokenAuth("s3cret"), nil)
+	_, err := op.Preview(opcore.Args{
+		Path:        map[string]string{"owner": "kai", "repo": "aos"},
+		Query:       map[string]string{"state": "open"},
+		QueryValues: map[string]any{"state": "closed"},
+		Body:        map[string]any{"title": "search"},
+	})
+	if kindOf(err) != "user_error" {
+		t.Fatalf("kind = %q, want user_error (err=%v)", kindOf(err), err)
 	}
 }
 

@@ -15,6 +15,14 @@ as the upstream `query` parameter. The neutral schema keeps the local property
 and annotates it with `x-opcore-upstream-name`. Generated references show both
 names.
 
+Typed query blocks use the same mapping on a field:
+
+```kdl
+query {
+    field "search_query" type="string" upstream="query"
+}
+```
+
 ## Boundary
 
 Aliases change only the outgoing query name:
@@ -25,6 +33,7 @@ Aliases change only the outgoing query name:
 * One alias declaration maps exactly one local name.
 * Body and form fields cannot declare upstream names.
 * Supplying both the local and outgoing names to `Operation` fails closed.
+* Mutual-exclusion declarations always name the local inputs.
 
 These checks keep response projection under the engine-owned `query` input while
 still allowing an HTTP API to receive a parameter literally named `query`.

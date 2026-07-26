@@ -132,7 +132,14 @@ func argsFuncFor(desc opDescriptor) func(*cli.Command) (map[string]string, []str
 		named := map[string]string{}
 		for _, f := range desc.QueryFlags {
 			if c.IsSet(f.Name) {
-				named[f.Name] = stringifyFlag(c, f)
+				values := stringifyFlagValues(c, f)
+				if len(values) == 1 {
+					named[f.Name] = values[0]
+					continue
+				}
+				for i, value := range values {
+					named[fmt.Sprintf("%s[%d]", f.Name, i)] = value
+				}
 			}
 		}
 		return named, c.Args().Slice()
@@ -257,7 +264,9 @@ func assembleQuery(c *cli.Command, flags []fieldFlag) string {
 		if !c.IsSet(f.Name) {
 			continue
 		}
-		vals.Set(f.QueryName(), stringifyFlag(c, f))
+		for _, value := range stringifyFlagValues(c, f) {
+			vals.Add(f.QueryName(), value)
+		}
 	}
 	if len(vals) == 0 {
 		return ""
@@ -419,24 +428,24 @@ func (rt *runtime) fire(ctx context.Context, method, url string, body []byte, co
 	return nil
 }
 
-// stringifyFlag renders a set flag's value as a string for the policy gate
-// and the query encoder; array values join with commas.
-func stringifyFlag(c *cli.Command, f fieldFlag) string {
+// stringifyFlagValues renders one set query flag for the policy gate and URL
+// encoder. Arrays keep one string per input value in input order.
+func stringifyFlagValues(c *cli.Command, f fieldFlag) []string {
 	switch f.Type {
 	case "boolean":
-		return fmt.Sprintf("%t", c.Bool(f.Name))
+		return []string{fmt.Sprintf("%t", c.Bool(f.Name))}
 	case "integer":
-		return fmt.Sprintf("%d", c.Int(f.Name))
+		return []string{fmt.Sprintf("%d", c.Int(f.Name))}
 	case "number":
-		return fmt.Sprintf("%g", c.Float(f.Name))
+		return []string{fmt.Sprintf("%g", c.Float(f.Name))}
 	case "array":
-		parts := []string{}
+		var parts []string
 		for _, v := range anySlice(c, f) {
 			parts = append(parts, fmt.Sprintf("%v", v))
 		}
-		return strings.Join(parts, ",")
+		return parts
 	default:
-		return c.String(f.Name)
+		return []string{c.String(f.Name)}
 	}
 }
 

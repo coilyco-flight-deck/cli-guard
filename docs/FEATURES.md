@@ -26,8 +26,13 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 ### HTTP request surface (`http/`)
 
 - **egress** - Per-run CONNECT proxy with consumer allowlist.
-- **Specgen HTTP/codegen stack** - `.specgen/` discovery, [gzip sources](specgen-vendored-sources.md), and encoded locks. See [specgen.md](specgen.md) and [features-detail.md](features-detail.md).
-- **complex actions** - `wrap`-block `poll`/`call`/`collect` verbs; the mount form shadows its leaf. See [specverb-actions.md](specverb-actions.md).
+- **Specgen HTTP/codegen stack** - `.specgen/` discovery, compressed sources,
+  encoded locks, and codegen. See [specgen.md](specgen.md).
+- **Typed inline queries** - Typed scalars, repeated arrays, bounds, aliases,
+  required fields, and at-most-one groups. See
+  [opcore-query-types.md](opcore-query-types.md).
+- **complex actions** - `poll`/`call`/`collect` verbs. See
+  [specverb-actions.md](specverb-actions.md).
 - **respfmt** - JSON renderer + JMESPath, five formats.
 - **ghcache** / **ghidcache** / **ghratelimit** / **stscache** - Response, id, rate-limit, STS caches.
 
@@ -39,15 +44,16 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 - **exitcode** - Public exit-code taxonomy.
 - **valuesource** - Shared `value <provider>` resolution.
 - **config** - Layered-config primitives + `OverlayFile[T]`.
-- **agentclaim** - Policy-free, versioned KDL and JSON identity contract with
-  separate context and authority role domains. See [agent-claim.md](agent-claim.md).
+- **agentclaim** - Versioned KDL and JSON identity contract. See
+  [agent-claim.md](agent-claim.md).
 - **fleetconfig** - Typed KDL fleet configuration. See [fleetconfig.md](fleetconfig.md).
 - **stepflow** - Transport-agnostic ordered sequence engine with explicit data threading.
 - **ttlcache** - Generic TTL-keyed cache.
 - **workdir** - Working-directory resolver.
 - **skillgen** - Render deterministic native agent skills from CLI command trees.
-- **broker** / **credseed** - Credential broker + env seeder. See [broker.md](broker.md).
-- **scan** / **attribution** / **flock** / **version** / **issueref** / **ownertrust** - Ward-lifted helpers. See [ward-helpers.md](ward-helpers.md).
+- **broker** / **credseed** - Credential broker and env seeder. See [broker.md](broker.md).
+- **scan** / **attribution** / **flock** / **version** / **issueref** /
+  **ownertrust** - Ward-lifted helpers. See [ward-helpers.md](ward-helpers.md).
 - **agentid** - Canonical agent-id generator (Go port).
 
 ## Repo development

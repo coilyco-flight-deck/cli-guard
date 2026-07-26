@@ -82,6 +82,59 @@ func TestInputSchemaPreservesQueryAlias(t *testing.T) {
 	}
 }
 
+func TestInputSchemaPreservesQueryBoundsAndExclusions(t *testing.T) {
+	minimum, maximum := float64(1), float64(100)
+	minItems, maxItems := 1, 25
+	d := opcore.Descriptor{
+		QueryFlags: []opcore.Field{
+			{Name: "limit", Type: "integer", Minimum: &minimum, Maximum: &maximum},
+			{Name: "author_id", Type: "array", Items: "string", MinItems: &minItems, MaxItems: &maxItems},
+			{Name: "before", Type: "string"},
+			{Name: "after", Type: "string"},
+			{Name: "around", Type: "string"},
+		},
+		QueryExclusive: [][]string{{"before", "after", "around"}},
+	}
+	s := d.InputSchema()
+	if got := s.Properties["limit"]; got.Minimum == nil || *got.Minimum != 1 || got.Maximum == nil || *got.Maximum != 100 {
+		t.Fatalf("numeric bounds = %+v", got)
+	}
+	if got := s.Properties["author_id"]; got.MinItems == nil || *got.MinItems != 1 || got.MaxItems == nil || *got.MaxItems != 25 {
+		t.Fatalf("array bounds = %+v", got)
+	}
+	if want := [][]string{{"before", "after", "around"}}; !reflect.DeepEqual(s.MutuallyExclusive, want) {
+		t.Fatalf("mutually exclusive = %v, want %v", s.MutuallyExclusive, want)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(s.JSONSchema(), &doc); err != nil {
+		t.Fatalf("unmarshal JSON schema: %v", err)
+	}
+	props := doc["properties"].(map[string]any)
+	limit := props["limit"].(map[string]any)
+	if limit["minimum"] != float64(1) || limit["maximum"] != float64(100) {
+		t.Errorf("limit schema = %v", limit)
+	}
+	authors := props["author_id"].(map[string]any)
+	if authors["minItems"] != float64(1) || authors["maxItems"] != float64(25) {
+		t.Errorf("author array schema = %v", authors)
+	}
+	allOf := doc["allOf"].([]any)
+	if len(allOf) != 3 {
+		t.Fatalf("pairwise exclusion constraints = %d, want 3", len(allOf))
+	}
+	pairs := map[string]bool{}
+	for _, raw := range allOf {
+		not := raw.(map[string]any)["not"].(map[string]any)
+		required := not["required"].([]any)
+		pairs[required[0].(string)+"/"+required[1].(string)] = true
+	}
+	wantPairs := map[string]bool{"before/after": true, "before/around": true, "after/around": true}
+	if !reflect.DeepEqual(pairs, wantPairs) {
+		t.Errorf("exclusion pairs = %v, want %v", pairs, wantPairs)
+	}
+}
+
 func TestInputSchemaFixedBodyOmitted(t *testing.T) {
 	// A fixed-body leaf mounts no body flags on the CLI, so its input schema is
 	// path params only - nothing the caller supplies for the body.

@@ -140,6 +140,52 @@ func TestParseInlineQueryAlias(t *testing.T) {
 	}
 }
 
+func TestParseInlineTypedQueryBlock(t *testing.T) {
+	descs, _ := parseInline(t, `wrap x {
+        auth bearer { value env "T" }
+        can list message {
+            path "/channels/{channel_id}/messages"
+            query {
+                field "limit" type="integer" minimum=1 maximum=100 required=true
+                field "pinned" type="boolean"
+                field "score" type="number" minimum=0.5 maximum=9.5
+                array "author_id" items="string" min-items=1 max-items=25
+                array "enabled" items="boolean"
+                array "page" items="integer"
+                array "weight" items="number"
+                field "search_query" type="string" upstream="query"
+                field "before" type="string"
+                field "after" type="string"
+                field "around" type="string"
+                mutually-exclusive "before" "after" "around"
+            }
+        }
+    }`)
+	list := descByLeaf(t, descs, "list")
+	minLimit, maxLimit := float64(1), float64(100)
+	minScore, maxScore := 0.5, 9.5
+	minAuthors, maxAuthors := 1, 25
+	want := []opcore.Field{
+		{Name: "limit", Type: "integer", Required: true, Minimum: &minLimit, Maximum: &maxLimit},
+		{Name: "pinned", Type: "boolean"},
+		{Name: "score", Type: "number", Minimum: &minScore, Maximum: &maxScore},
+		{Name: "author_id", Type: "array", Items: "string", MinItems: &minAuthors, MaxItems: &maxAuthors},
+		{Name: "enabled", Type: "array", Items: "boolean"},
+		{Name: "page", Type: "array", Items: "integer"},
+		{Name: "weight", Type: "array", Items: "number"},
+		{Name: "search_query", UpstreamName: "query", Type: "string"},
+		{Name: "before", Type: "string"},
+		{Name: "after", Type: "string"},
+		{Name: "around", Type: "string"},
+	}
+	if !reflect.DeepEqual(list.QueryFlags, want) {
+		t.Errorf("typed query fields = %#v, want %#v", list.QueryFlags, want)
+	}
+	if wantExclusive := [][]string{{"before", "after", "around"}}; !reflect.DeepEqual(list.QueryExclusive, wantExclusive) {
+		t.Errorf("query exclusions = %v, want %v", list.QueryExclusive, wantExclusive)
+	}
+}
+
 func TestParseInlineNestedBodySchema(t *testing.T) {
 	descs, _ := parseInline(t, nestedInlineSrc)
 	query := descByLeaf(t, descs, "query")
@@ -317,6 +363,77 @@ func TestParseInlineQueryAliasFailsClosed(t *testing.T) {
             }`
 			if _, _, err := opcore.ParseInline([]byte(src)); err == nil {
 				t.Fatal("ambiguous or invalid query alias should fail closed")
+			}
+		})
+	}
+}
+
+func TestParseInlineTypedQueryFailsClosed(t *testing.T) {
+	cases := map[string]string{
+		"mixed shorthand and block": `query "limit" {
+            field "after" type="string"
+        }`,
+		"query block property": `query mode="typed" {
+            field "limit" type="integer"
+        }`,
+		"object value": `query {
+            object "filter" raw=true
+        }`,
+		"unknown node": `query {
+            tuple "filter"
+        }`,
+		"unsupported scalar type": `query {
+            field "filter" type="object"
+        }`,
+		"duplicate local name": `query {
+            field "limit" type="integer"
+            field "limit" type="number"
+        }`,
+		"unknown property": `query {
+            field "limit" type="integer" default=10
+        }`,
+		"minimum above maximum": `query {
+            field "limit" type="integer" minimum=101 maximum=100
+        }`,
+		"numeric bound on string": `query {
+            field "cursor" type="string" minimum=1
+        }`,
+		"array bound on scalar": `query {
+            field "limit" type="integer" min-items=1
+        }`,
+		"negative min-items": `query {
+            array "ids" items="string" min-items=-1
+        }`,
+		"fractional max-items": `query {
+            array "ids" items="string" max-items=2.5
+        }`,
+		"unsupported array items": `query {
+            array "ids" items="object"
+        }`,
+		"nested query field": `query {
+            field "filter" type="string" { field "nested" type="string" }
+        }`,
+		"exclusive group too small": `query {
+            field "before" type="string"
+            mutually-exclusive "before"
+        }`,
+		"exclusive unknown field": `query {
+            field "before" type="string"
+            mutually-exclusive "before" "after"
+        }`,
+		"exclusive duplicate name": `query {
+            field "before" type="string"
+            mutually-exclusive "before" "before"
+        }`,
+	}
+	for name, query := range cases {
+		t.Run(name, func(t *testing.T) {
+			src := `wrap x {
+                auth bearer { value env "T" }
+                can list message { path "/messages"; ` + query + ` }
+            }`
+			if _, _, err := opcore.ParseInline([]byte(src)); err == nil {
+				t.Fatal("invalid typed query should fail closed")
 			}
 		})
 	}

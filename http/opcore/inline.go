@@ -2,6 +2,7 @@ package opcore
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
@@ -147,6 +148,9 @@ func (p *inlineParser) parseGrant(n *kdl.Node) error {
 		// a state toggle owns its body: no body flags mount alongside a `set`.
 		d.BodyFlags = nil
 	}
+	if err := validateQueryExclusive(d); err != nil {
+		return err
+	}
 	if err := CheckFlagCollisions(d); err != nil {
 		return err
 	}
@@ -197,11 +201,12 @@ func applyInlineGrantChild(d *Descriptor, c *kdl.Node) error {
 		}
 		d.Path = v
 	case "query":
-		fields, err := inlineFields(c, "query")
+		fields, exclusive, err := inlineQueryFields(c)
 		if err != nil {
 			return err
 		}
 		d.QueryFlags = append(d.QueryFlags, fields...)
+		d.QueryExclusive = append(d.QueryExclusive, exclusive...)
 	case "body":
 		fields, err := inlineBodyFields(c)
 		if err != nil {
@@ -385,6 +390,328 @@ func inlineFields(c *kdl.Node, kind string) ([]Field, error) {
 		out = append(out, Field{Name: name, UpstreamName: upstreamName, Type: "string"})
 	}
 	return out, nil
+}
+
+// inlineQueryFields reads either the historical flat query shorthand or a
+// typed query block. The shorthand stays on its original parsing path.
+func inlineQueryFields(c *kdl.Node) ([]Field, [][]string, error) {
+	hasChildren := c.Children() != nil && len(c.Children().Nodes) > 0
+	hasArgs := len(c.Arguments()) > 0
+	if hasChildren && hasArgs {
+		return nil, nil, fmt.Errorf("`query` takes either flat field names or a block, not both (fail-closed)")
+	}
+	if hasArgs {
+		fields, err := inlineFields(c, "query")
+		return fields, nil, err
+	}
+	if len(c.Properties()) > 0 {
+		return nil, nil, fmt.Errorf("a `query` block takes no properties (put properties on its fields, fail-closed)")
+	}
+	if !hasChildren {
+		return nil, nil, fmt.Errorf("`query` needs at least one field name or a block")
+	}
+	return parseQueryChildren(c.Children().Nodes)
+}
+
+// parseQueryChildren reads a query block in declaration order and rejects
+// duplicate local names before the descriptor reaches collision validation.
+func parseQueryChildren(nodes []*kdl.Node) ([]Field, [][]string, error) {
+	out := make([]Field, 0, len(nodes))
+	var exclusive [][]string
+	seen := map[string]bool{}
+	for _, n := range nodes {
+		if n.Name() == "mutually-exclusive" {
+			group, err := parseQueryExclusive(n)
+			if err != nil {
+				return nil, nil, err
+			}
+			exclusive = append(exclusive, group)
+			continue
+		}
+		f, err := parseQueryFieldNode(n)
+		if err != nil {
+			return nil, nil, err
+		}
+		if seen[f.Name] {
+			return nil, nil, fmt.Errorf("duplicate `query` field %q (fail-closed)", f.Name)
+		}
+		seen[f.Name] = true
+		out = append(out, f)
+	}
+	return out, exclusive, nil
+}
+
+// parseQueryExclusive reads one at-most-one declaration over local query names.
+func parseQueryExclusive(n *kdl.Node) ([]string, error) {
+	if len(n.Properties()) > 0 || (n.Children() != nil && len(n.Children().Nodes) > 0) {
+		return nil, fmt.Errorf("`mutually-exclusive` takes only local query names (fail-closed)")
+	}
+	args := n.Arguments()
+	if len(args) < 2 {
+		return nil, fmt.Errorf("`mutually-exclusive` needs at least two local query names")
+	}
+	out := make([]string, 0, len(args))
+	seen := map[string]bool{}
+	for _, arg := range args {
+		name := arg.String()
+		if name == "" {
+			return nil, fmt.Errorf("`mutually-exclusive` query name is empty (fail-closed)")
+		}
+		if seen[name] {
+			return nil, fmt.Errorf("`mutually-exclusive` repeats query name %q (fail-closed)", name)
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out, nil
+}
+
+// validateQueryExclusive resolves every declaration against the descriptor's
+// local query names and rejects duplicate groups.
+func validateQueryExclusive(d Descriptor) error {
+	declared := map[string]bool{}
+	for _, f := range d.QueryFlags {
+		declared[f.Name] = true
+	}
+	seenGroups := map[string]bool{}
+	for _, group := range d.QueryExclusive {
+		for _, name := range group {
+			if !declared[name] {
+				return fmt.Errorf("opcore: %s: mutually-exclusive query name %q is not declared (fail-closed)", d.VerbName, name)
+			}
+		}
+		key := strings.Join(group, "\x00")
+		if seenGroups[key] {
+			return fmt.Errorf("opcore: %s: duplicate mutually-exclusive query group (fail-closed)", d.VerbName)
+		}
+		seenGroups[key] = true
+	}
+	return nil
+}
+
+// parseQueryFieldNode accepts typed scalars and scalar arrays only. Query
+// objects are not URL encodings and therefore fail closed.
+func parseQueryFieldNode(n *kdl.Node) (Field, error) {
+	switch n.Name() {
+	case "field":
+		return parseTypedQueryField(n, "")
+	case "array":
+		return parseTypedQueryField(n, "array")
+	case "object":
+		return Field{}, fmt.Errorf("object query field %q is unsupported (use scalar fields or arrays, fail-closed)", queryFieldName(n))
+	default:
+		return Field{}, fmt.Errorf("unknown node %q in `query` block (want field | array, fail-closed)", n.Name())
+	}
+}
+
+// parseTypedQueryField reads one query field and validates its shape and bounds.
+func parseTypedQueryField(n *kdl.Node, defaultType string) (Field, error) {
+	args := n.Arguments()
+	if len(args) != 1 || args[0].String() == "" {
+		return Field{}, fmt.Errorf("`%s` expects exactly one non-empty field name", n.Name())
+	}
+	f := Field{Name: args[0].String(), Type: defaultType}
+	if err := applyQueryFieldProperties(&f, n); err != nil {
+		return Field{}, err
+	}
+	if f.Type == "" {
+		return Field{}, fmt.Errorf("`field` needs a `type=...` property")
+	}
+	if err := validateQueryFieldShape(n, &f); err != nil {
+		return Field{}, err
+	}
+	return f, nil
+}
+
+// applyQueryFieldProperties reads the closed property set for typed query
+// fields. Numeric bounds stay distinct from array-length bounds.
+func applyQueryFieldProperties(f *Field, n *kdl.Node) error {
+	for k, v := range n.Properties() {
+		if err := applyQueryFieldProperty(f, n.Name(), k, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func applyQueryFieldProperty(f *Field, nodeName, key string, value kdl.Value) error {
+	switch key {
+	case "type", "items", "upstream":
+		return applyQueryStringFieldProperty(f, nodeName, key, value)
+	case "required":
+		b, ok := value.RawValue().(bool)
+		if !ok {
+			return fmt.Errorf("query field %q needs `required=true|false`", f.Name)
+		}
+		f.Required = b
+	case "minimum", "maximum":
+		return applyQueryNumericBound(f, key, value.RawValue())
+	case "min-items", "max-items":
+		return applyQueryArrayBound(f, key, value.RawValue())
+	default:
+		return fmt.Errorf("unknown property %q on query field %q (fail-closed)", key, f.Name)
+	}
+	return nil
+}
+
+func applyQueryStringFieldProperty(f *Field, nodeName, key string, value kdl.Value) error {
+	raw, ok := queryStringProperty(value)
+	if !ok {
+		return fmt.Errorf("query field %q needs a non-empty string %s value", f.Name, key)
+	}
+	switch key {
+	case "type":
+		if f.Type != "" {
+			return fmt.Errorf("`%s` sets type twice (fail-closed)", nodeName)
+		}
+		f.Type = raw
+	case "items":
+		f.Items = raw
+	case "upstream":
+		f.UpstreamName = raw
+	}
+	return nil
+}
+
+func queryStringProperty(value kdl.Value) (string, bool) {
+	raw, ok := value.RawValue().(string)
+	return raw, ok && raw != ""
+}
+
+func applyQueryNumericBound(f *Field, property string, raw any) error {
+	bound, err := queryNumericBound(raw, property, f.Name)
+	if err != nil {
+		return err
+	}
+	if property == "minimum" {
+		f.Minimum = &bound
+	} else {
+		f.Maximum = &bound
+	}
+	return nil
+}
+
+func applyQueryArrayBound(f *Field, property string, raw any) error {
+	bound, err := queryItemBound(raw, property, f.Name)
+	if err != nil {
+		return err
+	}
+	if property == "min-items" {
+		f.MinItems = &bound
+	} else {
+		f.MaxItems = &bound
+	}
+	return nil
+}
+
+// validateQueryFieldShape enforces the typed query grammar after properties
+// have been parsed.
+func validateQueryFieldShape(n *kdl.Node, f *Field) error {
+	if n.Children() != nil && len(n.Children().Nodes) > 0 {
+		return fmt.Errorf("query field %q does not take a nested block (fail-closed)", f.Name)
+	}
+	switch f.Type {
+	case "string", "boolean":
+		return validateQueryScalarShape(*f)
+	case "integer", "number":
+		return validateQueryNumberShape(*f)
+	case "array":
+		return validateQueryArrayShape(f)
+	default:
+		return fmt.Errorf("unsupported query field type %q (want string | boolean | integer | number | array, fail-closed)", f.Type)
+	}
+}
+
+func validateQueryScalarShape(f Field) error {
+	if f.Minimum != nil || f.Maximum != nil {
+		return fmt.Errorf("query field %q sets numeric bounds on type %q (fail-closed)", f.Name, f.Type)
+	}
+	if err := validateNoQueryArrayProperties(f); err != nil {
+		return err
+	}
+	return validateQueryAliasShape(f)
+}
+
+func validateQueryNumberShape(f Field) error {
+	if err := validateNoQueryArrayProperties(f); err != nil {
+		return err
+	}
+	if f.Minimum != nil && f.Maximum != nil && *f.Minimum > *f.Maximum {
+		return fmt.Errorf("query field %q has minimum greater than maximum (fail-closed)", f.Name)
+	}
+	return validateQueryAliasShape(f)
+}
+
+func validateQueryArrayShape(f *Field) error {
+	if f.Minimum != nil || f.Maximum != nil {
+		return fmt.Errorf("query array %q sets scalar numeric bounds (fail-closed)", f.Name)
+	}
+	if f.Items == "" {
+		f.Items = "string"
+	}
+	if !queryScalarType(f.Items) {
+		return fmt.Errorf("query array %q has unsupported items type %q (want string | boolean | integer | number, fail-closed)", f.Name, f.Items)
+	}
+	if f.MinItems != nil && f.MaxItems != nil && *f.MinItems > *f.MaxItems {
+		return fmt.Errorf("query array %q has min-items greater than max-items (fail-closed)", f.Name)
+	}
+	return validateQueryAliasShape(*f)
+}
+
+func validateNoQueryArrayProperties(f Field) error {
+	if f.Items != "" || f.MinItems != nil || f.MaxItems != nil {
+		return fmt.Errorf("query field %q sets array properties on type %q (fail-closed)", f.Name, f.Type)
+	}
+	return nil
+}
+
+func validateQueryAliasShape(f Field) error {
+	if f.UpstreamName == f.Name && f.UpstreamName != "" {
+		return fmt.Errorf("query field %q repeats its local name in upstream= (use the unaliased form)", f.Name)
+	}
+	return nil
+}
+
+func queryScalarType(t string) bool {
+	switch t {
+	case "string", "boolean", "integer", "number":
+		return true
+	}
+	return false
+}
+
+// queryNumericBound converts the KDL numeric kinds used by minimum and maximum.
+func queryNumericBound(raw any, property, field string) (float64, error) {
+	var out float64
+	switch v := raw.(type) {
+	case int:
+		out = float64(v)
+	case float64:
+		out = v
+	default:
+		return 0, fmt.Errorf("query field %q property %s must be a finite number (fail-closed)", field, property)
+	}
+	if math.IsNaN(out) || math.IsInf(out, 0) {
+		return 0, fmt.Errorf("query field %q property %s must be a finite number (fail-closed)", field, property)
+	}
+	return out, nil
+}
+
+// queryItemBound accepts a non-negative KDL integer for min-items/max-items.
+func queryItemBound(raw any, property, field string) (int, error) {
+	out, ok := raw.(int)
+	if !ok || out < 0 {
+		return 0, fmt.Errorf("query array %q property %s must be a non-negative integer (fail-closed)", field, property)
+	}
+	return out, nil
+}
+
+func queryFieldName(n *kdl.Node) string {
+	args := n.Arguments()
+	if len(args) == 1 {
+		return args[0].String()
+	}
+	return ""
 }
 
 // inlineUpstreamName reads the one property accepted by a query declaration.
