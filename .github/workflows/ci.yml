@@ -41,6 +41,7 @@ jobs:
 
       - name: Alert Telegram on main failure
         if: ${{ failure() && github.ref == 'refs/heads/main' }}
+        continue-on-error: true
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_RED_CHAT_ID }}
@@ -131,6 +132,7 @@ jobs:
 
       - name: Alert Telegram on main failure
         if: ${{ failure() && github.ref == 'refs/heads/main' }}
+        continue-on-error: true
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_RED_CHAT_ID }}
@@ -223,6 +225,7 @@ jobs:
 
       - name: Alert Telegram on main failure
         if: ${{ failure() && github.ref == 'refs/heads/main' }}
+        continue-on-error: true
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_RED_CHAT_ID }}
@@ -304,6 +307,7 @@ jobs:
         run: mkdocs build --strict
       - name: Alert Telegram on main failure
         if: ${{ failure() && github.ref == 'refs/heads/main' }}
+        continue-on-error: true
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_RED_CHAT_ID }}
