@@ -18,7 +18,7 @@ It provides:
 
 - **[Features](FEATURES.md)** - feature inventory.
 - **[Examples](examples.md)** - one runnable demo per primitive.
-- **[CLI reference](https://coilysiren.github.io/cli-guard/cli/)** - rendered command tree for every example.
+- **CLI reference** - run `make docs-serve` to render the command tree for every example locally.
 - **[Source on GitHub](https://github.com/coilysiren/cli-guard)** - issues, releases, code.
 
 Sibling repo: [cli-mcp](https://github.com/coilysiren/cli-mcp).

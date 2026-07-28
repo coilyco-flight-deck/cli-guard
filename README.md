@@ -51,7 +51,7 @@ Go toolchain when it resolves locks and builds generated CLIs.
 
 ## Documentation
 
-See the [`specgen` guide](docs/specgen.md), [`docs/FEATURES.md`](docs/FEATURES.md) for a feature inventory, [`examples/`](examples/) for runnable demos one per primitive, and the [CLI reference](https://coilysiren.github.io/cli-guard/cli/) for the rendered command tree of every example. Local dev verbs run through `make` (see the [`Makefile`](Makefile)).
+See the [`specgen` guide](docs/specgen.md), [`docs/FEATURES.md`](docs/FEATURES.md) for a feature inventory, and [`examples/`](examples/) for runnable demos one per primitive. `make docs-serve` renders the documentation and CLI reference locally. Other development verbs also run through the [`Makefile`](Makefile).
 
 ## Support
 
@@ -72,7 +72,6 @@ See [`LICENSE`](./LICENSE).
 [urfave/cli]: https://github.com/urfave/cli
 [create a new issue]: https://github.com/coilysiren/cli-guard/issues/new/choose
 [cli-mcp]: https://github.com/coilysiren/cli-mcp
-
 ## See also
 
 - [AGENTS.md](AGENTS.md) - agent-facing operating rules.

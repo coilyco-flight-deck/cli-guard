@@ -1,8 +1,9 @@
 # Release pipeline
 
-Forgejo is the canonical and only release surface for cli-guard. GitHub is not
-in the loop. cli-guard is the base library of the cli-guard / ward stack
-(coily, the original third member, has been retired).
+Forgejo is the canonical and only publication surface for cli-guard. GitHub
+does not build or publish releases and does not deploy documentation.
+cli-guard is the base library of the cli-guard / ward stack (coily, the
+original third member, has been retired).
 
 ## Flow
 

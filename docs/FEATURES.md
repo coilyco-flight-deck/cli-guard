@@ -59,7 +59,7 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 ## Repo development
 
 - `Makefile` is the source of truth for dev verbs (cli-guard is unguarded).
-- `.golangci.yaml` / `staticcheck.conf` mirror urfave/cli; CI runs vet, build, `test -race`, golangci-lint, trufflehog.
+- `.golangci.yaml` / `staticcheck.conf` mirror urfave/cli. CI validates code, secrets, and docs. GitHub publishes and deploys nothing.
 - Release is automated and Forgejo-canonical, with commit-scoped draft tags on `main`, public release tags on `release`, packaged `specgen` binaries, and automatic Homebrew tap plus Scoop bucket updates. Consumers self-bump. See [release-pipeline.md](release-pipeline.md).
 
 ## See also
