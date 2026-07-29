@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strconv"
 
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/exitcode"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/policy"
 )
@@ -63,7 +64,50 @@ func (o Operation) Execute(ctx context.Context, a Args) (Response, error) {
 	if err != nil {
 		return Response{}, err
 	}
+	if err := o.checkResponse(decoded, a); err != nil {
+		return Response{}, err
+	}
 	return Response{Decoded: decoded, Raw: raw, Status: status}, nil
+}
+
+// checkResponse evaluates an inline grant's semantic response postcondition.
+// Request inputs are exposed as native JMESPath variables.
+func (o Operation) checkResponse(decoded any, a Args) error {
+	if o.Desc.FailWhen == "" {
+		return nil
+	}
+	fail, err := respfmt.EvalBool(decoded, o.Desc.FailWhen, responseVars(o.Desc, a))
+	if err != nil {
+		return exitcode.New(exitcode.Internal, "internal", err,
+			"check the inline grant's `fail-when` expression against the response shape")
+	}
+	if fail {
+		return exitcode.New(exitcode.UpstreamFailed, "upstream_failed",
+			fmt.Errorf("%s response matched fail-when %q", o.Desc.Leaf, o.Desc.FailWhen),
+			"the API returned success but did not satisfy the declared response postcondition")
+	}
+	return nil
+}
+
+func responseVars(d Descriptor, a Args) map[string]any {
+	out := make(map[string]any, len(a.Path)+len(a.Query)+len(a.QueryValues)+len(a.Body)+len(d.FixedBody))
+	for name, value := range a.Path {
+		out[name] = value
+	}
+	for name, value := range a.Query {
+		out[name] = value
+	}
+	for name, value := range a.QueryValues {
+		out[name] = value
+	}
+	body := a.Body
+	if len(d.FixedBody) > 0 {
+		body = d.FixedBody
+	}
+	for name, value := range body {
+		out[name] = value
+	}
+	return out
 }
 
 // Preview resolves the request without firing it (same gate/restrict/assembly as

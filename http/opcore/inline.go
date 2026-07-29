@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/respfmt"
 	kdl "github.com/calico32/kdl-go"
 )
 
@@ -188,7 +189,7 @@ func (p *inlineParser) parseProxy(n *kdl.Node) error {
 }
 
 // applyInlineGrantChild dispatches one child of a `can` operation body onto d,
-// failing closed on anything outside path | query | body | set.
+// failing closed on anything outside path | query | body | set | fail-when.
 func applyInlineGrantChild(d *Descriptor, c *kdl.Node) error {
 	switch c.Name() {
 	case "path":
@@ -213,12 +214,35 @@ func applyInlineGrantChild(d *Descriptor, c *kdl.Node) error {
 			return err
 		}
 		d.BodyFlags = append(d.BodyFlags, fields...)
-	case "set":
-		return applyInlineSet(d, c)
 	default:
-		return fmt.Errorf("unknown node %q (want path | query | body | set; fail-closed)", c.Name())
+		return applyInlineGrantControlChild(d, c)
 	}
 	return nil
+}
+
+func applyInlineGrantControlChild(d *Descriptor, c *kdl.Node) error {
+	switch c.Name() {
+	case "set":
+		return applyInlineSet(d, c)
+	case "fail-when":
+		if d.FailWhen != "" {
+			return fmt.Errorf("duplicate `fail-when` (fail-closed)")
+		}
+		expr, err := singleInlineArg(c, "fail-when")
+		if err != nil {
+			return err
+		}
+		if expr == "" {
+			return fmt.Errorf("`fail-when` needs a non-empty JMESPath expression")
+		}
+		if err := respfmt.Validate(expr); err != nil {
+			return fmt.Errorf("fail-when: %w", err)
+		}
+		d.FailWhen = expr
+		return nil
+	default:
+		return fmt.Errorf("unknown node %q (want path | query | body | set | fail-when; fail-closed)", c.Name())
+	}
 }
 
 // applyProxyChild dispatches one child of a proxy grant body onto d, failing

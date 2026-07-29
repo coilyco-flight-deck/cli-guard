@@ -22,6 +22,7 @@ type Descriptor struct {
 	Destructive    bool           // leaf mutates irreversibly (delete)
 	Grant          string         // the authorizing grant sentence, e.g. "can delete repos"
 	Describe       string         // optional Guardfile describe "..." note, "" if none
+	FailWhen       string         // optional JMESPath response postcondition; truthy rejects a successful call
 	Proxy          *Proxy         // non-nil for an inline MCP proxy grant
 }
 

@@ -26,13 +26,12 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 ### HTTP request surface (`http/`)
 
 - **egress** - Per-run CONNECT proxy with consumer allowlist.
-- **Specgen HTTP/codegen stack** - `.specgen/` discovery, compressed sources,
-  encoded locks, and codegen. See [specgen.md](specgen.md).
-- **Typed inline queries** - Typed scalars, repeated arrays, bounds, aliases,
-  required fields, and at-most-one groups. See
-  [opcore-query-types.md](opcore-query-types.md).
-- **complex actions** - `poll`/`call`/`collect` verbs. See
-  [specverb-actions.md](specverb-actions.md).
+- **Specgen HTTP/codegen** - `.specgen/` discovery, compressed sources, locks,
+  and codegen. See [specgen.md](specgen.md).
+- **Inline HTTP contracts** - Typed query inputs and JMESPath response
+  postconditions. See [query types](opcore-query-types.md) and
+  [inline operations](opcore-inline.md).
+- **complex actions** - `poll`/`call`/`collect`. See [actions](specverb-actions.md).
 - **respfmt** - JSON renderer + JMESPath, five formats.
 - **ghcache** / **ghidcache** / **ghratelimit** / **stscache** - Response, id, rate-limit, STS caches.
 

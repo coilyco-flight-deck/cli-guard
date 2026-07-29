@@ -497,6 +497,33 @@ func TestExecuteUpstreamError(t *testing.T) {
 	}
 }
 
+func TestExecuteInlineFailWhenUsesRequestBodyVariables(t *testing.T) {
+	response := `[]`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(response))
+	}))
+	defer srv.Close()
+
+	op := newTestOp(srv, tokenAuth("s"), nil)
+	op.Desc.BodyFlags = []opcore.Field{{
+		Name: "labels", Type: "array", Items: "integer", Required: true,
+	}}
+	op.Desc.FailWhen = "length([?contains($labels, id)]) != length($labels)"
+	args := opcore.Args{
+		Path: map[string]string{"owner": "kai", "repo": "aos"},
+		Body: map[string]any{"labels": []any{float64(346)}},
+	}
+
+	if _, err := op.Execute(context.Background(), args); kindOf(err) != "upstream_failed" {
+		t.Fatalf("missing requested label: kind = %q, want upstream_failed (err=%v)", kindOf(err), err)
+	}
+
+	response = `[{"id":346}]`
+	if _, err := op.Execute(context.Background(), args); err != nil {
+		t.Fatalf("present requested label: %v", err)
+	}
+}
+
 func TestDefaultScheme(t *testing.T) {
 	cases := map[string]string{
 		"forgejo.coilysiren.me/api/v1":         "https://forgejo.coilysiren.me/api/v1",

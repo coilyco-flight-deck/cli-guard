@@ -1,13 +1,9 @@
 # opcore inline-operation source (`ParseInline`)
-`opcore.ParseInline` is the second descriptor source of the cli-free engine core.
-Where the OpenAPI source resolves a `Descriptor` against a spec, the inline source
-**states** it directly from KDL, so a non-CLI consumer (ward-mcp) never couples to
-the CLI projection. Both sources feed the one `opcore.Descriptor` type, so every
-downstream projection is source-blind. See [specverb.md](specverb.md) and the opcore docs.
+`opcore.ParseInline` states descriptors directly from KDL for non-CLI consumers
+such as ward-mcp. It feeds the same source-blind core as OpenAPI resolution.
 ## Grammar
 
-The frozen ward-mcp grammar, parsed with the same node-walking shape as
-`guardfile`/`execverb`:
+The frozen ward-mcp grammar follows the `guardfile`/`execverb` node shape:
 
 ```kdl
 wrap ward mcp forgejo {
@@ -23,6 +19,7 @@ wrap ward mcp forgejo {
         path "/repos/{owner}/{repo}/issues"      // required; path params inferred from {template}
         query "state"                            // -> query Fields (typed string)
         body "title" "body"                      // -> body Fields (typed string)
+        fail-when "number == null"
     }
     can query issue {
         path "/query"
@@ -45,31 +42,26 @@ wrap ward mcp forgejo {
 
 ## How each piece maps
 
-* **method** - inferred from the verb via `opcore.MethodForVerb` (create→POST,
-  get/list/view/search→GET, edit/close/reopen/archive→PATCH, delete/remove→DELETE,
-  add→POST, set→PUT). No operationId, no spec resolution.
+* **method** - inferred through `opcore.MethodForVerb`, without operationId
+  resolution.
 * **path params** - inferred from the `{template}` in author order via
   `opcore.PathParamsInOrder`.
-* **query / body** - flat `query`/`body` field-name lists still promote to
-  `Field{Type:"string"}`. Query aliases use `query "local" upstream="wire"`.
-  The local name owns the input surface. See [opcore-query-aliases.md](opcore-query-aliases.md).
-  `query { ... }` adds typed, bounded, repeatable fields and at-most-one groups.
-  See [opcore-query-types.md](opcore-query-types.md). `body { ... }` adds typed
-  nested `field`/`object`/`array` schema blocks.
+* **query / body** - flat names become string fields. Blocks add typed, nested,
+  bounded, repeatable, aliased, or mutually exclusive fields. See
+  [query types](opcore-query-types.md) and [aliases](opcore-query-aliases.md).
 * **set** - `set k=v...` becomes the leaf's `FixedBody`, keeping each value's
   KDL-native type (a boolean stays a boolean). A `set` toggle owns its body, so no
   body flags mount alongside it.
+* **fail-when** - a JMESPath predicate over a successful response. A truthy result
+  fails the call. Request inputs are available as native `$name` variables.
 * **proxy** - guarded upstream MCP passthroughs live in
   [opcore-proxy.md](opcore-proxy.md).
 * **auth / base-url / restrict** - parsed by the shared `guardfile` node parsers
   (`ParseAuthNode`, `ParseBaseURL`, `ParseRestrictNode`) into the `RuntimeConfig`.
 ## Fail-closed and the shared guard
 
-`ParseInline` fails closed on an unknown node, a missing `auth`, a missing `path`,
-a malformed sentence, or zero operations. A promoted field that shadows a reserved
-engine flag (`dry-run`, `query`, `output`, `body-file`) or another field on the
-same leaf is rejected by `opcore.CheckFlagCollisions` - the same guard the resolved
-source runs, so an inline descriptor fails closed exactly like a resolved one.
+`ParseInline` rejects unknown nodes, missing requirements, malformed predicates,
+and input collisions through the same guard as resolved descriptors.
 `Providers` and `Client` are the consumer's to fill on the returned `RuntimeConfig`
 before `NewRuntime`; the KDL carries no opaque values.
 ## See also

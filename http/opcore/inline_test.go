@@ -125,6 +125,22 @@ func TestParseInlineBodyAndQueryFields(t *testing.T) {
 	}
 }
 
+func TestParseInlineFailWhen(t *testing.T) {
+	descs, _ := parseInline(t, `wrap x {
+        auth bearer { value env "T" }
+        can add issue-label {
+            path "/issues/{index}/labels"
+            body { array "labels" items="integer" required=true }
+            fail-when "length([?contains($labels, id)]) != length($labels)"
+        }
+    }`)
+	got := descByLeaf(t, descs, "add").FailWhen
+	want := "length([?contains($labels, id)]) != length($labels)"
+	if got != want {
+		t.Errorf("fail-when = %q, want %q", got, want)
+	}
+}
+
 func TestParseInlineQueryAlias(t *testing.T) {
 	descs, _ := parseInline(t, `wrap x {
         auth bearer { value env "T" }
@@ -474,6 +490,14 @@ func TestParseInlineFailClosedCases(t *testing.T) {
 		"unknown grant child": `wrap x {
             auth bearer { value env "T" }
             can get repo { path "/r"; describe "no" }
+        }`,
+		"malformed fail-when": `wrap x {
+            auth bearer { value env "T" }
+            can get repo { path "/r"; fail-when "length(" }
+        }`,
+		"duplicate fail-when": `wrap x {
+            auth bearer { value env "T" }
+            can get repo { path "/r"; fail-when "false"; fail-when "true" }
         }`,
 		"can wrong arity": `wrap x {
             auth bearer { value env "T" }
