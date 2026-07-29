@@ -1,4 +1,4 @@
-package kdlspecs
+package specgen
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/kdlspecs/codegen"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen/codegen"
 )
 
 func TestReadSpecSourceDecodesGzipAndKeepsPlainCompatible(t *testing.T) {

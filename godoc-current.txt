@@ -1765,178 +1765,6 @@ func (v ValueSource) IsZero() bool
     IsZero reports whether the source is unset (no provider named).
 
 
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/kdlspecs
-
-package kdlspecs // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/kdlspecs"
-
-Cache layout and staleness for the out-of-band materialized consumer binary,
-keyed by the Guardfile's location. See docs/specverb.md.
-
-The uv-style dependency lockfile (specverb.lock) and the `go` plumbing
-that resolves and replays it for a reproducible out-of-band build. See
-docs/specverb.md.
-
-Process replacement (syscall.Exec) and cache locking (flock) on Unix.
-
-Package kdlspecs is the no-code driver behind cmd/specgen: the uv-style verb
-surface (gen / lock / skew / run) over a Guardfile. See docs/specverb.md.
-
-CONSTANTS
-
-const LockName = "specverb.lock"
-    LockName is the committed dependency-lock filename, the uv.lock analog.
-    It sits beside the Guardfile as source-of-truth; the generated Go does not.
-
-
-VARIABLES
-
-var ErrNoLock = errors.New("missing committed lock; run 'specgen lock' first")
-    ErrNoLock is returned by run and skew when a required committed lock is
-    absent, so the caller can point the user at `specgen lock`.
-
-var ErrSkew = errors.New("spec skew detected")
-    ErrSkew is returned by skew when the committed spec lock drifts from
-    upstream.
-
-
-FUNCTIONS
-
-func Build(opts Options) error
-    Build materializes the consumer binary out-of-band (same cache +
-    staleness path as Run) and copies it to opts.Out instead of execing it.
-    See specgen.md.
-
-func DefaultCLIGuardRef() string
-    DefaultCLIGuardRef is the cli-guard module query a lock operation will
-    freeze when the caller does not pass --cli-guard-ref.
-
-func DriverVersion() string
-    DriverVersion reports the installed specgen version. Release binaries use
-    their stamped tag, Go installs use build info, and source reports "(devel)".
-
-func Gen(opts Options) error
-    Gen renders the merged consumer main.go into the cache or --out. Agent skill
-    output is opt-in through Options.SkillsOut.
-
-func Lock(opts Options) error
-    Lock refreshes both committed locks: each member's pruned spec lock and the
-    one specverb.lock (the frozen build module). Skill output remains opt-in.
-
-func Run(opts Options) error
-    Run materializes the consumer binary out-of-band (building only when
-    stale) and execs it. It refuses to run without committed locks rather than
-    auto-locking.
-
-func Skew(opts Options) error
-    Skew reports operation-level drift between the committed spec lock and live
-    upstream, never writing. ErrSkew signals drift; a fetch failure is a plain
-    error.
-
-
-TYPES
-
-type DepLock struct {
-	Version  int      `json:"version"`  // schema version
-	Go       string   `json:"go"`       // go directive of the build module
-	CLIGuard string   `json:"cliGuard"` // resolved cli-guard module query (version, commit, or replace path)
-	GoMod    []string `json:"goMod"`    // go.mod lines, order preserved
-	GoSum    []string `json:"goSum"`    // sorted go.sum lines
-}
-    DepLock is specverb.lock: the frozen build module. GoMod and GoSum
-    are captured verbatim from a resolved build dir, reproducing the graph
-    byte-for-byte.
-
-type Options struct {
-	GuardfilePath   string   // path to the consumer's KDL Guardfile
-	ProjectRoot     string   // explicit recursive KDL project boundary (empty discovers .specgen, then keeps legacy discovery)
-	BinaryName      string   // gen/build/run: generated CLI/binary name (empty = Guardfile wrap binary)
-	Out             string   // gen: main.go output path (debug; cache when empty). build: binary output dir or path
-	Args            []string // run: arguments passed through to the materialized binary
-	CLIGuardRef     string   // lock: cli-guard module query to pin (version/commit); empty = auto
-	CLIGuardReplace string   // lock: local cli-guard checkout to replace with (dev locks only)
-	Version         string   // build: release version stamped into the binary via -ldflags (empty = "dev")
-	SkillsOut       string   // explicit skill root; empty writes no agent-facing artifacts
-}
-    Options are the inputs shared by every driver verb.
-
-
-## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/kdlspecs/codegen
-
-package codegen // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/kdlspecs/codegen"
-
-Package codegen renders a complete consumer `main.go` from a KDL Guardfile,
-so a consumer never hand-writes the specverb wiring. See docs/specverb.md.
-
-CONSTANTS
-
-const (
-	TransportSpec = "spec"
-	TransportExec = "exec"
-)
-    Transport is the dialect one merged member speaks: spec (HTTP/specverb) or
-    exec (wrapped binary/execverb). See docs/specgen.md.
-
-
-FUNCTIONS
-
-func Render(gf *guardfile.Guardfile, guardfileName string) ([]byte, error)
-    Render emits a gofmt'd `package main` wiring specverb.Mount for gf,
-    the single-guardfile convenience over RenderSet.
-
-func RenderParams(sp SetParams) ([]byte, error)
-    RenderParams emits a gofmt'd `package main` from pre-planned SetParams,
-    mixing spec and exec members onto the one shared binary. The driver's entry.
-
-func RenderSet(gfs []*guardfile.Guardfile, names []string) ([]byte, error)
-    RenderSet emits a gofmt'd `package main` mounting every spec guardfile onto
-    one binary. names are the embed filenames, parallel to gfs. Spec-only.
-
-
-TYPES
-
-type Params struct {
-	Transport     string // TransportSpec | TransportExec
-	Binary        string // binary name, e.g. ward-kdl (Guardfile group[0])
-	GuardfileName string // embedded Guardfile filename, e.g. forgejo.guardfile.kdl
-	SpecLockName  string // committed gzip lock filename, e.g. forgejo.swagger.lock.json.gz
-	SpecURL       string // upstream Swagger URL; the `specgen lock` source and bootstrap fallback
-	SpecEnvVar    string // env var overriding the embedded lock, e.g. WARD_KDL_SPEC
-
-	// Providers are the value-source provider names this member's guardfile uses,
-	// so the codegen wires exactly the resolvers in play. Empty for an exec member.
-	Providers []string
-}
-    Params is the per-consumer data the template binds to, derived from
-    the Guardfile. The spec-lock fields are empty for an exec member. See
-    specverb.md.
-
-func Plan(gf *guardfile.Guardfile, guardfileName string) (Params, error)
-    Plan derives the per-consumer Params from gf without rendering, the shared
-    derivation behind both Render and the driver. guardfileName feeds the embed.
-
-func PlanExec(group, providers []string, guardfileName string) (Params, error)
-    PlanExec derives an exec member's Params from its wrap group and the
-    provider names its env injections use; no upstream spec. See specgen.md.
-
-type SetParams struct {
-	Binary  string
-	Mounts  []Params
-	HasSpec bool
-	HasExec bool
-	// HasSSM / HasTailscale gate the consumer-side resolver blocks (and the AWS SDK
-	// import) the template emits, derived from the members' Providers by RenderParams.
-	HasSSM       bool
-	HasTailscale bool
-}
-    SetParams binds the merged-binary template: one shared Binary and N mounts.
-    HasSpec/HasExec gate the per-transport imports the template emits.
-
-func PlanSet(gfs []*guardfile.Guardfile, names []string) (SetParams, error)
-    PlanSet derives the merged params for guardfiles that share a binary name.
-    It fails closed on an empty set or a Group[0] disagreement (one binary per
-    merge).
-
-
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/opcore
 
 package opcore // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/opcore"
@@ -2295,6 +2123,178 @@ func Truthy(v any) bool
 func Validate(expr string) error
     Validate reports whether expr parses as JMESPath, without evaluating it:
     the build-time check that fails closed on a malformed `until`/`fail-when`.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen
+
+package specgen // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen"
+
+Cache layout and staleness for the out-of-band materialized consumer binary,
+keyed by the Guardfile's location. See docs/specverb.md.
+
+The uv-style dependency lockfile (specverb.lock) and the `go` plumbing
+that resolves and replays it for a reproducible out-of-band build. See
+docs/specverb.md.
+
+Process replacement (syscall.Exec) and cache locking (flock) on Unix.
+
+Package specgen is the no-code driver behind cmd/specgen: the uv-style verb
+surface (gen / lock / skew / run) over a Guardfile. See docs/specverb.md.
+
+CONSTANTS
+
+const LockName = "specverb.lock"
+    LockName is the committed dependency-lock filename, the uv.lock analog.
+    It sits beside the Guardfile as source-of-truth; the generated Go does not.
+
+
+VARIABLES
+
+var ErrNoLock = errors.New("missing committed lock; run 'specgen lock' first")
+    ErrNoLock is returned by run and skew when a required committed lock is
+    absent, so the caller can point the user at `specgen lock`.
+
+var ErrSkew = errors.New("spec skew detected")
+    ErrSkew is returned by skew when the committed spec lock drifts from
+    upstream.
+
+
+FUNCTIONS
+
+func Build(opts Options) error
+    Build materializes the consumer binary out-of-band (same cache +
+    staleness path as Run) and copies it to opts.Out instead of execing it.
+    See specgen.md.
+
+func DefaultCLIGuardRef() string
+    DefaultCLIGuardRef is the cli-guard module query a lock operation will
+    freeze when the caller does not pass --cli-guard-ref.
+
+func DriverVersion() string
+    DriverVersion reports the installed specgen version. Release binaries use
+    their stamped tag, Go installs use build info, and source reports "(devel)".
+
+func Gen(opts Options) error
+    Gen renders the merged consumer main.go into the cache or --out. Agent skill
+    output is opt-in through Options.SkillsOut.
+
+func Lock(opts Options) error
+    Lock refreshes both committed locks: each member's pruned spec lock and the
+    one specverb.lock (the frozen build module). Skill output remains opt-in.
+
+func Run(opts Options) error
+    Run materializes the consumer binary out-of-band (building only when
+    stale) and execs it. It refuses to run without committed locks rather than
+    auto-locking.
+
+func Skew(opts Options) error
+    Skew reports operation-level drift between the committed spec lock and live
+    upstream, never writing. ErrSkew signals drift; a fetch failure is a plain
+    error.
+
+
+TYPES
+
+type DepLock struct {
+	Version  int      `json:"version"`  // schema version
+	Go       string   `json:"go"`       // go directive of the build module
+	CLIGuard string   `json:"cliGuard"` // resolved cli-guard module query (version, commit, or replace path)
+	GoMod    []string `json:"goMod"`    // go.mod lines, order preserved
+	GoSum    []string `json:"goSum"`    // sorted go.sum lines
+}
+    DepLock is specverb.lock: the frozen build module. GoMod and GoSum
+    are captured verbatim from a resolved build dir, reproducing the graph
+    byte-for-byte.
+
+type Options struct {
+	GuardfilePath   string   // path to the consumer's KDL Guardfile
+	ProjectRoot     string   // explicit recursive KDL project boundary (empty discovers .specgen, then keeps legacy discovery)
+	BinaryName      string   // gen/build/run: generated CLI/binary name (empty = Guardfile wrap binary)
+	Out             string   // gen: main.go output path (debug; cache when empty). build: binary output dir or path
+	Args            []string // run: arguments passed through to the materialized binary
+	CLIGuardRef     string   // lock: cli-guard module query to pin (version/commit); empty = auto
+	CLIGuardReplace string   // lock: local cli-guard checkout to replace with (dev locks only)
+	Version         string   // build: release version stamped into the binary via -ldflags (empty = "dev")
+	SkillsOut       string   // explicit skill root; empty writes no agent-facing artifacts
+}
+    Options are the inputs shared by every driver verb.
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen/codegen
+
+package codegen // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen/codegen"
+
+Package codegen renders a complete consumer `main.go` from a KDL Guardfile,
+so a consumer never hand-writes the specverb wiring. See docs/specverb.md.
+
+CONSTANTS
+
+const (
+	TransportSpec = "spec"
+	TransportExec = "exec"
+)
+    Transport is the dialect one merged member speaks: spec (HTTP/specverb) or
+    exec (wrapped binary/execverb). See docs/specgen.md.
+
+
+FUNCTIONS
+
+func Render(gf *guardfile.Guardfile, guardfileName string) ([]byte, error)
+    Render emits a gofmt'd `package main` wiring specverb.Mount for gf,
+    the single-guardfile convenience over RenderSet.
+
+func RenderParams(sp SetParams) ([]byte, error)
+    RenderParams emits a gofmt'd `package main` from pre-planned SetParams,
+    mixing spec and exec members onto the one shared binary. The driver's entry.
+
+func RenderSet(gfs []*guardfile.Guardfile, names []string) ([]byte, error)
+    RenderSet emits a gofmt'd `package main` mounting every spec guardfile onto
+    one binary. names are the embed filenames, parallel to gfs. Spec-only.
+
+
+TYPES
+
+type Params struct {
+	Transport     string // TransportSpec | TransportExec
+	Binary        string // binary name, e.g. ward-kdl (Guardfile group[0])
+	GuardfileName string // embedded Guardfile filename, e.g. forgejo.guardfile.kdl
+	SpecLockName  string // committed gzip lock filename, e.g. forgejo.swagger.lock.json.gz
+	SpecURL       string // upstream Swagger URL; the `specgen lock` source and bootstrap fallback
+	SpecEnvVar    string // env var overriding the embedded lock, e.g. WARD_KDL_SPEC
+
+	// Providers are the value-source provider names this member's guardfile uses,
+	// so the codegen wires exactly the resolvers in play. Empty for an exec member.
+	Providers []string
+}
+    Params is the per-consumer data the template binds to, derived from
+    the Guardfile. The spec-lock fields are empty for an exec member. See
+    specverb.md.
+
+func Plan(gf *guardfile.Guardfile, guardfileName string) (Params, error)
+    Plan derives the per-consumer Params from gf without rendering, the shared
+    derivation behind both Render and the driver. guardfileName feeds the embed.
+
+func PlanExec(group, providers []string, guardfileName string) (Params, error)
+    PlanExec derives an exec member's Params from its wrap group and the
+    provider names its env injections use; no upstream spec. See specgen.md.
+
+type SetParams struct {
+	Binary  string
+	Mounts  []Params
+	HasSpec bool
+	HasExec bool
+	// HasSSM / HasTailscale gate the consumer-side resolver blocks (and the AWS SDK
+	// import) the template emits, derived from the members' Providers by RenderParams.
+	HasSSM       bool
+	HasTailscale bool
+}
+    SetParams binds the merged-binary template: one shared Binary and N mounts.
+    HasSpec/HasExec gate the per-transport imports the template emits.
+
+func PlanSet(gfs []*guardfile.Guardfile, names []string) (SetParams, error)
+    PlanSet derives the merged params for guardfiles that share a binary name.
+    It fails closed on an empty set or a Group[0] disagreement (one binary per
+    merge).
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specverb

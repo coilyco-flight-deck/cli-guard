@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/kdlspecs"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen"
 	"github.com/urfave/cli/v3"
 )
 
@@ -27,7 +27,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 // exitCode maps a driver error to a process exit code, so skew drift is
 // distinguishable from an offline fetch or any other failure.
 func exitCode(err error) int {
-	if errors.Is(err, kdlspecs.ErrSkew) {
+	if errors.Is(err, specgen.ErrSkew) {
 		return 3
 	}
 	return 1
@@ -39,7 +39,7 @@ func app() *cli.Command {
 	return &cli.Command{
 		Name:    "specgen",
 		Usage:   "no-code driver for a spec-driven consumer CLI (gen / lock / skew / build / run)",
-		Version: fmt.Sprintf("%s (cli-guard ref %s)", kdlspecs.DriverVersion(), kdlspecs.DefaultCLIGuardRef()),
+		Version: fmt.Sprintf("%s (cli-guard ref %s)", specgen.DriverVersion(), specgen.DefaultCLIGuardRef()),
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:  "guardfile",
@@ -71,7 +71,7 @@ func app() *cli.Command {
 			if c.String("out") == "" {
 				return cli.ShowAppHelp(c)
 			}
-			return kdlspecs.Gen(options(c, c.String("out"), c.String("binary")))
+			return specgen.Gen(options(c, c.String("out"), c.String("binary")))
 		},
 	}
 }
@@ -89,7 +89,7 @@ func genCmd() *cli.Command {
 			binaryNameFlag(),
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
-			return kdlspecs.Gen(options(c, c.String("out"), c.String("binary")))
+			return specgen.Gen(options(c, c.String("out"), c.String("binary")))
 		},
 	}
 }
@@ -103,7 +103,7 @@ func lockCmd() *cli.Command {
 			&cli.StringFlag{Name: "cli-guard-replace", Usage: "local cli-guard checkout to build against (dev locks only)"},
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
-			return kdlspecs.Lock(kdlspecs.Options{
+			return specgen.Lock(specgen.Options{
 				GuardfilePath:   resolveGuardfile(c),
 				ProjectRoot:     c.String("project-root"),
 				CLIGuardRef:     c.String("cli-guard-ref"),
@@ -119,7 +119,7 @@ func skewCmd() *cli.Command {
 		Name:  "skew",
 		Usage: "report drift between the committed spec lock and live upstream (exit 3 on drift)",
 		Action: func(_ context.Context, c *cli.Command) error {
-			return kdlspecs.Skew(options(c, "", ""))
+			return specgen.Skew(options(c, "", ""))
 		},
 	}
 }
@@ -134,7 +134,7 @@ func buildCmd() *cli.Command {
 			&cli.StringFlag{Name: "set-version", Usage: "release version stamped into the binary's --version via -ldflags (default \"dev\")"},
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
-			return kdlspecs.Build(kdlspecs.Options{
+			return specgen.Build(specgen.Options{
 				GuardfilePath: resolveGuardfile(c),
 				ProjectRoot:   c.String("project-root"),
 				BinaryName:    c.String("binary"),
@@ -154,7 +154,7 @@ func runCmd() *cli.Command {
 			binaryNameFlag(),
 		},
 		Action: func(_ context.Context, c *cli.Command) error {
-			return kdlspecs.Run(kdlspecs.Options{
+			return specgen.Run(specgen.Options{
 				GuardfilePath: resolveGuardfile(c),
 				ProjectRoot:   c.String("project-root"),
 				BinaryName:    c.String("binary"),
@@ -166,13 +166,13 @@ func runCmd() *cli.Command {
 }
 
 // resolveGuardfile returns the --guardfile value verbatim (empty when unset).
-// The driver (kdlspecs.loadGroup) owns discovery and the merge-vs-error rules.
+// The driver (specgen.loadGroup) owns discovery and the merge-vs-error rules.
 func resolveGuardfile(c *cli.Command) string {
 	return c.String("guardfile")
 }
 
-func options(c *cli.Command, out, binary string) kdlspecs.Options {
-	return kdlspecs.Options{
+func options(c *cli.Command, out, binary string) specgen.Options {
+	return specgen.Options{
 		GuardfilePath: resolveGuardfile(c),
 		ProjectRoot:   c.String("project-root"),
 		BinaryName:    binary,

@@ -1,6 +1,6 @@
 // The uv-style dependency lockfile (specverb.lock) and the `go` plumbing that
 // resolves and replays it for a reproducible out-of-band build. See docs/specverb.md.
-package kdlspecs
+package specgen
 
 import (
 	"bytes"

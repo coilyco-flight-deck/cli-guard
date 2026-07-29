@@ -1,4 +1,4 @@
-package kdlspecs
+package specgen
 
 import (
 	"errors"
@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/kdlspecs/codegen"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen/codegen"
 	"gopkg.in/yaml.v3"
 )
 

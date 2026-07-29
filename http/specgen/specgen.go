@@ -1,6 +1,6 @@
-// Package kdlspecs is the no-code driver behind cmd/specgen: the uv-style
+// Package specgen is the no-code driver behind cmd/specgen: the uv-style
 // verb surface (gen / lock / skew / run) over a Guardfile. See docs/specverb.md.
-package kdlspecs
+package specgen
 
 import (
 	"encoding/json"
@@ -17,7 +17,7 @@ import (
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/cli/execverb"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/kdlspecs/codegen"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen/codegen"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specverb"
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/pkg/skillgen"
 	kdl "github.com/calico32/kdl-go"

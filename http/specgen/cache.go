@@ -1,6 +1,6 @@
 // Cache layout and staleness for the out-of-band materialized consumer binary,
 // keyed by the Guardfile's location. See docs/specverb.md.
-package kdlspecs
+package specgen
 
 import (
 	"crypto/sha256"

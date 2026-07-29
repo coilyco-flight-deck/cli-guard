@@ -1,4 +1,4 @@
-package kdlspecs
+package specgen
 
 import (
 	"bytes"
@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/kdlspecs/codegen"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen/codegen"
 )
 
 func TestSpecLockEncodingIsDeterministicAndRoundTrips(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/kdlspecs"
+	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen"
 )
 
 func TestVersionReportsDriverAndDefaultCLIGuardRef(t *testing.T) {
@@ -19,8 +19,8 @@ func TestVersionReportsDriverAndDefaultCLIGuardRef(t *testing.T) {
 
 	want := fmt.Sprintf(
 		"specgen version %s (cli-guard ref %s)\n",
-		kdlspecs.DriverVersion(),
-		kdlspecs.DefaultCLIGuardRef(),
+		specgen.DriverVersion(),
+		specgen.DefaultCLIGuardRef(),
 	)
 	if got := out.String(); got != want {
 		t.Fatalf("--version output = %q, want %q", got, want)
