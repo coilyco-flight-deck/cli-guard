@@ -11,8 +11,12 @@ var ReservedFlagNames = map[string]bool{
 // CheckFlagCollisions rejects reserved or duplicate local inputs and duplicate
 // outgoing query names. Both descriptor sources share this fail-closed check.
 func CheckFlagCollisions(desc Descriptor) error {
+	if err := validateBodyMappingMode(desc); err != nil {
+		return fmt.Errorf("opcore: %s: %w", desc.VerbName, err)
+	}
 	seen := map[string]bool{}
-	all := append(append([]Field{}, desc.QueryFlags...), desc.BodyFlags...)
+	bodyInputs := append(append([]Field{}, desc.BodyFlags...), bodyMappingFields(desc.BodyMappings)...)
+	all := append(append([]Field{}, desc.QueryFlags...), bodyInputs...)
 	for _, f := range append(all, desc.FormFlags...) {
 		if ReservedFlagNames[f.Name] {
 			return fmt.Errorf("opcore: %s: input %q collides with a reserved engine flag (fail-closed)", desc.VerbName, f.Name)
@@ -22,7 +26,7 @@ func CheckFlagCollisions(desc Descriptor) error {
 		}
 		seen[f.Name] = true
 	}
-	for _, f := range append(append([]Field{}, desc.BodyFlags...), desc.FormFlags...) {
+	for _, f := range append(bodyInputs, desc.FormFlags...) {
 		if f.UpstreamName != "" {
 			return fmt.Errorf("opcore: %s: input %q sets an upstream name outside query parameters (fail-closed)", desc.VerbName, f.Name)
 		}

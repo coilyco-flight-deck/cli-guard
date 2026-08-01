@@ -391,6 +391,83 @@ func TestExecuteNestedRequiredBody(t *testing.T) {
 	}
 }
 
+func TestExecuteMappedBodyProjectsOnlyDeclaredStrings(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotBody)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	rt := opcore.NewRuntime(opcore.RuntimeConfig{
+		BaseURL:   srv.URL,
+		Auth:      tokenAuth("s3cret"),
+		Providers: valuesource.Merge(nil),
+		Client:    srv.Client(),
+	})
+	op := opcore.Operation{RT: rt, Desc: opcore.Descriptor{
+		Method: http.MethodPost,
+		Path:   "/sendMessage",
+		Leaf:   "create",
+		BodyMappings: []opcore.BodyMapping{
+			{SourcePath: []string{"commonAnnotations", "summary"}, Target: "text"},
+			{SourcePath: []string{"commonLabels", "alertname"}, Target: "alert_name"},
+		},
+	}}
+
+	_, err := op.Execute(context.Background(), opcore.Args{Body: map[string]any{
+		"commonAnnotations": map[string]any{
+			"summary": "API error rate is high",
+			"secret":  "must-not-leak",
+		},
+		"commonLabels": map[string]any{"alertname": "api-errors"},
+		"body":         "must-not-leak",
+	}})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	want := map[string]any{"text": "API error rate is high", "alert_name": "api-errors"}
+	if !reflect.DeepEqual(gotBody, want) {
+		t.Fatalf("outgoing body = %#v, want %#v", gotBody, want)
+	}
+}
+
+func TestExecuteMappedBodyRejectsMissingOrNonStringWithoutFiring(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls++
+	}))
+	defer srv.Close()
+	rt := opcore.NewRuntime(opcore.RuntimeConfig{
+		BaseURL:   srv.URL,
+		Auth:      tokenAuth("s3cret"),
+		Providers: valuesource.Merge(nil),
+		Client:    srv.Client(),
+	})
+	op := opcore.Operation{RT: rt, Desc: opcore.Descriptor{
+		Method:       http.MethodPost,
+		Path:         "/sendMessage",
+		Leaf:         "create",
+		BodyMappings: []opcore.BodyMapping{{SourcePath: []string{"commonAnnotations", "summary"}, Target: "text"}},
+	}}
+	cases := map[string]map[string]any{
+		"missing":    {"commonAnnotations": map[string]any{}},
+		"non-string": {"commonAnnotations": map[string]any{"summary": 42}},
+		"non-object": {"commonAnnotations": "nope"},
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := op.Execute(context.Background(), opcore.Args{Body: body})
+			if kindOf(err) != "user_error" {
+				t.Fatalf("kind = %q, want user_error (err=%v)", kindOf(err), err)
+			}
+		})
+	}
+	if calls != 0 {
+		t.Fatalf("upstream calls = %d, want 0", calls)
+	}
+}
+
 func TestExecuteMissingPathParam(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
 	defer srv.Close()

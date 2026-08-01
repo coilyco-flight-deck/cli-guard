@@ -60,6 +60,7 @@ func (d Descriptor) InputSchema() Schema {
 	}
 	add(d.QueryFlags, LocationQuery)
 	add(d.BodyFlags, LocationBody)
+	add(bodyMappingFields(d.BodyMappings), LocationBody)
 	add(d.FormFlags, LocationForm)
 	return s
 }

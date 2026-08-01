@@ -20,17 +20,17 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 - **shim** - PATH shim per protected binary basename. See [deny-by-structure.md](deny-by-structure.md).
 - **doctor** - Verify the basename target floor and integrity hints.
 - **sudo** - Policy-free sudo plumbing over any stdin transport.
-- **profiles** / **profile** / **decision** - Profile registry, axes, per-call evaluator.
+- **profiles** / **profile** / **decision** - Profiles and per-call evaluation.
 - **cmd/cli-guard-hook** - PreToolUse binary for shell-only consumers.
 
 ### HTTP request surface (`http/`)
 
 - **egress** - Per-run CONNECT proxy with consumer allowlist.
-- **Specgen HTTP/codegen** - `.specgen/` discovery, compressed sources, locks,
-  and codegen. See [specgen.md](specgen.md).
-- **Inline HTTP contracts** - Typed query inputs and JMESPath response
-  postconditions. See [query types](opcore-query-types.md) and
-  [inline operations](opcore-inline.md).
+- **Specgen HTTP/codegen** - `.specgen/` source discovery, locks, and generation.
+  See [specgen.md](specgen.md).
+- **Inline HTTP contracts** - Typed query, nested-string body projection, and
+  JMESPath response postconditions. See
+  [body mapping](opcore-body-mapping.md) and [inline operations](opcore-inline.md).
 - **complex actions** - `poll`/`call`/`collect`. See [actions](specverb-actions.md).
 - **respfmt** - JSON renderer + JMESPath, five formats.
 - **ghcache** / **ghidcache** / **ghratelimit** / **stscache** - Response, id, rate-limit, STS caches.
@@ -39,7 +39,7 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 
 - **audit** - Rotated JSONL invocation log with optional typed CI attribution.
 - **policy** - Argv validation rejecting shell metachars.
-- **scope** - Resolve cwd to git toplevel for audit.
+- **scope** - Resolve cwd to git root for audit.
 - **exitcode** - Public exit-code taxonomy.
 - **valuesource** - Shared `value <provider>` resolution.
 - **config** - Layered-config primitives + `OverlayFile[T]`.

@@ -153,6 +153,31 @@ func TestInputSchemaFixedBodyOmitted(t *testing.T) {
 	}
 }
 
+func TestInputSchemaBodyMappingsExposeRequiredNestedSources(t *testing.T) {
+	d := opcore.Descriptor{BodyMappings: []opcore.BodyMapping{
+		{SourcePath: []string{"commonAnnotations", "summary"}, Target: "text"},
+		{SourcePath: []string{"commonAnnotations", "description"}, Target: "description"},
+	}}
+	s := d.InputSchema()
+	annotations := s.Properties["commonAnnotations"]
+	if annotations.Type != "object" || annotations.Location != opcore.LocationBody {
+		t.Fatalf("commonAnnotations = %#v", annotations)
+	}
+	wantChildren := map[string]opcore.Property{
+		"summary":     {Type: "string"},
+		"description": {Type: "string"},
+	}
+	if !reflect.DeepEqual(annotations.Properties, wantChildren) {
+		t.Fatalf("nested properties = %#v, want %#v", annotations.Properties, wantChildren)
+	}
+	if want := []string{"summary", "description"}; !reflect.DeepEqual(annotations.Required, want) {
+		t.Fatalf("nested required = %v, want %v", annotations.Required, want)
+	}
+	if want := []string{"commonAnnotations"}; !reflect.DeepEqual(s.Required, want) {
+		t.Fatalf("top-level required = %v, want %v", s.Required, want)
+	}
+}
+
 func TestJSONSchemaDraft07(t *testing.T) {
 	raw := schemaDesc().InputSchema().JSONSchema()
 

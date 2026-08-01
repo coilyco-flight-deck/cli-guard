@@ -52,6 +52,20 @@ const nestedInlineSrc = `wrap ward mcp forgejo {
     }
 }`
 
+const mappedInlineSrc = `wrap ward mcp telegram {
+    base-url "https://api.telegram.org"
+    auth query-param {
+        param chat_id { value env "TELEGRAM_CHAT_ID" }
+    }
+    can create message {
+        path "/sendMessage"
+        body {
+            map "commonAnnotations.summary" to="text"
+            map "commonLabels.alertname" to="alert_name"
+        }
+    }
+}`
+
 const proxyInlineSrc = `wrap ward mcp grubhub {
     auth bearer {
         value env "GRUBHUB_TOKEN"
@@ -122,6 +136,61 @@ func TestParseInlineBodyAndQueryFields(t *testing.T) {
 	wantBody := []opcore.Field{{Name: "title", Type: "string"}, {Name: "body", Type: "string"}}
 	if !reflect.DeepEqual(create.BodyFlags, wantBody) {
 		t.Errorf("create body = %+v, want %+v", create.BodyFlags, wantBody)
+	}
+}
+
+func TestParseInlineBodyMappings(t *testing.T) {
+	descs, _ := parseInline(t, mappedInlineSrc)
+	got := descByLeaf(t, descs, "create").BodyMappings
+	want := []opcore.BodyMapping{
+		{SourcePath: []string{"commonAnnotations", "summary"}, Target: "text"},
+		{SourcePath: []string{"commonLabels", "alertname"}, Target: "alert_name"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("body mappings = %#v, want %#v", got, want)
+	}
+}
+
+func TestParseInlineBodyMappingsFailClosed(t *testing.T) {
+	cases := map[string]string{
+		"missing target":              `map "commonAnnotations.summary"`,
+		"unknown property":            `map "commonAnnotations.summary" to="text" extra="x"`,
+		"non-string source":           `map 1 to="text"`,
+		"empty path segment":          `map "commonAnnotations..summary" to="text"`,
+		"complex target":              `map "commonAnnotations.summary" to="message.text"`,
+		"duplicate target":            `map "a" to="text"; map "b" to="text"`,
+		"duplicate source":            `map "a" to="one"; map "a" to="two"`,
+		"ambiguous source shape":      `map "a" to="one"; map "a.b" to="two"`,
+		"mixed mapped and typed body": `map "a" to="one"; field "b" type="string"`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			src := `wrap x {
+                auth bearer { value env "T" }
+                can create message { path "/messages"; body { ` + body + ` } }
+            }`
+			if _, _, err := opcore.ParseInline([]byte(src)); err == nil {
+				t.Fatal("invalid body mapping should fail closed")
+			}
+		})
+	}
+}
+
+func TestParseInlineBodyMappingsRejectOtherBodyModes(t *testing.T) {
+	cases := map[string]string{
+		"flat fields": `body "title"; body { map "a" to="text" }`,
+		"fixed body":  `set enabled=true; body { map "a" to="text" }`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			src := `wrap x {
+                auth bearer { value env "T" }
+                can create message { path "/messages"; ` + body + ` }
+            }`
+			if _, _, err := opcore.ParseInline([]byte(src)); err == nil {
+				t.Fatal("mixed body modes should fail closed")
+			}
+		})
 	}
 }
 

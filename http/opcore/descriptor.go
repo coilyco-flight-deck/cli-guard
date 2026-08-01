@@ -15,6 +15,7 @@ type Descriptor struct {
 	Path           string         // path template, e.g. /repos/{owner}/{repo}
 	PathParams     []string       // ordered positional args drawn from the path
 	BodyFlags      []Field        // request-body fields, including nested object/array shapes
+	BodyMappings   []BodyMapping  // required string input paths projected onto fresh top-level body keys
 	QueryFlags     []Field        // query params, including typed scalar-array shapes
 	QueryExclusive [][]string     // local query-name groups where at most one may be supplied
 	FormFlags      []Field        // formData params, where "file" types take a path
@@ -24,6 +25,13 @@ type Descriptor struct {
 	Describe       string         // optional Guardfile describe "..." note, "" if none
 	FailWhen       string         // optional JMESPath response postcondition; truthy rejects a successful call
 	Proxy          *Proxy         // non-nil for an inline MCP proxy grant
+}
+
+// BodyMapping projects one required nested string input path onto one
+// top-level outgoing JSON key. Unmapped input is never forwarded.
+type BodyMapping struct {
+	SourcePath []string
+	Target     string
 }
 
 // Label names the leaf in operator-facing errors, satisfying stepflow.Leaf so a

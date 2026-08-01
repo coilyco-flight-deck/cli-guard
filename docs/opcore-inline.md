@@ -30,6 +30,12 @@ wrap ward mcp forgejo {
             object "compositeQuery" raw=true required=true
         }
     }
+    can create message {
+        path "/sendMessage"
+        body {
+            map "commonAnnotations.summary" to="text"
+        }
+    }
     can close issue {
         path "/repos/{owner}/{repo}/issues/{index}"
         set state="closed"                       // -> FixedBody; no body flags mount alongside
@@ -49,6 +55,8 @@ wrap ward mcp forgejo {
 * **query / body** - flat names become string fields. Blocks add typed, nested,
   bounded, repeatable, aliased, or mutually exclusive fields. See
   [query types](opcore-query-types.md) and [aliases](opcore-query-aliases.md).
+* **body map** - exact nested string inputs become a fresh top-level JSON
+  object. See [body mapping](opcore-body-mapping.md).
 * **set** - `set k=v...` becomes the leaf's `FixedBody`, keeping each value's
   KDL-native type (a boolean stays a boolean). A `set` toggle owns its body, so no
   body flags mount alongside it.
@@ -63,9 +71,10 @@ wrap ward mcp forgejo {
 `ParseInline` rejects unknown nodes, missing requirements, malformed predicates,
 and input collisions through the same guard as resolved descriptors.
 `Providers` and `Client` are the consumer's to fill on the returned `RuntimeConfig`
-before `NewRuntime`; the KDL carries no opaque values.
+before `NewRuntime`. The KDL carries no opaque values.
 ## See also
 
 - [specverb.md](specverb.md) - the resolved OpenAPI source and the CLI projection.
 - [specverb-resolution.md](specverb-resolution.md) - the verb→method conventions `MethodForVerb` mirrors.
 - [opcore-query-aliases.md](opcore-query-aliases.md) - safe local names for colliding upstream query parameters.
+- [opcore-body-mapping.md](opcore-body-mapping.md) - exact nested-string request projection.

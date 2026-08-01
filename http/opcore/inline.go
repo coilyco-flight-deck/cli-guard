@@ -148,6 +148,12 @@ func (p *inlineParser) parseGrant(n *kdl.Node) error {
 	if len(d.FixedBody) > 0 {
 		// a state toggle owns its body: no body flags mount alongside a `set`.
 		d.BodyFlags = nil
+		if len(d.BodyMappings) > 0 {
+			return fmt.Errorf("opcore: can %s %s: `set` cannot be combined with body `map` (fail-closed)", verb, resource)
+		}
+	}
+	if err := validateBodyMappings(d.BodyMappings); err != nil {
+		return fmt.Errorf("opcore: can %s %s: %w", verb, resource, err)
 	}
 	if err := validateQueryExclusive(d); err != nil {
 		return err
@@ -209,14 +215,26 @@ func applyInlineGrantChild(d *Descriptor, c *kdl.Node) error {
 		d.QueryFlags = append(d.QueryFlags, fields...)
 		d.QueryExclusive = append(d.QueryExclusive, exclusive...)
 	case "body":
-		fields, err := inlineBodyFields(c)
-		if err != nil {
-			return err
-		}
-		d.BodyFlags = append(d.BodyFlags, fields...)
+		return applyInlineBody(d, c)
 	default:
 		return applyInlineGrantControlChild(d, c)
 	}
+	return nil
+}
+
+func applyInlineBody(d *Descriptor, c *kdl.Node) error {
+	fields, mappings, err := inlineBodyFields(c)
+	if err != nil {
+		return err
+	}
+	if len(fields) > 0 && len(d.BodyMappings) > 0 {
+		return fmt.Errorf("body fields and body `map` declarations cannot be combined (fail-closed)")
+	}
+	if len(mappings) > 0 && len(d.BodyFlags) > 0 {
+		return fmt.Errorf("body fields and body `map` declarations cannot be combined (fail-closed)")
+	}
+	d.BodyFlags = append(d.BodyFlags, fields...)
+	d.BodyMappings = append(d.BodyMappings, mappings...)
 	return nil
 }
 
@@ -755,21 +773,40 @@ func inlineUpstreamName(c *kdl.Node, kind string) (string, error) {
 	return upstreamName, nil
 }
 
-// inlineBodyFields reads either `body "title" "body"` shorthand or a nested
-// `body { ... }` block into Fields.
-func inlineBodyFields(c *kdl.Node) ([]Field, error) {
+// inlineBodyFields reads either `body "title" "body"` shorthand, a nested
+// field block, or a block containing only exact `map <path> to=<key>` nodes.
+func inlineBodyFields(c *kdl.Node) ([]Field, []BodyMapping, error) {
 	hasChildren := c.Children() != nil && len(c.Children().Nodes) > 0
 	hasArgs := len(c.Arguments()) > 0
 	if hasChildren && hasArgs {
-		return nil, fmt.Errorf("`body` takes either flat field names or a block, not both (fail-closed)")
+		return nil, nil, fmt.Errorf("`body` takes either flat field names or a block, not both (fail-closed)")
 	}
 	if hasArgs {
-		return inlineFields(c, "body")
+		fields, err := inlineFields(c, "body")
+		return fields, nil, err
 	}
 	if !hasChildren {
-		return nil, fmt.Errorf("`body` needs at least one field name or a block")
+		return nil, nil, fmt.Errorf("`body` needs at least one field name or a block")
 	}
-	return parseBodyChildren(c.Children().Nodes)
+	nodes := c.Children().Nodes
+	hasMap := false
+	hasField := false
+	for _, n := range nodes {
+		if n.Name() == "map" {
+			hasMap = true
+		} else {
+			hasField = true
+		}
+	}
+	if hasMap && hasField {
+		return nil, nil, fmt.Errorf("body fields and body `map` declarations cannot be combined (fail-closed)")
+	}
+	if hasMap {
+		mappings, err := parseBodyMappings(nodes)
+		return nil, mappings, err
+	}
+	fields, err := parseBodyChildren(nodes)
+	return fields, nil, err
 }
 
 // parseBodyChildren reads a body block's child nodes into Fields, preserving

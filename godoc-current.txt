@@ -1870,6 +1870,13 @@ type Args struct {
     compatible scalar surface, while QueryValues carries typed values and
     arrays.
 
+type BodyMapping struct {
+	SourcePath []string
+	Target     string
+}
+    BodyMapping projects one required nested string input path onto one
+    top-level outgoing JSON key. Unmapped input is never forwarded.
+
 type Descriptor struct {
 	VerbName       string         // dotted audit name, e.g. ward.ops.forgejo.repo.create
 	Group          string         // CLI group noun, e.g. repo
@@ -1878,6 +1885,7 @@ type Descriptor struct {
 	Path           string         // path template, e.g. /repos/{owner}/{repo}
 	PathParams     []string       // ordered positional args drawn from the path
 	BodyFlags      []Field        // request-body fields, including nested object/array shapes
+	BodyMappings   []BodyMapping  // required string input paths projected onto fresh top-level body keys
 	QueryFlags     []Field        // query params, including typed scalar-array shapes
 	QueryExclusive [][]string     // local query-name groups where at most one may be supplied
 	FormFlags      []Field        // formData params, where "file" types take a path

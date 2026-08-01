@@ -619,8 +619,15 @@ func assembleQuery(q neturl.Values) string {
 // assembleBody builds the body JSON: a state-toggle's FixedBody wins, else the
 // supplied object with required-field enforcement; an empty body marshals to nil.
 func (o Operation) assembleBody(body map[string]any) ([]byte, error) {
+	if err := validateBodyMappingMode(o.Desc); err != nil {
+		return nil, exitcode.New(exitcode.Internal, "internal", err,
+			"fix the operation's body mapping declaration")
+	}
 	if len(o.Desc.FixedBody) > 0 {
 		return json.Marshal(o.Desc.FixedBody)
+	}
+	if len(o.Desc.BodyMappings) > 0 {
+		return projectMappedBody(body, o.Desc.BodyMappings)
 	}
 	if err := validateBodyFields(body, o.Desc.BodyFlags, ""); err != nil {
 		return nil, err

@@ -57,7 +57,8 @@ func NewArgBinder(leaf Descriptor) *ArgBinder {
 	for _, f := range leaf.QueryFlags {
 		b.queryNames[f.Name] = f.QueryName()
 	}
-	for _, f := range append(append([]Field{}, leaf.QueryFlags...), append(leaf.BodyFlags, leaf.FormFlags...)...) {
+	bodyInputs := append(append([]Field{}, leaf.BodyFlags...), bodyMappingFields(leaf.BodyMappings)...)
+	for _, f := range append(append([]Field{}, leaf.QueryFlags...), append(bodyInputs, leaf.FormFlags...)...) {
 		b.flagNames[f.Name] = true
 	}
 	return b
