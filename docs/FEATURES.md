@@ -37,7 +37,7 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 
 ### Shared core (`pkg/`)
 
-- **audit** - Append-only rotated JSONL invocation log.
+- **audit** - Rotated JSONL invocation log with optional typed CI attribution.
 - **policy** - Argv validation rejecting shell metachars.
 - **scope** - Resolve cwd to git toplevel for audit.
 - **exitcode** - Public exit-code taxonomy.

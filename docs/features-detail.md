@@ -2,7 +2,7 @@
 
 Per-primitive detail behind the [FEATURES.md](FEATURES.md) index.
 
-- **audit** - Append-only JSONL invocation log with lumberjack rotation. Foundation for the rest.
+- **audit** - Append-only JSONL invocation log with lumberjack rotation and optional typed CI attribution supplied by the consumer. The package preserves that context but does not establish its trust. Foundation for the rest.
 - **policy** - Argv validation rejecting shell metacharacters before they reach `execve`.
 - **hook** - Shared Claude Code PreToolUse engine. Consumers register integrity rules and routing hints; the engine owns a non-configurable deny on arbitrary-code execution (interpreter invocation, execution from a writable scratch dir) that fires on every segment of a compound command, so a denied prefix cannot launder behind an allowed token or a `/tmp` shebang.
 - **verb** - Middleware wrapping every `*cli.Command.Action` in the standard pipeline (validate → execute → audit).

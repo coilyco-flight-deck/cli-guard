@@ -375,6 +375,57 @@ func TestRecord_EgressOmittedWhenAbsent(t *testing.T) {
 	}
 }
 
+func TestRecord_CIContextRoundTrips(t *testing.T) {
+	w := tempWriter(t)
+	rec := audit.Record{
+		Verb: "test.verb",
+		CI: &audit.CIContext{
+			Provider:    "forgejo-actions",
+			ServerURL:   "https://forgejo.example",
+			Repository:  "owner/repo",
+			EventName:   "pull_request",
+			EventRef:    "refs/pull/42/merge",
+			PullRequest: "42",
+			BaseRef:     "main",
+			HeadRef:     "feature/ci",
+			HeadSHA:     "0123456789abcdef0123456789abcdef01234567",
+			Workflow:    "test",
+			Job:         "unit",
+			Actor:       "automation",
+			RunID:       "1234",
+			RunNumber:   "56",
+			RunAttempt:  "2",
+		},
+	}
+	if err := w.Append(rec); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	got := read(t, w.Path)
+	if len(got) != 1 {
+		t.Fatalf("got %d records, want 1", len(got))
+	}
+	if got[0].CI == nil {
+		t.Fatal("CI context missing after round trip")
+	}
+	if got[0].CI.Repository != "owner/repo" || got[0].CI.PullRequest != "42" || got[0].CI.HeadSHA != rec.CI.HeadSHA || got[0].CI.RunID != "1234" {
+		t.Errorf("CI context = %+v, want repository, pull request, head SHA, and run ID preserved", got[0].CI)
+	}
+}
+
+func TestRecord_CIContextOmittedWhenAbsent(t *testing.T) {
+	w := tempWriter(t)
+	if err := w.Append(audit.Record{Verb: "test.verb"}); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	body, err := os.ReadFile(w.Path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if strings.Contains(string(body), `"ci"`) {
+		t.Errorf("ci field present without context; line = %q", string(body))
+	}
+}
+
 func TestReadAll_DecodesMultipleRecords(t *testing.T) {
 	input := `{"ts":1745323200,"verb":"a"}
 {"ts":1745323201,"verb":"b"}

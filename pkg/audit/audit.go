@@ -53,6 +53,9 @@ type Record struct {
 	// WorkingTreeStatus is the truncated `git status --porcelain` output
 	// captured when a repo verb ran with --audit-override-dirty. Empty for
 	WorkingTreeStatus string `json:"working_tree_status,omitempty"`
+	// CI carries consumer-validated continuous-integration attribution.
+	// The audit package preserves this evidence but does not establish trust.
+	CI *CIContext `json:"ci,omitempty"`
 	// Egress carries one row per host contacted by the wrapped subprocess
 	// when the verb runs through the per-invocation HTTP CONNECT proxy
 	Egress []EgressRow `json:"egress,omitempty"`
@@ -65,6 +68,26 @@ type Record struct {
 	// Cache is the TTL-cache disposition of a cache-eligible action, e.g. "hit"
 	// when a collect served from cache. Empty when no cache was consulted.
 	Cache string `json:"cache,omitempty"`
+}
+
+// CIContext is provider-neutral CI attribution supplied by consumers.
+// Audit preserves it but does not establish trust or validate identifiers.
+type CIContext struct {
+	Provider    string `json:"provider"`
+	ServerURL   string `json:"server_url,omitempty"`
+	Repository  string `json:"repository"`
+	EventName   string `json:"event_name"`
+	EventRef    string `json:"event_ref"`
+	PullRequest string `json:"pull_request,omitempty"`
+	BaseRef     string `json:"base_ref,omitempty"`
+	HeadRef     string `json:"head_ref,omitempty"`
+	HeadSHA     string `json:"head_sha"`
+	Workflow    string `json:"workflow,omitempty"`
+	Job         string `json:"job,omitempty"`
+	Actor       string `json:"actor,omitempty"`
+	RunID       string `json:"run_id"`
+	RunNumber   string `json:"run_number,omitempty"`
+	RunAttempt  string `json:"run_attempt,omitempty"`
 }
 
 // ProfileDecision is the structured outcome of a per-session
