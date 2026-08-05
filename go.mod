@@ -3,13 +3,13 @@ module forgejo.coilysiren.me/coilyco-flight-deck/cli-guard
 go 1.25.5
 
 require (
-	github.com/calico32/kdl-go v0.14.1
-	github.com/getkin/kin-openapi v0.140.0
+	github.com/calico32/kdl-go v0.15.0
+	github.com/getkin/kin-openapi v0.145.0
 	github.com/jmespath-community/go-jmespath v1.1.1
 	github.com/olekukonko/tablewriter v1.1.4
-	github.com/urfave/cli/v3 v3.9.0
-	golang.org/x/sys v0.44.0
-	golang.org/x/term v0.43.0
+	github.com/urfave/cli/v3 v3.10.1
+	golang.org/x/sys v0.47.0
+	golang.org/x/term v0.45.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -25,8 +25,8 @@ require (
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
-	github.com/oasdiff/yaml v0.1.0 // indirect
-	github.com/oasdiff/yaml3 v0.0.13 // indirect
+	github.com/oasdiff/yaml v0.1.1 // indirect
+	github.com/oasdiff/yaml3 v0.0.14 // indirect
 	github.com/olekukonko/cat v0.0.0-20250911104152-50322a0618f6 // indirect
 	github.com/olekukonko/errors v1.2.0 // indirect
 	github.com/olekukonko/ll v0.1.6 // indirect
