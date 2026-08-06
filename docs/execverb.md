@@ -18,7 +18,8 @@ wrap ward git {
 - **`argv-prefix`** (child of `exec`) - an unoverridable leading argv, the remote-exec transport: `exec ssh { argv-prefix "kai@kai-server" "kubectl" ... }` pins the invocation ahead of the subcommand.
 - **`env <NAME> { value <provider> "<addr>" }`** (child of `exec`) - an env var on the wrapped process, resolved at exec time via a provider (so a secret comes from SSM, not the guardfile); `env "NAME" "literal"` for a committed value. Providers via `pkg/valuesource`.
 - **`can run <subcommand>`** - deny-by-default: only named subcommands mount. A quoted multi-word sentence (`"admin user list"`) is a nested path.
-- **`argv <tokens...>`** (child of a grant) - per-grant invocation override: tokens appended after `argv-prefix` in place of the subcommand, decoupling the leaf name from what runs (`headless { argv "-p" }` -> `claude -p <args>`; bare `argv` runs the bin). Override tokens are trusted and skip the flag policy. Not allowed with `can run "*"`.
+- **`argv <tokens...>`** (child of a grant) - fixed invocation fragments in place of the subcommand. Repeat to preserve ordering around an `embed`; bare `argv` runs the bin. Not allowed with `can run "*"`.
+- **`embed <source>`** (child of a grant) - compile a file and insert its absolute runtime path as fixed argv. See [embedded files](specgen-embedded-files.md).
 - **`sealed`** (child of a grant) - forbids trailing caller args so the pinned `argv` forwards **exactly** - a strict single-resource verb. Requires `argv`; a non-empty caller token is refused before exec.
 - **`can run "*"`** - open-passthrough grant: the group is one leaf, every operation reaches the binary. Must be the only grant.
 - **`passthrough <bin>`** - funnel sugar (`exec` + `can run "*"`) with wrap-level `never pass`/`only pass` guards. See [passthrough.md](passthrough.md).
@@ -37,6 +38,6 @@ Unknown nodes fail closed. Per-operation grants guard a kwarg (`deny-when secret
 
 ## Driver integration
 
-`specgen` merges exec consumers into a spec binary; `execverb.Describe` gives doc parity. See [mixed transports](specverb-mixed-transports.md).
+`specgen` merges exec consumers into a spec binary. See [mixed transports](specverb-mixed-transports.md).
 
 Design: the security-pure-engine refactor. `sealed` is the single-resource variant.

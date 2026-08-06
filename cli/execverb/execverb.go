@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -39,6 +40,10 @@ type Config struct {
 	// cli-guard merges its built-ins (env, file, literal). Resolved at exec time.
 	Providers map[string]valuesource.Provider
 
+	// EmbeddedFiles maps each build-time `embed` source to the absolute runtime
+	// path materialized by specgen. Missing or relative entries fail closed.
+	EmbeddedFiles map[string]string
+
 	// Run fires the command. nil execs for real.
 	Run Runner
 
@@ -57,6 +62,11 @@ func Build(cfg Config) (*cli.Command, error) {
 	gf := cfg.Guardfile
 	if gf == nil {
 		return nil, fmt.Errorf("execverb: Config.Guardfile is nil")
+	}
+	var err error
+	gf, err = resolveEmbeddedFiles(gf, cfg.EmbeddedFiles)
+	if err != nil {
+		return nil, err
 	}
 	wrap := cfg.Wrap
 	if wrap == nil {
@@ -89,6 +99,37 @@ func Build(cfg Config) (*cli.Command, error) {
 		return nil, err
 	}
 	return root, nil
+}
+
+// resolveEmbeddedFiles clones only the grant layer and resolves symbolic embed
+// slots for execution, preserving the source guardfile for help and describe.
+func resolveEmbeddedFiles(gf *Guardfile, files map[string]string) (*Guardfile, error) {
+	if len(gf.EmbedPaths()) == 0 {
+		return gf, nil
+	}
+	resolved := *gf
+	resolved.Grants = append([]Grant(nil), gf.Grants...)
+	for i := range resolved.Grants {
+		grant := &resolved.Grants[i]
+		if len(grant.EmbeddedArgs) == 0 {
+			continue
+		}
+		grant.runtimeArgv = append([]string(nil), grant.Argv...)
+		for _, embedded := range grant.EmbeddedArgs {
+			if embedded.Index < 0 || embedded.Index >= len(grant.runtimeArgv) {
+				return nil, fmt.Errorf("execverb: grant %q: embedded file %q has invalid argv index %d (fail-closed)", grant.subcommandLabel(), embedded.Source, embedded.Index)
+			}
+			resolvedPath, ok := files[embedded.Source]
+			if !ok || resolvedPath == "" {
+				return nil, fmt.Errorf("execverb: grant %q: embedded file %q was not materialized (fail-closed)", grant.subcommandLabel(), embedded.Source)
+			}
+			if !filepath.IsAbs(resolvedPath) {
+				return nil, fmt.Errorf("execverb: grant %q: embedded file %q resolved to non-absolute path %q (fail-closed)", grant.subcommandLabel(), embedded.Source, resolvedPath)
+			}
+			grant.runtimeArgv[embedded.Index] = resolvedPath
+		}
+	}
+	return &resolved, nil
 }
 
 // mountGrants mounts every named grant; a wildcard funnel takes over the group
@@ -288,7 +329,7 @@ func actionFor(gf *Guardfile, g Grant, gates []gateFunc, run Runner, host HostRe
 		if err != nil {
 			return exitcode.New(exitcode.Internal, "internal", err, "check the env value provider address and credentials")
 		}
-		argv := append(append(append([]string{}, gf.argvPrefixFor(g)...), g.ExecArgv()...), args...)
+		argv := append(append(append([]string{}, gf.argvPrefixFor(g)...), g.executionArgv()...), args...)
 		if err := run(ctx, g.ExecBin(gf.Bin), argv, env); err != nil {
 			return exitcode.New(exitcode.UpstreamFailed, "upstream_failed", err, "the wrapped command failed")
 		}

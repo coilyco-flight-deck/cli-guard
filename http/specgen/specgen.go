@@ -56,7 +56,17 @@ type member struct {
 	ExecGF     *execverb.Guardfile  // exec dialect; nil for spec members
 	Params     codegen.Params
 	Bytes      []byte
+	Embeds     []embeddedFile
 }
+
+// embeddedFile is one validated build input referenced by an exec grant.
+type embeddedFile struct {
+	Source string
+	Name   string
+	Bytes  []byte
+}
+
+const maxEmbeddedFileBytes = 4 << 20
 
 // isExec reports whether the member speaks the exec dialect.
 func (m member) isExec() bool { return m.Params.Transport == codegen.TransportExec }
@@ -158,7 +168,14 @@ func readMember(path, identity string) (member, error) {
 		if err != nil {
 			return member{}, err
 		}
-		return member{Path: identity, SourcePath: path, ExecGF: egf, Params: p, Bytes: b}, nil
+		embeds, err := readEmbeddedFiles(path, identity, egf.EmbedPaths())
+		if err != nil {
+			return member{}, err
+		}
+		for _, embedded := range embeds {
+			p.EmbeddedFiles = append(p.EmbeddedFiles, codegen.EmbeddedFile{Source: embedded.Source, Name: embedded.Name})
+		}
+		return member{Path: identity, SourcePath: path, ExecGF: egf, Params: p, Bytes: b, Embeds: embeds}, nil
 	}
 	// Resolve `inherit` into one self-contained document before the typed parse,
 	// so every downstream stage sees the merged grant set (docs/specverb-inherit.md).
@@ -178,6 +195,44 @@ func readMember(path, identity string) (member, error) {
 	// identically named members in separate folders from sharing an artifact.
 	p.SpecLockName = filepath.ToSlash(filepath.Join(filepath.Dir(identity), p.SpecLockName))
 	return member{Path: identity, SourcePath: path, GF: gf, Params: p, Bytes: flat}, nil
+}
+
+// readEmbeddedFiles resolves each source within the declaring guardfile's
+// directory and records its project-relative embed identity.
+func readEmbeddedFiles(guardfilePath, identity string, sources []string) ([]embeddedFile, error) {
+	base, err := filepath.EvalSymlinks(filepath.Dir(guardfilePath))
+	if err != nil {
+		return nil, fmt.Errorf("specgen: resolve embedded-file base: %w", err)
+	}
+	var out []embeddedFile
+	for _, source := range sources {
+		candidate := filepath.Join(base, filepath.FromSlash(source))
+		resolved, err := filepath.EvalSymlinks(candidate)
+		if err != nil {
+			return nil, fmt.Errorf("specgen: resolve embedded file %s: %w", source, err)
+		}
+		rel, err := filepath.Rel(base, resolved)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			return nil, fmt.Errorf("specgen: embedded file %s escapes guardfile directory %s", source, filepath.Dir(guardfilePath))
+		}
+		info, err := os.Stat(resolved) //nolint:gosec // EvalSymlinks result is confined to the guardfile directory above
+		if err != nil {
+			return nil, fmt.Errorf("specgen: stat embedded file %s: %w", source, err)
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("specgen: embedded file %s is not a regular file", source)
+		}
+		if info.Size() > maxEmbeddedFileBytes {
+			return nil, fmt.Errorf("specgen: embedded file %s is %d bytes, above the %d-byte limit", source, info.Size(), maxEmbeddedFileBytes)
+		}
+		data, err := os.ReadFile(resolved) //nolint:gosec // validated build-time source confined beside the guardfile
+		if err != nil {
+			return nil, fmt.Errorf("specgen: read embedded file %s: %w", source, err)
+		}
+		name := filepath.ToSlash(filepath.Join(filepath.Dir(identity), filepath.FromSlash(source)))
+		out = append(out, embeddedFile{Source: source, Name: name, Bytes: data})
+	}
+	return out, nil
 }
 
 // operationIntent reports whether malformed KDL is clearly an operation member.
@@ -318,14 +373,28 @@ func legacyMembers(dir, selected string) ([]member, error) {
 
 func validateArtifacts(members []member) error {
 	seenLocks := map[string]string{}
+	seenArtifacts := map[string]string{}
 	for _, m := range members {
-		if m.isExec() {
-			continue
+		if prior, ok := seenArtifacts[m.Params.GuardfileName]; ok {
+			return fmt.Errorf("specgen: conflicting guardfile artifact %s for %s and %s", m.Params.GuardfileName, prior, m.Path)
 		}
-		if prior, ok := seenLocks[m.Params.SpecLockName]; ok {
-			return fmt.Errorf("specgen: conflicting spec lock %s for %s and %s", m.Params.SpecLockName, prior, m.Path)
+		seenArtifacts[m.Params.GuardfileName] = m.Path
+		if !m.isExec() {
+			if prior, ok := seenLocks[m.Params.SpecLockName]; ok {
+				return fmt.Errorf("specgen: conflicting spec lock %s for %s and %s", m.Params.SpecLockName, prior, m.Path)
+			}
+			if prior, ok := seenArtifacts[m.Params.SpecLockName]; ok {
+				return fmt.Errorf("specgen: spec lock artifact %s for %s conflicts with %s", m.Params.SpecLockName, m.Path, prior)
+			}
+			seenLocks[m.Params.SpecLockName] = m.Path
+			seenArtifacts[m.Params.SpecLockName] = m.Path
 		}
-		seenLocks[m.Params.SpecLockName] = m.Path
+		for _, embedded := range m.Embeds {
+			if prior, ok := seenArtifacts[embedded.Name]; ok {
+				return fmt.Errorf("specgen: embedded artifact %s for %s conflicts with %s", embedded.Name, m.Path, prior)
+			}
+			seenArtifacts[embedded.Name] = m.Path
+		}
 	}
 	return nil
 }
@@ -515,7 +584,15 @@ func (g *group) commandTree() (*cli.Command, error) {
 	app := &cli.Command{Name: g.runtimeBinary(), Usage: "guarded verbs generated by specgen"}
 	for _, m := range g.Members {
 		if m.isExec() {
-			if err := execverb.Mount(app, execverb.Config{Guardfile: m.ExecGF}); err != nil {
+			embeddedFiles := map[string]string{}
+			for _, embedded := range m.Embeds {
+				placeholder, err := filepath.Abs(filepath.Join("embedded", filepath.FromSlash(embedded.Source)))
+				if err != nil {
+					return nil, fmt.Errorf("specgen: resolve embedded-file placeholder %s: %w", embedded.Source, err)
+				}
+				embeddedFiles[embedded.Source] = placeholder
+			}
+			if err := execverb.Mount(app, execverb.Config{Guardfile: m.ExecGF, EmbeddedFiles: embeddedFiles}); err != nil {
 				return nil, fmt.Errorf("specgen: build exec skill surface %s: %w", m.Path, err)
 			}
 			continue
@@ -761,6 +838,9 @@ func hashMembers(mems []member) string {
 	bss := make([][]byte, 0, len(mems)*2)
 	for _, m := range mems {
 		bss = append(bss, []byte(m.Path+"\x00"), m.Bytes)
+		for _, embedded := range m.Embeds {
+			bss = append(bss, []byte(embedded.Name+"\x00"), embedded.Bytes)
+		}
 	}
 	return hashConcat(bss...)
 }
@@ -870,6 +950,9 @@ func materializeModuleDir(dir string, main []byte, mems []member, specByPath map
 		files[m.Params.GuardfileName] = m.Bytes
 		if !m.isExec() {
 			files[m.Params.SpecLockName] = specByPath[m.Path]
+		}
+		for _, embedded := range m.Embeds {
+			files[embedded.Name] = embedded.Bytes
 		}
 	}
 	for name, b := range files {

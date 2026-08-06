@@ -242,6 +242,10 @@ type Config struct {
 	// cli-guard merges its built-ins (env, file, literal). Resolved at exec time.
 	Providers map[string]valuesource.Provider
 
+	// EmbeddedFiles maps each build-time `embed` source to the absolute runtime
+	// path materialized by specgen. Missing or relative entries fail closed.
+	EmbeddedFiles map[string]string
+
 	// Run fires the command. nil execs for real.
 	Run Runner
 
@@ -254,6 +258,13 @@ type Config struct {
 	Host HostResolver
 }
     Config is everything the engine needs to build a command tree.
+
+type EmbeddedArg struct {
+	Index  int
+	Source string
+}
+    EmbeddedArg is one build-time file reference and its fixed position in a
+    grant's argv. Source is relative to the declaring guardfile.
 
 type EnvVar struct {
 	Name     string
@@ -284,6 +295,9 @@ type Grant struct {
 	// in place of Subcommand. ArgvSet marks an explicit (maybe empty) override.
 	Argv    []string
 	ArgvSet bool
+	// EmbeddedArgs identifies symbolic argv slots compiled into the binary.
+	// Runtime mounting resolves each slot to an absolute path before execution.
+	EmbeddedArgs []EmbeddedArg
 
 	// Sealed forbids trailing caller args: the pinned `argv` forwards exactly,
 	// with no caller-supplied tokens appended. Requires ArgvSet (parse-enforced).
@@ -292,6 +306,8 @@ type Grant struct {
 	// Bin overrides the wrap binary for this grant only (multi-binary pipelines),
 	// still fixed at parse: the caller can never substitute it. See docs/.
 	Bin string
+
+	// Has unexported fields.
 }
     Grant is one `can run <subcommand>` sentence plus its flag policy.
 
@@ -351,6 +367,9 @@ type Guardfile struct {
 func Parse(src []byte) (*Guardfile, error)
     Parse turns exec-dialect Guardfile source into a Guardfile. It fails closed:
     an unknown node, missing exec block, or malformed sentence is an error.
+
+func (gf *Guardfile) EmbedPaths() []string
+    EmbedPaths returns distinct build-time file references in declaration order.
 
 func (gf *Guardfile) Providers() []string
     Providers returns the distinct value-source provider names this guardfile's
@@ -2243,6 +2262,13 @@ func RenderSet(gfs []*guardfile.Guardfile, names []string) ([]byte, error)
 
 TYPES
 
+type EmbeddedFile struct {
+	Source string
+	Name   string
+}
+    EmbeddedFile maps the guardfile-relative source key used by execverb to the
+    project-relative artifact name embedded in generated Go.
+
 type Params struct {
 	Transport     string // TransportSpec | TransportExec
 	Binary        string // binary name, e.g. ward-kdl (Guardfile group[0])
@@ -2254,6 +2280,10 @@ type Params struct {
 	// Providers are the value-source provider names this member's guardfile uses,
 	// so the codegen wires exactly the resolvers in play. Empty for an exec member.
 	Providers []string
+
+	// EmbeddedFiles are fixed build-time sources used as typed argv by an exec
+	// member. Empty for spec members.
+	EmbeddedFiles []EmbeddedFile
 }
     Params is the per-consumer data the template binds to, derived from
     the Guardfile. The spec-lock fields are empty for an exec member. See
@@ -2268,10 +2298,11 @@ func PlanExec(group, providers []string, guardfileName string) (Params, error)
     provider names its env injections use; no upstream spec. See specgen.md.
 
 type SetParams struct {
-	Binary  string
-	Mounts  []Params
-	HasSpec bool
-	HasExec bool
+	Binary    string
+	Mounts    []Params
+	HasSpec   bool
+	HasExec   bool
+	HasEmbeds bool
 	// HasSSM / HasTailscale gate the consumer-side resolver blocks (and the AWS SDK
 	// import) the template emits, derived from the members' Providers by RenderParams.
 	HasSSM       bool
@@ -2284,6 +2315,31 @@ func PlanSet(gfs []*guardfile.Guardfile, names []string) (SetParams, error)
     PlanSet derives the merged params for guardfiles that share a binary name.
     It fails closed on an empty set or a Group[0] disagreement (one binary per
     merge).
+
+
+## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen/embedfile
+
+package embedfile // import "forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specgen/embedfile"
+
+Package embedfile materializes specgen-embedded build inputs for one guarded
+process lifetime.
+
+FUNCTIONS
+
+func Materialize(prefix string, sources map[int]map[string]Source) (map[int]map[string]string, func() error, error)
+    Materialize writes sources beneath one private absolute temporary directory.
+    The first map key identifies an exec member and the second is the
+    guardfile-relative source reference that execverb resolves.
+
+
+TYPES
+
+type Source struct {
+	Path string
+	Data []byte
+}
+    Source is one generated binary asset. Path is the project-relative embed
+    identity and Data is its compile-time content.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/specverb

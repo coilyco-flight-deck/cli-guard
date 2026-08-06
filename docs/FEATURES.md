@@ -26,8 +26,8 @@ Grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](archi
 ### HTTP request surface (`http/`)
 
 - **egress** - Per-run CONNECT proxy with consumer allowlist.
-- **Specgen HTTP/codegen** - `.specgen/` source discovery, locks, and generation.
-  See [specgen.md](specgen.md).
+- **Specgen/codegen** - Discovery, locks, generation, and
+  [embedded fixed files](specgen-embedded-files.md).
 - **Inline HTTP contracts** - Typed query, nested-string body projection, and
   JMESPath response postconditions. See
   [body mapping](opcore-body-mapping.md) and [inline operations](opcore-inline.md).
