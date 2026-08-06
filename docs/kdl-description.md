@@ -24,9 +24,8 @@ node is never a silent no-op.
 
 The durable "what/why" a reader needs to understand the surface. Changelog and
 provenance archaeology (which test pins the file, which `make` target syncs it,
-issue history) is **not** runtime description: that moves to a `docs/*.md`
-walkthrough behind a short `doc-link` pointer, per the durable-detail-to-docs
-convention.
+issue history) is **not** runtime description. Keep that detail in a maintained
+`docs/*.md` walkthrough rather than the runtime command surface.
 
 ## How it surfaces
 

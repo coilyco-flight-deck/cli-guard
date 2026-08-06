@@ -332,6 +332,7 @@ func TestParseFailsClosed(t *testing.T) {
 		`wrap ward git { exec git; can status }`,                     // missing `run`
 		`wrap ward git { exec git; can run commit { env "X=1" } }`,   // unknown policy node
 		`wrap ward git { exec git; unknown-node x; can run status }`, // unknown wrap child
+		`wrap ward git { exec git; can run status; doc-link "x" }`,   // retired node
 	}
 	for _, src := range cases {
 		if _, err := Parse([]byte(src)); err == nil {

@@ -255,14 +255,6 @@ type Config struct {
 }
     Config is everything the engine needs to build a command tree.
 
-type DocLink struct {
-	Href string // link target: a relative path or URL
-	Text string // link text; defaults to Href when omitted
-	Desc string // optional trailing description after the link
-}
-    DocLink is one `doc-link` footer entry: a `## See also` back-pointer from
-    describe output to a hand-written companion doc. See docs/doc-link.md.
-
 type EnvVar struct {
 	Name     string
 	Provider string // value-source provider name (env|file|literal|consumer-registered)
@@ -339,7 +331,6 @@ type Guardfile struct {
 	Env        []EnvVar     // environment vars set on the wrapped process
 	Grants     []Grant      // mounted leaves
 	Whens      []WhenClause // wrap-level passthrough guards (never pass/only pass), enforced on every leaf - the host gate
-	DocLinks   []DocLink    // `doc-link` footer pointers rendered in describe output
 
 	// Allow lists bare binaries that each mount as an independent open-passthrough
 	// funnel: inspect-list sugar, mutually exclusive with exec/can run (docs/execverb.md).
@@ -384,7 +375,6 @@ type Surface struct {
 	Inspect     bool        `json:"inspect,omitempty"`     // the `allow` inspect-list shape: each grant funnels its own binary, no single Bin
 	Guards      []string    `json:"guards,omitempty"`      // wrap-level guards (the passthrough host gate), applied to every leaf
 	Grants      []GrantInfo `json:"grants"`                // every mounted leaf, in mount order
-	DocLinks    []DocLink   `json:"doc_links,omitempty"`   // `doc-link` footer pointers back to companion docs
 }
     Surface is the in-engine model of a mounted exec surface: the wrapped
     binary, the fixed argv prefix, and every granted subcommand leaf.
@@ -1582,14 +1572,6 @@ type Collect struct {
     appending each array response until the page returns fewer than Limit
     (specverb-actions.md).
 
-type DocLink struct {
-	Href string // link target: a relative path or URL
-	Text string // link text; defaults to Href when omitted
-	Desc string // optional trailing description after the link
-}
-    DocLink is one `doc-link` footer entry: a `## See also` back-pointer from
-    describe output to a hand-written companion doc. See docs/doc-link.md.
-
 type Fetch struct {
 	Name     string
 	Leaf     string
@@ -1676,7 +1658,6 @@ type Guardfile struct {
 	Restrict     []Restriction
 	Actions      []Action
 	Fetches      []Fetch
-	DocLinks     []DocLink // `doc-link` footer pointers rendered in describe output
 }
     Guardfile is the parsed form of one wrap block.
 
@@ -2495,16 +2476,15 @@ type RestrictionInfo struct {
     the path param it gates and the globs an argument must match.
 
 type Surface struct {
-	Group       []string            `json:"group"`                 // command path, e.g. ["ward","ops","forgejo"]
-	Description string              `json:"description,omitempty"` // the guardfile's top-level `description` prose, "" when none
-	BaseURL     string              `json:"base_url"`              // resolved request base, scheme defaulted
-	Auth        AuthInfo            `json:"auth"`                  // how the engine authenticates
-	Verbs       []VerbInfo          `json:"verbs"`                 // every mounted leaf, in mount order
-	Fetches     []FetchInfo         `json:"fetches,omitempty"`     // HTTP fetch overlays, in declaration order
-	Actions     []ActionInfo        `json:"actions,omitempty"`     // complex actions, in declaration order
-	Denied      []DenyInfo          `json:"denied,omitempty"`      // blocked classes, in declaration order
-	Restrict    []RestrictionInfo   `json:"restrict,omitempty"`    // wrap-level scope allowlists
-	DocLinks    []guardfile.DocLink `json:"doc_links,omitempty"`   // `doc-link` footer pointers back to companion docs
+	Group       []string          `json:"group"`                 // command path, e.g. ["ward","ops","forgejo"]
+	Description string            `json:"description,omitempty"` // the guardfile's top-level `description` prose, "" when none
+	BaseURL     string            `json:"base_url"`              // resolved request base, scheme defaulted
+	Auth        AuthInfo          `json:"auth"`                  // how the engine authenticates
+	Verbs       []VerbInfo        `json:"verbs"`                 // every mounted leaf, in mount order
+	Fetches     []FetchInfo       `json:"fetches,omitempty"`     // HTTP fetch overlays, in declaration order
+	Actions     []ActionInfo      `json:"actions,omitempty"`     // complex actions, in declaration order
+	Denied      []DenyInfo        `json:"denied,omitempty"`      // blocked classes, in declaration order
+	Restrict    []RestrictionInfo `json:"restrict,omitempty"`    // wrap-level scope allowlists
 }
     Surface is the in-engine model of a mounted command surface: the structural
     truth shared by help, the describe verb, and (later) completions and the
