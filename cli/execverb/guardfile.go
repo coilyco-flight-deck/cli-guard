@@ -4,6 +4,7 @@ package execverb
 
 import (
 	"fmt"
+	"path"
 	"strings"
 
 	"forgejo.coilysiren.me/coilyco-flight-deck/cli-guard/http/guardfile"
@@ -23,7 +24,6 @@ type Guardfile struct {
 	Env        []EnvVar     // environment vars set on the wrapped process
 	Grants     []Grant      // mounted leaves
 	Whens      []WhenClause // wrap-level passthrough guards (never pass/only pass), enforced on every leaf - the host gate
-	DocLinks   []DocLink    // `doc-link` footer pointers rendered in describe output
 
 	// Allow lists bare binaries that each mount as an independent open-passthrough
 	// funnel: inspect-list sugar, mutually exclusive with exec/can run (docs/execverb.md).
@@ -40,14 +40,6 @@ type Guardfile struct {
 	// passthrough marks the `passthrough <bin>` sugar: exec + an implicit
 	// `can run *` funnel. It can never coexist with `exec` or a `can run` grant.
 	passthrough bool
-}
-
-// DocLink is one `doc-link` footer entry: a `## See also` back-pointer from
-// describe output to a hand-written companion doc. See docs/doc-link.md.
-type DocLink struct {
-	Href string // link target: a relative path or URL
-	Text string // link text; defaults to Href when omitted
-	Desc string // optional trailing description after the link
 }
 
 // EnvVar is one `env` injection: an environment variable set on the wrapped
@@ -86,6 +78,9 @@ type Grant struct {
 	// in place of Subcommand. ArgvSet marks an explicit (maybe empty) override.
 	Argv    []string
 	ArgvSet bool
+	// EmbeddedArgs identifies symbolic argv slots compiled into the binary.
+	// Runtime mounting resolves each slot to an absolute path before execution.
+	EmbeddedArgs []EmbeddedArg
 
 	// Sealed forbids trailing caller args: the pinned `argv` forwards exactly,
 	// with no caller-supplied tokens appended. Requires ArgvSet (parse-enforced).
@@ -94,6 +89,17 @@ type Grant struct {
 	// Bin overrides the wrap binary for this grant only (multi-binary pipelines),
 	// still fixed at parse: the caller can never substitute it. See docs/.
 	Bin string
+
+	// runtimeArgv is the resolved invocation used only for execution. Help and
+	// describe continue to render the symbolic Argv values.
+	runtimeArgv []string
+}
+
+// EmbeddedArg is one build-time file reference and its fixed position in a
+// grant's argv. Source is relative to the declaring guardfile.
+type EmbeddedArg struct {
+	Index  int
+	Source string
 }
 
 // ExecBin returns the binary this grant runs: its own override, else the wrap's.
@@ -120,6 +126,30 @@ func (g Grant) ExecArgv() []string {
 		return g.Argv
 	}
 	return g.Subcommand
+}
+
+// executionArgv returns absolute embedded paths after runtime resolution and
+// otherwise preserves the public symbolic invocation.
+func (g Grant) executionArgv() []string {
+	if g.runtimeArgv != nil {
+		return g.runtimeArgv
+	}
+	return g.ExecArgv()
+}
+
+// EmbedPaths returns distinct build-time file references in declaration order.
+func (gf *Guardfile) EmbedPaths() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, grant := range gf.Grants {
+		for _, embedded := range grant.EmbeddedArgs {
+			if !seen[embedded.Source] {
+				seen[embedded.Source] = true
+				out = append(out, embedded.Source)
+			}
+		}
+	}
+	return out
 }
 
 // WhenClause is a `when`/`deny-when` argv guard, or a wrap-level `never pass`/
@@ -252,8 +282,6 @@ func (gf *Guardfile) applyNode(n *kdl.Node) error {
 		return gf.appendPassClause(n, false)
 	case "when", "deny-when":
 		return gf.appendWrapWhen(n)
-	case "doc-link":
-		return gf.parseDocLink(n)
 	case "action":
 		return gf.appendAction(n)
 	default:
@@ -500,30 +528,6 @@ func (gf *Guardfile) parseAllow(n *kdl.Node) error {
 	return nil
 }
 
-// parseDocLink reads `doc-link "<href>" ["<text>" ["<desc>"]]`: a `## See also`
-// footer pointer. href required, text defaults to href, desc optional.
-func (gf *Guardfile) parseDocLink(n *kdl.Node) error {
-	if children := n.Children(); children != nil && len(children.Nodes) > 0 {
-		return fmt.Errorf("execverb: `doc-link` takes positional args, not a block (fail-closed)")
-	}
-	args := stringArgs(n)
-	if len(args) == 0 || args[0] == "" {
-		return fmt.Errorf("execverb: `doc-link` needs a target, e.g. `doc-link \"../ward-kdl.md\" \"ward-kdl.md\"`")
-	}
-	if len(args) > 3 {
-		return fmt.Errorf("execverb: `doc-link` takes at most href, text, and description (fail-closed)")
-	}
-	dl := DocLink{Href: args[0], Text: args[0]}
-	if len(args) >= 2 && args[1] != "" {
-		dl.Text = args[1]
-	}
-	if len(args) == 3 {
-		dl.Desc = args[2]
-	}
-	gf.DocLinks = append(gf.DocLinks, dl)
-	return nil
-}
-
 // validateAllowName enforces bare-binary names for `allow`: non-empty, no path
 // separator (`/`), no shell metacharacter. A path or metachar fails closed.
 func validateAllowName(name string) error {
@@ -621,7 +625,7 @@ func (g *Grant) applyGrantChild(c *kdl.Node) error {
 		}
 		g.Whens = append(g.Whens, wc)
 		return nil
-	case "argv", "sealed", "bin":
+	case "argv", "embed", "sealed", "bin":
 		return g.applyGrantPin(c)
 	default:
 		return g.applyPolicyNode(c)
@@ -633,13 +637,9 @@ func (g *Grant) applyGrantChild(c *kdl.Node) error {
 func (g *Grant) applyGrantPin(c *kdl.Node) error {
 	switch c.Name() {
 	case "argv":
-		if g.ArgvSet {
-			return fmt.Errorf("execverb: grant %q: duplicate `argv` override (fail-closed)", g.subcommandLabel())
-		}
-		g.ArgvSet = true
-		for _, a := range c.Arguments() {
-			g.Argv = append(g.Argv, a.String())
-		}
+		return g.applyArgv(c)
+	case "embed":
+		return g.applyEmbed(c)
 	case "sealed":
 		if len(c.Arguments()) != 0 {
 			return fmt.Errorf("execverb: grant %q: `sealed` takes no value (fail-closed)", g.subcommandLabel())
@@ -654,6 +654,57 @@ func (g *Grant) applyGrantPin(c *kdl.Node) error {
 			return err
 		}
 		g.Bin = v
+	}
+	return nil
+}
+
+func (g *Grant) applyArgv(c *kdl.Node) error {
+	if children := c.Children(); children != nil && len(children.Nodes) > 0 {
+		return fmt.Errorf("execverb: grant %q: `argv` takes positional values, not a block (fail-closed)", g.subcommandLabel())
+	}
+	g.ArgvSet = true
+	for _, a := range c.Arguments() {
+		g.Argv = append(g.Argv, a.String())
+	}
+	return nil
+}
+
+func (g *Grant) applyEmbed(c *kdl.Node) error {
+	if children := c.Children(); children != nil && len(children.Nodes) > 0 {
+		return fmt.Errorf("execverb: grant %q: `embed` takes one source path, not a block (fail-closed)", g.subcommandLabel())
+	}
+	source, err := singleGrantArg(c)
+	if err != nil {
+		return err
+	}
+	if err := validateEmbedSource(source); err != nil {
+		return fmt.Errorf("execverb: grant %q: %w", g.subcommandLabel(), err)
+	}
+	g.ArgvSet = true
+	g.EmbeddedArgs = append(g.EmbeddedArgs, EmbeddedArg{Index: len(g.Argv), Source: source})
+	g.Argv = append(g.Argv, "<embedded:"+source+">")
+	return nil
+}
+
+// validateEmbedSource keeps file references portable and confined. Specgen
+// owns filesystem resolution relative to the declaring guardfile.
+func validateEmbedSource(source string) error {
+	switch {
+	case source == "":
+		return fmt.Errorf("`embed` source must not be empty (fail-closed)")
+	case strings.Contains(source, "\\"):
+		return fmt.Errorf("`embed` source %q must use portable slash separators (fail-closed)", source)
+	case path.IsAbs(source):
+		return fmt.Errorf("`embed` source %q must be relative to its guardfile (fail-closed)", source)
+	case path.Clean(source) != source || source == "." || source == ".." || strings.HasPrefix(source, "../"):
+		return fmt.Errorf("`embed` source %q must be a normalized path within its guardfile directory (fail-closed)", source)
+	}
+	const portable = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._/"
+	for _, r := range source {
+		if strings.ContainsRune(portable, r) {
+			continue
+		}
+		return fmt.Errorf("`embed` source %q contains unsupported character %q (fail-closed)", source, r)
 	}
 	return nil
 }

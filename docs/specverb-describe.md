@@ -44,11 +44,6 @@ model, so a human can add the description Forgejo's sparse spec omits without
 touching Go. The parser fails closed on any grant-body node other than
 `describe`.
 
-## Guardfile `doc-link` footer
-
-A wrap block's `doc-link` nodes render as a `## See also` footer in pulled
-describe output. See [doc-link.md](doc-link.md).
-
 ## Follow-ups (not silent gaps)
 
 The `Surface` model remains the shared source for help, describe, shell

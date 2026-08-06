@@ -116,6 +116,38 @@ func TestRenderParamsExecOnly(t *testing.T) {
 	}
 }
 
+func TestRenderParamsEmbedsExecFile(t *testing.T) {
+	out, err := RenderParams(SetParams{
+		Binary:  "ward-kdl",
+		HasExec: true,
+		Mounts: []Params{{
+			Transport:     TransportExec,
+			Binary:        "ward-kdl",
+			GuardfileName: "measure.kdl",
+			EmbeddedFiles: []EmbeddedFile{{Source: "scripts/measure.py", Name: "scripts/measure.py"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("RenderParams: %v", err)
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), "main.go", out, parser.AllErrors); err != nil {
+		t.Fatalf("embedded exec source does not parse: %v\n%s", err, out)
+	}
+	src := string(out)
+	for _, want := range []string{
+		"//go:embed scripts/measure.py",
+		`embedfile.Materialize("ward-kdl", embeddedSources())`,
+		"_ = cleanup()",
+		`"scripts/measure.py": {Path: "scripts/measure.py", Data: embeddedFile0_0}`,
+		"EmbeddedFiles: embeddedFiles",
+		"http/specgen/embedfile",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("embedded exec source missing %q\n%s", want, src)
+		}
+	}
+}
+
 func TestRenderParamsMixed(t *testing.T) {
 	out, err := RenderParams(SetParams{
 		Binary:  "ward-kdl",

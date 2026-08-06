@@ -51,7 +51,7 @@ func (r *execStepRunner) fire(ctx context.Context, c *cli.Command, leaf stepflow
 	if err != nil {
 		return nil, nil, exitcode.New(exitcode.Internal, "internal", err, "check the env value provider address and credentials")
 	}
-	argv := append(append(append([]string{}, r.gf.argvPrefixFor(l.grant)...), l.grant.ExecArgv()...), tokens...)
+	argv := append(append(append([]string{}, r.gf.argvPrefixFor(l.grant)...), l.grant.executionArgv()...), tokens...)
 	var decoded map[string]any
 	var raw []byte
 	inner := verb.Spec{
@@ -118,7 +118,7 @@ func (r *execStepRunner) Plan(_ context.Context, leaf stepflow.Leaf, args []guar
 	if err != nil {
 		return nil, err
 	}
-	argv := append(append(append([]string{}, r.gf.argvPrefixFor(l.grant)...), l.grant.ExecArgv()...), tokens...)
+	argv := append(append(append([]string{}, r.gf.argvPrefixFor(l.grant)...), l.grant.executionArgv()...), tokens...)
 	return map[string]any{
 		"leaf": l.Label(),
 		"exec": l.grant.ExecBin(r.gf.Bin),

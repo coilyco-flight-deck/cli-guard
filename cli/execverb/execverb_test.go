@@ -2,6 +2,7 @@ package execverb
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -332,6 +333,7 @@ func TestParseFailsClosed(t *testing.T) {
 		`wrap ward git { exec git; can status }`,                     // missing `run`
 		`wrap ward git { exec git; can run commit { env "X=1" } }`,   // unknown policy node
 		`wrap ward git { exec git; unknown-node x; can run status }`, // unknown wrap child
+		`wrap ward git { exec git; can run status; doc-link "x" }`,   // retired node
 	}
 	for _, src := range cases {
 		if _, err := Parse([]byte(src)); err == nil {
@@ -416,13 +418,97 @@ func TestNoArgvOverrideKeepsSubcommand(t *testing.T) {
 
 func TestArgvOverrideParseFailsClosed(t *testing.T) {
 	cases := []string{
-		`wrap ward agents claude { exec claude; can run "*" { argv "-p" } }`,          // argv on wildcard
-		`wrap ward agents claude { exec claude; can run launch { argv; argv "-p" } }`, // duplicate argv
+		`wrap ward agents claude { exec claude; can run "*" { argv "-p" } }`,                 // argv on wildcard
+		`wrap ward agents claude { exec claude; can run launch { argv "-p" { mode "x" } } }`, // argv block
 	}
 	for _, src := range cases {
 		if _, err := Parse([]byte(src)); err == nil {
 			t.Errorf("expected parse failure for %q", src)
 		}
+	}
+}
+
+const embeddedGuardfile = `wrap ward-kdl ops measure {
+	exec python3
+	can run storage {
+		argv "-I"
+		embed "scripts/storage_measure.py"
+		argv "--format" "text"
+		sealed
+	}
+}`
+
+func TestEmbedResolvesAbsoluteArgvAtDeclarationPosition(t *testing.T) {
+	gf, err := Parse([]byte(embeddedGuardfile))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := strings.Join(gf.Grants[0].ExecArgv(), " "); got != "-I <embedded:scripts/storage_measure.py> --format text" {
+		t.Errorf("symbolic argv = %q", got)
+	}
+	if got := gf.EmbedPaths(); len(got) != 1 || got[0] != "scripts/storage_measure.py" {
+		t.Errorf("EmbedPaths = %v", got)
+	}
+
+	materialized := filepath.Join(t.TempDir(), "storage_measure.py")
+	var cp capture
+	root := &cli.Command{Name: "ward-kdl"}
+	if err := Mount(root, Config{
+		Guardfile:     gf,
+		EmbeddedFiles: map[string]string{"scripts/storage_measure.py": materialized},
+		Run:           cp.run,
+	}); err != nil {
+		t.Fatalf("Mount: %v", err)
+	}
+	if err := root.Run(context.Background(), []string{"ward-kdl", "ops", "measure", "storage"}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	want := []string{"-I", materialized, "--format", "text"}
+	if strings.Join(cp.argv, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("argv = %v, want %v", cp.argv, want)
+	}
+}
+
+func TestEmbedFailsClosedWithoutAbsoluteMaterialization(t *testing.T) {
+	gf, err := Parse([]byte(embeddedGuardfile))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	for name, files := range map[string]map[string]string{
+		"missing":  nil,
+		"relative": {"scripts/storage_measure.py": "runtime/storage_measure.py"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Build(Config{Guardfile: gf, EmbeddedFiles: files}); err == nil {
+				t.Fatal("expected embedded-file resolution to fail closed")
+			}
+		})
+	}
+}
+
+func TestEmbedFailsClosedWithInvalidArgvIndex(t *testing.T) {
+	gf, err := Parse([]byte(embeddedGuardfile))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	gf.Grants[0].EmbeddedArgs[0].Index = len(gf.Grants[0].Argv)
+	if _, err := Build(Config{
+		Guardfile:     gf,
+		EmbeddedFiles: map[string]string{"scripts/storage_measure.py": filepath.Join(t.TempDir(), "storage_measure.py")},
+	}); err == nil {
+		t.Fatal("expected invalid embedded argv index to fail closed")
+	}
+}
+
+func TestEmbedSourcePathFailsClosed(t *testing.T) {
+	for _, source := range []string{"", "/tmp/x.py", "../x.py", "scripts/../x.py", "./x.py", `scripts\x.py`} {
+		src := fmt.Sprintf(`wrap ward ops measure { exec python3; can run storage { embed %q; sealed } }`, source)
+		if _, err := Parse([]byte(src)); err == nil {
+			t.Errorf("expected source %q to fail closed", source)
+		}
+	}
+	if _, err := Parse([]byte(`wrap ward ops measure { exec python3; can run storage { embed "x.py" { mode "read" }; sealed } }`)); err == nil {
+		t.Error("expected an embed block to fail closed")
 	}
 }
 

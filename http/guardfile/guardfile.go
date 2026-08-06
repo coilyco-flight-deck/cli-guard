@@ -225,15 +225,6 @@ type Guardfile struct {
 	Restrict     []Restriction
 	Actions      []Action
 	Fetches      []Fetch
-	DocLinks     []DocLink // `doc-link` footer pointers rendered in describe output
-}
-
-// DocLink is one `doc-link` footer entry: a `## See also` back-pointer from
-// describe output to a hand-written companion doc. See docs/doc-link.md.
-type DocLink struct {
-	Href string // link target: a relative path or URL
-	Text string // link text; defaults to Href when omitted
-	Desc string // optional trailing description after the link
 }
 
 // modals is the closed set of grant verbs; anything else fails closed.
@@ -325,8 +316,8 @@ func (gf *Guardfile) applyNode(n *kdl.Node) error {
 	}
 }
 
-// applyListNode handles the repeatable wrap-body nodes (restrict, action,
-// doc-link) and the fail-closed unknown fallback, split off to hold the cyclo cap.
+// applyListNode handles repeatable wrap-body nodes and the fail-closed unknown
+// fallback, split off to hold the cyclo cap.
 func (gf *Guardfile) applyListNode(n *kdl.Node, name string) error {
 	switch name {
 	case "restrict":
@@ -349,13 +340,6 @@ func (gf *Guardfile) applyListNode(n *kdl.Node, name string) error {
 			return err
 		}
 		gf.Fetches = append(gf.Fetches, fetch)
-		return nil
-	case "doc-link":
-		dl, err := parseDocLink(n)
-		if err != nil {
-			return err
-		}
-		gf.DocLinks = append(gf.DocLinks, dl)
 		return nil
 	default:
 		return unknownWrapNode(name)
@@ -784,29 +768,6 @@ func parseRestrict(n *kdl.Node) (Restriction, error) {
 		r.Globs = append(r.Globs, g.String())
 	}
 	return r, nil
-}
-
-// parseDocLink reads `doc-link "<href>" ["<text>" ["<desc>"]]`: a `## See also`
-// footer pointer. href required, text defaults to href, desc optional.
-func parseDocLink(n *kdl.Node) (DocLink, error) {
-	if children := n.Children(); children != nil && len(children.Nodes) > 0 {
-		return DocLink{}, fmt.Errorf("guardfile: `doc-link` takes positional args, not a block (fail-closed)")
-	}
-	args := n.Arguments()
-	if len(args) == 0 || args[0].String() == "" {
-		return DocLink{}, fmt.Errorf("guardfile: `doc-link` needs a target, e.g. `doc-link \"ward-kdl.md\" \"ward-kdl.md\"`")
-	}
-	if len(args) > 3 {
-		return DocLink{}, fmt.Errorf("guardfile: `doc-link` takes at most href, text, and description (fail-closed)")
-	}
-	dl := DocLink{Href: args[0].String(), Text: args[0].String()}
-	if len(args) >= 2 && args[1].String() != "" {
-		dl.Text = args[1].String()
-	}
-	if len(args) == 3 {
-		dl.Desc = args[2].String()
-	}
-	return dl, nil
 }
 
 // ParseActionNode parses one `action` KDL node into an Action: the entry the

@@ -133,38 +133,6 @@ func TestGrantDescribeAnnotation(t *testing.T) {
 	}
 }
 
-// TestParseDocLink asserts `doc-link` nodes parse into DocLinks, text defaults
-// to href, and malformed shapes fail closed.
-func TestParseDocLink(t *testing.T) {
-	src := []byte(`wrap ward ops forgejo {
-	    spec s
-	    auth header-token { header H; value ssm S }
-	    can get repo { op "repoGet" }
-	    doc-link "../ward-kdl.md" "ward-kdl.md" "the build-time authoring layer"
-	    doc-link "ward-kdl-surface.md"
-	}`)
-	gf, err := Parse(src)
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-	want := []DocLink{
-		{Href: "../ward-kdl.md", Text: "ward-kdl.md", Desc: "the build-time authoring layer"},
-		{Href: "ward-kdl-surface.md", Text: "ward-kdl-surface.md"},
-	}
-	if !reflect.DeepEqual(gf.DocLinks, want) {
-		t.Errorf("DocLinks = %+v, want %+v", gf.DocLinks, want)
-	}
-	for _, bad := range []string{
-		"wrap w ops forgejo { spec s; auth header-token { header H; value ssm S }; can get repo { op \"repoGet\" }; doc-link }",
-		"wrap w ops forgejo { spec s; auth header-token { header H; value ssm S }; can get repo { op \"repoGet\" }; doc-link \"a\" \"b\" \"c\" \"d\" }",
-		"wrap w ops forgejo { spec s; auth header-token { header H; value ssm S }; can get repo { op \"repoGet\" }; doc-link \"a\" { text \"b\" } }",
-	} {
-		if _, err := Parse([]byte(bad)); err == nil {
-			t.Errorf("expected fail-closed parse error for: %s", bad)
-		}
-	}
-}
-
 // TestGrantProperties asserts KDL key=value properties land in Grant.Props,
 // distinct from positional bareword qualifiers.
 func TestGrantProperties(t *testing.T) {
@@ -565,6 +533,12 @@ func TestParseFailsClosed(t *testing.T) {
 			spec s
 			auth header-token { header H; value ssm S }
 			allow read repos
+		}`,
+		"retired doc-link": `wrap ward ops forgejo {
+			spec s
+			auth header-token { header H; value ssm S }
+			can read repos
+			doc-link "x"
 		}`,
 		"missing spec": `wrap ward ops forgejo {
 			auth header-token { header H; value ssm S }

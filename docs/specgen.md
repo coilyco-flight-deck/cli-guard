@@ -23,6 +23,9 @@ Locks are per member and preserve root-relative directories. `main.go`,
 keyed on the full wrap group. Spec and exec members can share one binary - see
 [mixed transports](specverb-mixed-transports.md).
 
+Exec grants may add [embedded fixed files](specgen-embedded-files.md). Specgen
+compiles their bytes into the binary and supplies absolute runtime paths.
+
 ## The five verbs
 
 - **`gen`** - render merged `main.go` into the cache, or use `--out` to inspect it.

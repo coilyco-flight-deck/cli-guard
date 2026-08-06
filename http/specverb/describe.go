@@ -20,16 +20,15 @@ import (
 // Surface is the in-engine model of a mounted command surface: the structural
 // truth shared by help, the describe verb, and (later) completions and the skill.
 type Surface struct {
-	Group       []string            `json:"group"`                 // command path, e.g. ["ward","ops","forgejo"]
-	Description string              `json:"description,omitempty"` // the guardfile's top-level `description` prose, "" when none
-	BaseURL     string              `json:"base_url"`              // resolved request base, scheme defaulted
-	Auth        AuthInfo            `json:"auth"`                  // how the engine authenticates
-	Verbs       []VerbInfo          `json:"verbs"`                 // every mounted leaf, in mount order
-	Fetches     []FetchInfo         `json:"fetches,omitempty"`     // HTTP fetch overlays, in declaration order
-	Actions     []ActionInfo        `json:"actions,omitempty"`     // complex actions, in declaration order
-	Denied      []DenyInfo          `json:"denied,omitempty"`      // blocked classes, in declaration order
-	Restrict    []RestrictionInfo   `json:"restrict,omitempty"`    // wrap-level scope allowlists
-	DocLinks    []guardfile.DocLink `json:"doc_links,omitempty"`   // `doc-link` footer pointers back to companion docs
+	Group       []string          `json:"group"`                 // command path, e.g. ["ward","ops","forgejo"]
+	Description string            `json:"description,omitempty"` // the guardfile's top-level `description` prose, "" when none
+	BaseURL     string            `json:"base_url"`              // resolved request base, scheme defaulted
+	Auth        AuthInfo          `json:"auth"`                  // how the engine authenticates
+	Verbs       []VerbInfo        `json:"verbs"`                 // every mounted leaf, in mount order
+	Fetches     []FetchInfo       `json:"fetches,omitempty"`     // HTTP fetch overlays, in declaration order
+	Actions     []ActionInfo      `json:"actions,omitempty"`     // complex actions, in declaration order
+	Denied      []DenyInfo        `json:"denied,omitempty"`      // blocked classes, in declaration order
+	Restrict    []RestrictionInfo `json:"restrict,omitempty"`    // wrap-level scope allowlists
 }
 
 // FetchInfo is one mounted HTTP overlay: the fixed method/path, output mode,
@@ -237,7 +236,6 @@ func buildSurface(gf *guardfile.Guardfile, baseURL string, descs []opDescriptor,
 	s.Actions = actionInfosOf(actions)
 	s.Denied = denyInfosOf(gf)
 	s.Restrict = restrictInfosOf(gf)
-	s.DocLinks = gf.DocLinks
 	return s
 }
 
@@ -431,7 +429,6 @@ func renderProse(s *Surface) string {
 	writeActions(&b, prefix, s.Actions)
 	writeRestrictions(&b, s.Restrict)
 	writeDenied(&b, prefix, s.Denied)
-	writeSeeAlso(&b, s.DocLinks)
 	return b.String()
 }
 
@@ -511,21 +508,6 @@ func writeFetchGuards(b *strings.Builder, whens []FetchWhenInfo) {
 	b.WriteString("\nGuards:\n\n")
 	for _, w := range whens {
 		fmt.Fprintf(b, "- `%s` matches %s\n", w.Selector, strings.Join(w.Globs, " or "))
-	}
-}
-
-// writeSeeAlso appends the `## See also` footer, one bullet per doc-link.
-func writeSeeAlso(b *strings.Builder, links []guardfile.DocLink) {
-	if len(links) == 0 {
-		return
-	}
-	b.WriteString("\n## See also\n\n")
-	for _, l := range links {
-		fmt.Fprintf(b, "- [%s](%s)", l.Text, l.Href)
-		if l.Desc != "" {
-			fmt.Fprintf(b, " - %s", l.Desc)
-		}
-		b.WriteString("\n")
 	}
 }
 

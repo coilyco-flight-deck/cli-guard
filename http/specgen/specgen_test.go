@@ -5,7 +5,9 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -28,6 +30,15 @@ const execFixture = `wrap ward-kdl ops aws {
 	can run sts get-caller-identity
 	can run s3 ls {
 		deny-when arg0 matches "*tfstate*"
+	}
+}`
+
+const embeddedExecFixture = `wrap ward-kdl ops measure {
+	exec python3
+	can run storage {
+		argv "-I"
+		embed "scripts/storage_measure.py"
+		sealed
 	}
 }`
 
@@ -86,6 +97,95 @@ func TestReadMemberDispatchesExec(t *testing.T) {
 	}
 	if m.Params.SpecLockName != "" || m.Params.SpecURL != "" {
 		t.Errorf("exec member should have no spec lock/url, got %+v", m.Params)
+	}
+}
+
+func TestReadMemberLoadsEmbeddedFile(t *testing.T) {
+	dir := t.TempDir()
+	writeMember(t, dir, "ops/scripts/storage_measure.py", "print('measured')\n")
+	gfPath := writeMember(t, dir, "ops/measure.kdl", embeddedExecFixture)
+	m, err := readMember(gfPath, "ops/measure.kdl")
+	if err != nil {
+		t.Fatalf("readMember: %v", err)
+	}
+	if len(m.Embeds) != 1 {
+		t.Fatalf("Embeds = %+v", m.Embeds)
+	}
+	embedded := m.Embeds[0]
+	if embedded.Source != "scripts/storage_measure.py" || embedded.Name != "ops/scripts/storage_measure.py" || string(embedded.Bytes) != "print('measured')\n" {
+		t.Errorf("embedded file = %+v", embedded)
+	}
+	want := []codegen.EmbeddedFile{{Source: "scripts/storage_measure.py", Name: "ops/scripts/storage_measure.py"}}
+	if !reflect.DeepEqual(m.Params.EmbeddedFiles, want) {
+		t.Errorf("Params.EmbeddedFiles = %+v, want %+v", m.Params.EmbeddedFiles, want)
+	}
+}
+
+func TestReadMemberRejectsInvalidEmbeddedFile(t *testing.T) {
+	t.Run("missing", func(t *testing.T) {
+		dir := t.TempDir()
+		gfPath := writeMember(t, dir, "measure.kdl", embeddedExecFixture)
+		if _, err := readMember(gfPath, "measure.kdl"); err == nil || !strings.Contains(err.Error(), "resolve embedded file") {
+			t.Fatalf("missing embedded file error = %v", err)
+		}
+	})
+
+	t.Run("non-regular", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, "scripts", "storage_measure.py"), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		gfPath := writeMember(t, dir, "measure.kdl", embeddedExecFixture)
+		if _, err := readMember(gfPath, "measure.kdl"); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+			t.Fatalf("non-regular embedded file error = %v", err)
+		}
+	})
+
+	t.Run("symlink escape", func(t *testing.T) {
+		dir := t.TempDir()
+		outside := writeMember(t, t.TempDir(), "storage_measure.py", "print('outside')\n")
+		if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(dir, "scripts", "storage_measure.py")); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		gfPath := writeMember(t, dir, "measure.kdl", embeddedExecFixture)
+		if _, err := readMember(gfPath, "measure.kdl"); err == nil || !strings.Contains(err.Error(), "escapes guardfile directory") {
+			t.Fatalf("symlink escape error = %v", err)
+		}
+	})
+
+	t.Run("too large", func(t *testing.T) {
+		dir := t.TempDir()
+		script := writeMember(t, dir, "scripts/storage_measure.py", "")
+		if err := os.Truncate(script, maxEmbeddedFileBytes+1); err != nil {
+			t.Fatal(err)
+		}
+		gfPath := writeMember(t, dir, "measure.kdl", embeddedExecFixture)
+		if _, err := readMember(gfPath, "measure.kdl"); err == nil || !strings.Contains(err.Error(), "above the") {
+			t.Fatalf("oversized embedded file error = %v", err)
+		}
+	})
+}
+
+func TestEmbeddedFileBytesInvalidateMemberHash(t *testing.T) {
+	dir := t.TempDir()
+	script := writeMember(t, dir, "scripts/storage_measure.py", "print('one')\n")
+	gfPath := writeMember(t, dir, "measure.kdl", embeddedExecFixture)
+	first, err := readMember(gfPath, "measure.kdl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(script, []byte("print('two')\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second, err := readMember(gfPath, "measure.kdl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hashMembers([]member{first}) == hashMembers([]member{second}) {
+		t.Fatal("embedded source change did not invalidate the member hash")
 	}
 }
 
@@ -188,17 +288,23 @@ func TestProjectRootUsesDistinctArtifactsForSameBasename(t *testing.T) {
 func TestMaterializeModuleDirPreservesNestedMemberArtifacts(t *testing.T) {
 	dir := t.TempDir()
 	mems := []member{
-		{Path: "cloud/api.kdl", Params: codegen.Params{GuardfileName: "cloud/api.kdl", SpecLockName: "cloud/api.lock.json.gz"}, Bytes: []byte("cloud")},
+		{
+			Path:   "cloud/api.kdl",
+			Params: codegen.Params{GuardfileName: "cloud/api.kdl", SpecLockName: "cloud/api.lock.json.gz"},
+			Bytes:  []byte("cloud"),
+			Embeds: []embeddedFile{{Name: "cloud/scripts/measure.py", Bytes: []byte("measure")}},
+		},
 		{Path: "forge/api.kdl", Params: codegen.Params{GuardfileName: "forge/api.kdl", SpecLockName: "forge/api.lock.json.gz"}, Bytes: []byte("forge")},
 	}
 	if err := materializeModuleDir(dir, []byte("package main\n"), mems, map[string][]byte{"cloud/api.kdl": []byte("cloud lock"), "forge/api.kdl": []byte("forge lock")}); err != nil {
 		t.Fatal(err)
 	}
 	for path, want := range map[string]string{
-		"cloud/api.kdl":          "cloud",
-		"forge/api.kdl":          "forge",
-		"cloud/api.lock.json.gz": "cloud lock",
-		"forge/api.lock.json.gz": "forge lock",
+		"cloud/api.kdl":            "cloud",
+		"forge/api.kdl":            "forge",
+		"cloud/api.lock.json.gz":   "cloud lock",
+		"forge/api.lock.json.gz":   "forge lock",
+		"cloud/scripts/measure.py": "measure",
 	} {
 		got, err := os.ReadFile(filepath.Join(dir, path))
 		if err != nil || string(got) != want {
@@ -229,6 +335,15 @@ func TestProjectRootFailsClosedForConflictingMemberLock(t *testing.T) {
 	writeMember(t, dir, "b.kdl", strings.Replace(guardfileFixture, "ops forgejo", "ops alternate", 1))
 	if _, err := loadGroup(Options{ProjectRoot: dir, GuardfilePath: selected}); err == nil || !strings.Contains(err.Error(), "conflicting spec lock") {
 		t.Fatalf("conflicting lock error = %v", err)
+	}
+}
+
+func TestProjectRootRejectsEmbeddedArtifactCollision(t *testing.T) {
+	dir := t.TempDir()
+	src := strings.Replace(embeddedExecFixture, `embed "scripts/storage_measure.py"`, `embed "measure.kdl"`, 1)
+	selected := writeMember(t, dir, "measure.kdl", src)
+	if _, err := loadGroup(Options{ProjectRoot: dir, GuardfilePath: selected}); err == nil || !strings.Contains(err.Error(), "embedded artifact") {
+		t.Fatalf("embedded artifact collision error = %v", err)
 	}
 }
 
@@ -527,6 +642,48 @@ func TestBuildRefusesWithoutLocks(t *testing.T) {
 	err := Build(Options{GuardfilePath: gfPath, Out: filepath.Join(dir, "bin")})
 	if !errors.Is(err, ErrNoLock) {
 		t.Fatalf("Build without locks: want ErrNoLock, got %v", err)
+	}
+}
+
+func TestBuildRunsEmbeddedFileAndCleansRuntimePath(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skipf("python3 unavailable: %v", err)
+	}
+	repoRoot, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoRoot = filepath.Clean(filepath.Join(repoRoot, "..", ".."))
+
+	dir := t.TempDir()
+	writeMember(t, dir, "scripts/report_path.py", "print(__file__)\n")
+	gfPath := writeMember(t, dir, "embed.guardfile.kdl", `wrap embed-guard ops measure {
+		exec python3
+		can run storage {
+			argv "-I"
+			embed "scripts/report_path.py"
+			sealed
+		}
+	}`)
+	if err := Lock(Options{GuardfilePath: gfPath, CLIGuardReplace: repoRoot}); err != nil {
+		t.Fatalf("Lock: %v", err)
+	}
+	bin := filepath.Join(dir, "embed-guard")
+	if err := Build(Options{GuardfilePath: gfPath, Out: bin}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	cmd := exec.Command(bin, "ops", "measure", "storage")
+	cmd.Env = append(os.Environ(), "HOME="+t.TempDir())
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run embedded command: %v\n%s", err, out)
+	}
+	runtimePath := strings.TrimSpace(string(out))
+	if !filepath.IsAbs(runtimePath) {
+		t.Fatalf("embedded command received non-absolute path %q", runtimePath)
+	}
+	if _, err := os.Stat(runtimePath); !os.IsNotExist(err) {
+		t.Errorf("embedded runtime file remains after command exit: %v", err)
 	}
 }
 
