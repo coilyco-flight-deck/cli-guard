@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:release
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Configure Go scratch
         run: bash scripts/ci/go-scratch.sh
       - name: go vet
@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:release
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Configure Go scratch
         run: bash scripts/ci/go-scratch.sh
       - name: golangci-lint
@@ -67,7 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     container: forgejo.coilysiren.me/coilyco-flight-deck/agentic-os:release
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Configure Go scratch
         run: bash scripts/ci/go-scratch.sh
       - name: govulncheck
@@ -90,10 +90,10 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
