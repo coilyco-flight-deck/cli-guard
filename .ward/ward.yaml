@@ -1,9 +1,5 @@
-# Catalog metadata for the cross-repo knowledge graph.
-#
-# Dev verbs used to live here as a `commands:` block. They are recipes in the
-# justfile now. This file survives only because check_catalog_block pins this
-# exact path and catalog-trifecta wants README, AGENTS, and FEATURES to link
-# it, both upstream in agentic-os.
+# Catalog metadata for the cross-repo knowledge graph. Dev verbs are justfile recipes.
+# This path survives because check_catalog_block and catalog-trifecta pin it upstream.
 
 catalog:
   description: "Security framework for guarded command-line tools with scoped authority, validation, and audit logs. The generic engine Ward and ward-mcp build against."

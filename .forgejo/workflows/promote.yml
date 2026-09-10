@@ -1,22 +1,5 @@
-# Stage 1 of the two-stage release flow (ward#1117): every main push re-runs
-# the full repo gate here (the same suite ci.yml enforces: vet, build, race
-# test, godoc-current, mod tidy, golangci-lint, secret scan), publishes the
-# commit-scoped draft tag (`draft-${sha}`), and only then fast-forwards
-# `release` to that sha. release.yml then runs on the `release` push (stage 2:
-# no re-gate, verify the draft tag, cut the Forgejo release) under a no-cancel
-# concurrency queue. main stays the integration branch; `release` is
-# last-known-good. Bursts on main collapse to the newest sha
-# (cancel-in-progress: true - promotion is idempotent and a newer gate
-# supersedes an older one). The promote push uses CI_RELEASE_TOKEN (real-user
-# PAT with write:repository + read:user from SSM /forgejo/ci-release-token):
-# job-token pushes and PATs without read:user are recorded with an empty actor
-# and silently enqueue no workflow, which is how releases go missing. The
-# checkout sets persist-credentials: false because checkout otherwise stores
-# the job token as an http extraheader in the local git config, and that
-# Authorization header overrides the PAT in the promote push URL - the push
-# then lands as the internal Actions user, whose pushes Forgejo deliberately
-# never enqueues workflows for. With it off, the push authenticates as the
-# PAT user and stage 2 fires (ward#1117).
+# Stage 1 of the two-stage release flow: gate main, draft-tag, fast-forward `release`.
+# Token scopes and the persist-credentials trap: docs/release-pipeline.md.
 
 name: promote
 

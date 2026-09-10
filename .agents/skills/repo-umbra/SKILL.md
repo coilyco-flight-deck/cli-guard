@@ -1,14 +1,14 @@
 ---
 name: repo-umbra
-description: a config driven occlusion framework for your CLIs and APIs. Triggers - umbra, automation, command-line, devops, security
+description: occlusion for agent CLIs and APIs. Declare what an agent may run, and everything you did not name stays unreachable. Triggers - umbra, automation, command-line, devops, security
 ---
 
 # repo-umbra
 
-Pointer to `~/projects/coilyco-flight-deck/umbra/`.
+Repository `coilyco-flight-deck/umbra`. Checkout at `~/projects/coilyco-flight-deck/umbra/` when resident.
 
 - [`README.md`](../../../README.md) - what it is, quickstart, layout.
-- [`AGENTS.md`](../../../AGENTS.md) - agent-facing operating context for the repo.
+- [`AGENTS.md`](../../../AGENTS.md) - agent-facing context for the repo.
 - [`docs/FEATURES.md`](../../../docs/FEATURES.md) - what ships today.
 
-Read those before answering substantive questions about umbra.
+Read those before answering large questions about umbra.

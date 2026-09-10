@@ -1,12 +1,5 @@
-# Stage 2 of the two-stage release flow (ward#1117): promote.yml gates every
-# main push, publishes the commit-scoped draft tag (`draft-${sha}`), and then
-# fast-forwards `release` when green; this pipeline runs on `release` pushes
-# only, under a concurrency queue (cancel-in-progress: false) so promoted
-# shas release in sequence instead of overlap-and-cancel. A workflow_dispatch
-# re-fires it against the `release` ref on a missed enqueue. There is no test
-# job here: promote.yml already ran the full repo gate on the exact sha it
-# fast-forwarded, so re-running the suite on `release` only lets a flaky rerun
-# fail an already-vouched promotion (Kai's call, 2026-07-12).
+# Stage 2 of the two-stage release flow: verify the draft tag and cut the release.
+# Why there is no test job here: docs/release-pipeline.md.
 
 name: release
 

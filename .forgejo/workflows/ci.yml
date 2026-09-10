@@ -1,11 +1,5 @@
-# Forgejo-canonical CI gate. Mirrors the pre-commit suite (vet, build, test,
-# golangci-lint, godoc-current, go mod tidy, secret scan) so the gate is enforced
-# on the canonical remote inside the moving :release dev-base image. The GitHub mirror's
-# .github/workflows/ci.yml stays the PR-gated twin.
-#
-# The moving :release dev-base image already carries Go, golangci-lint, and trufflehog,
-# so the jobs run the same toolchain a dispatched agent lands in. Pin the image
-# deliberately, never :latest.
+# Forgejo-canonical CI gate, mirroring the pre-commit suite on the canonical remote.
+# Toolchain image and the GitHub twin: docs/release-pipeline.md.
 
 name: ci
 

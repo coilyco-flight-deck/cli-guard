@@ -1,8 +1,6 @@
-// Wildcard proving-slice Guardfile: a readonly forgejo build. `can get "*"` +
-// `can list "*"` mount every read leaf the spec exposes and nothing else (default
-// deny keeps writes unmounted); `never delete "*"` future-proofs the build so any
-// delete the spec grows is auto-denied with a teaching message. See
-// docs/specverb-policy.md.
+// Wildcard proving-slice Guardfile: a readonly forgejo build, default-deny for writes.
+// What the wildcards mount and why `never delete` is there: docs/specverb-policy.md.
+
 wrap ward ops forgejo {
     spec forgejo.swagger.v1.json
     base-url "https://forgejo.coilysiren.me/api/v1"
