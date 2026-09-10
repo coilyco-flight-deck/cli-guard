@@ -2,24 +2,16 @@
 
 From an empty terminal to a `git` that can read your repository and cannot push
 it. Nothing here assumes a checkout of this repository. You will write one
-eighteen-line file and run three commands.
-
-Paths in the output below are shortened. Real output carries absolute paths, and
-yours will differ from these. Refusal text and exit codes are verbatim.
+eighteen-line file and run three commands. Paths below are shortened and yours
+will differ, while refusal text and exit codes are verbatim.
 
 ## What you need
-
-Step zero is a toolchain rather than a download, and it is worth knowing before
-you start.
 
 * **Homebrew or Scoop**, to install umbra itself.
 * **A working Go toolchain.** umbra generates a consumer binary and builds it,
   so `lock`, `build`, `run` and `install` all shell out to Go. Nothing in umbra
   demonstrates itself without a build.
 * **About ten minutes.**
-
-`npx` and a network connection are needed by exactly one guide, `mcpverb-cli`,
-which drives a published MCP server. They are not needed by umbra.
 
 ## 1. Install umbra
 
@@ -92,8 +84,7 @@ umbra: locked specverb.lock (umbra v0.212.1)
 ```
 
 `lock` freezes the umbra module version this project builds against. It is yours
-rather than this repository's, which is why it is a step you run rather than a
-file you are given.
+rather than this repository's, so it is a step you run rather than a file given.
 
 ```sh
 umbra install --shim-dir ./shims
@@ -186,20 +177,16 @@ Exit 2, and it says why, because the guardfile gave it a reason to say.
 
 ```sh
 git rebase
-git bisect
-git clone
 git fetch
 ```
 
 ```
 git: `git rebase` is not granted; run `git --help` for the verbs this binary has
-git: `git bisect` is not granted; run `git --help` for the verbs this binary has
-git: `git clone` is not granted; run `git --help` for the verbs this binary has
 git: `git fetch` is not granted; run `git --help` for the verbs this binary has
 ```
 
-All four exit 2, and none of them says why, because there is nothing to say.
-None was mentioned in the guardfile, and unmentioned verbs answer identically.
+Both exit 2, and neither says why, because there is nothing to say. Neither was
+mentioned in the guardfile, and every unmentioned verb answers identically.
 **Deny is absence.** A reader of `--help` cannot work out which verbs exist
 upstream, and an agent spends no context on a verb it may not call.
 
@@ -207,20 +194,6 @@ upstream, and an agent spends no context on a verb it may not call.
 followed the grants so far expects it to work. It does not, because the
 guardfile never named it, and a guardfile grants rather than forbids. Nothing is
 denied here. Four verbs were granted and everything else simply is not there.
-
-One surface admits umbra is there at all:
-
-```sh
-UMBRA_IDENTIFY=1 git
-```
-
-```
-umbra replacement for "git"
-  guardfile: example git
-  wrapped binary: git
-  driver version: dev
-  real binary: /opt/homebrew/bin/git
-```
 
 ## 6. Check your work
 
@@ -237,16 +210,10 @@ warn still directly reachable /opt/homebrew/bin/git runs without passing through
 3 of 4 checks hold. The last one never does, and says why.
 ```
 
-Three of four is the healthy state. The fourth check is not a problem you can
-fix by trying harder, and the guide for `replacement` is where that gets its own
-section. A replacement is what a caller sees rather than what a caller can
-reach.
-
-If a check reads `warn` instead, `doctor` names the cause. Leaving the shim
-directory off PATH drops you to two of four and says which. Pointing it at a
-directory nothing was installed into drops you to one of four and tells you to
-run `install`. The tool will tell you this itself, which is worth preferring
-over a troubleshooting table.
+Three of four is the healthy state, and the fourth is not a problem you can fix
+by trying harder. [replacement](replacement.md) gives it its own section. If any
+check reads `warn`, `doctor` names the cause and what to do about it, which is
+worth preferring over a troubleshooting table here.
 
 ## Clean up
 
@@ -260,14 +227,13 @@ Nothing else was written outside it.
 
 The guides build on each other, so this is a reading order rather than a menu.
 
-* **primitives** - audit rows, the metacharacter gate, and the exit-code
-  taxonomy the codes above come from. The three things every umbra binary is
-  built on.
-* **mcpverb** - the same policy applied to MCP tools instead of a local binary,
-  against a server the guide starts itself. No install needed.
-* **mcpverb-cli** - the same dialect the product way, with KDL policy and a
-  committed lock against the protocol's own reference server. Needs `npx`.
-* **replacement** - what you built here, taken seriously: the audit trail, the
-  full refusal ladder, and the enforcement floor umbra does not own.
-* **mcpapps** - the MCP Apps host bridge, and what a widget is refused. Read
-  this last.
+* **[primitives](primitives.md)** - audit rows, the metacharacter gate, and the
+  exit-code taxonomy the codes above come from.
+* **[mcpverb](mcpverb.md)** - the same policy over MCP tools instead of a local
+  binary, against a server the guide starts itself.
+* **[mcpverb-cli](mcpverb-cli.md)** - that dialect the product way, with KDL and
+  a committed lock against the protocol's reference server. Needs `npx`.
+* **[replacement](replacement.md)** - what you built here, taken seriously: the
+  audit trail, the refusal ladder, and the enforcement floor umbra does not own.
+* **[mcpapps](mcpapps.md)** - the MCP Apps host bridge, and what a widget is
+  refused. Read this last.

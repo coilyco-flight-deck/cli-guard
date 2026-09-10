@@ -76,6 +76,26 @@ guardfile family and their rows stay comparable.
 no binary, so there is nothing to wrap. If you are counting attempts from the
 trail, withheld verbs are invisible in it. `--help` is where they are visible.
 
+## Finding out what stands there
+
+A replacement is invisible on purpose, so a caller who lands on one has no way
+to ask what it is. One surface answers that, and it is the only one:
+
+```sh
+UMBRA_IDENTIFY=1 git
+```
+
+```
+umbra replacement for "git"
+  guardfile: example git
+  wrapped binary: git
+  driver version: dev
+  real binary: /opt/homebrew/bin/git
+```
+
+It is worth knowing before you debug a host you did not install this on, because
+every other surface here is busy being a convincing `git`.
+
 ## What it does not stop
 
 The real git is one absolute path away, and this guide will not pretend
