@@ -2,7 +2,7 @@
 // (and its goldmark/cli-docs deps) into the parent go.mod.
 module forgejo.coilysiren.me/coilyco-flight-deck/umbra/scripts/gen-webdocs
 
-go 1.25.0
+go 1.25.5
 
 require (
 	forgejo.coilysiren.me/coilyco-flight-deck/umbra v0.0.0-00010101000000-000000000000
@@ -16,7 +16,6 @@ require (
 	github.com/urfave/cli-docs/v3 v3.1.0 // indirect
 	github.com/yuin/goldmark v1.8.2 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 replace forgejo.coilysiren.me/coilyco-flight-deck/umbra => ../..

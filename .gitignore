@@ -25,3 +25,7 @@
 
 # Local dev overrides
 *.local
+/scripts/gen-webdocs/gen-webdocs
+specverb.lock
+/examples/*/shims/
+/examples/*/mcpdemo

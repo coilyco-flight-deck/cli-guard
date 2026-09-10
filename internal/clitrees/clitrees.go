@@ -1,6 +1,6 @@
-// Package treebuilders exports each examples/<name>/main.go's *cli.Command
-// tree so scripts/gen-webdocs can render it, and so each example main
-package treebuilders
+// Package clitrees exports the demo command trees scripts/gen-webdocs renders
+// into site/cli/. Compiled by root CI, which is why it is not in that module.
+package clitrees
 
 import (
 	"context"
@@ -91,7 +91,7 @@ parsing stderr.`,
 	}
 }
 
-// Exitcode is the tree for examples/exitcode.
+// Exitcode is the tree for the exit-code taxonomy demo.
 func Exitcode() *cli.Command {
 	return &cli.Command{
 		Name:    "exitcode-demo",
@@ -220,7 +220,7 @@ retry on this host.`,
 	}
 }
 
-// Policy is the tree for examples/policy.
+// Policy is the tree for the metacharacter-gate demo.
 func Policy() *cli.Command {
 	return &cli.Command{
 		Name:    "policy-demo",

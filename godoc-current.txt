@@ -2069,6 +2069,26 @@ type Source struct {
     identity and Data is its compile-time content.
 
 
+## forgejo.coilysiren.me/coilyco-flight-deck/umbra/internal/clitrees
+
+package clitrees // import "forgejo.coilysiren.me/coilyco-flight-deck/umbra/internal/clitrees"
+
+Package clitrees exports the demo command trees scripts/gen-webdocs renders into
+site/cli/. Compiled by root CI, which is why it is not in that module.
+
+FUNCTIONS
+
+func Audit(writer *audit.Writer) *cli.Command
+    Audit is the tree for examples/audit. writer may be nil for doc rendering
+    since Actions are not executed.
+
+func Exitcode() *cli.Command
+    Exitcode is the tree for the exit-code taxonomy demo.
+
+func Policy() *cli.Command
+    Policy is the tree for the metacharacter-gate demo.
+
+
 ## forgejo.coilysiren.me/coilyco-flight-deck/umbra/internal/umbracli
 
 package umbracli // import "forgejo.coilysiren.me/coilyco-flight-deck/umbra/internal/umbracli"
@@ -3069,8 +3089,9 @@ func CWD() string
     write scope.RepoRoot(scope.CWD()) without juggling the os.Getwd error.
 
 func RepoRoot(cwd string) string
-    RepoRoot returns the git toplevel of cwd, or "" when cwd is not inside a git
-    repo (or git is unavailable). Best-effort: "" is valid, never an error.
+    RepoRoot returns the git toplevel of cwd, "" outside a repo. It walks the
+    filesystem: a `git` replacement on PATH intercepts `rev-parse`. teable
+    umbra#7343.
 
 
 ## forgejo.coilysiren.me/coilyco-flight-deck/umbra/pkg/skillgen

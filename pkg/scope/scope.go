@@ -4,49 +4,34 @@ package scope
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
-	"sync"
-	"time"
-
-	"forgejo.coilysiren.me/coilyco-flight-deck/umbra/pkg/config"
-	"forgejo.coilysiren.me/coilyco-flight-deck/umbra/pkg/ttlcache"
 )
 
-// gitToplevelCache memoizes (cwd -> toplevel) so the per-invocation
-// RepoRoot stamp does not re-shell out to git on every call.
-var (
-	gitToplevelCache     *ttlcache.Cache
-	gitToplevelCacheOnce sync.Once
-	gitToplevelCacheTTL  = 5 * time.Minute
-)
-
-func toplevelCache() *ttlcache.Cache {
-	gitToplevelCacheOnce.Do(func() {
-		gitToplevelCache = ttlcache.New(filepath.Join(config.CacheDir(), "git-toplevel"))
-	})
-	return gitToplevelCache
-}
-
-// RepoRoot returns the git toplevel of cwd, or "" when cwd is not inside a
-// git repo (or git is unavailable). Best-effort: "" is valid, never an error.
+// RepoRoot returns the git toplevel of cwd, "" outside a repo. It walks the
+// filesystem: a `git` replacement on PATH intercepts `rev-parse`. teable umbra#7343.
 func RepoRoot(cwd string) string {
-	cache := toplevelCache()
-	if v, ok := cache.Get(cwd); ok {
-		return string(v)
+	if cwd == "" {
+		return ""
 	}
-	out, err := exec.Command("git", "-C", cwd, "rev-parse", "--show-toplevel").Output()
+	dir, err := filepath.Abs(cwd)
 	if err != nil {
 		return ""
 	}
-	top := strings.TrimSpace(string(out))
-	if top == "" {
-		return ""
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = resolved
 	}
-	top = filepath.Clean(top)
-	_ = cache.Set(cwd, []byte(top), gitToplevelCacheTTL) // perf hint, not load-bearing
-	return top
+	for {
+		// A linked worktree and a submodule carry `.git` as a file rather than
+		// a directory, and both make this directory a toplevel.
+		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }
 
 // CWD returns the current working directory or empty on error. Lets callers

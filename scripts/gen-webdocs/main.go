@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"forgejo.coilysiren.me/coilyco-flight-deck/umbra/examples/treebuilders"
+	"forgejo.coilysiren.me/coilyco-flight-deck/umbra/internal/clitrees"
 	webdocs "github.com/coilysiren/cli-web-docs"
 	"github.com/coilysiren/cli-web-docs/layout"
 	"github.com/urfave/cli/v3"
@@ -22,9 +22,9 @@ type entry struct {
 
 func main() {
 	entries := []entry{
-		{"audit", "umbra examples/audit", func() *cli.Command { return treebuilders.Audit(nil) }},
-		{"exitcode", "umbra examples/exitcode", treebuilders.Exitcode},
-		{"policy", "umbra examples/policy", treebuilders.Policy},
+		{"audit", "umbra audit demo", func() *cli.Command { return clitrees.Audit(nil) }},
+		{"exitcode", "umbra exit-code taxonomy", clitrees.Exitcode},
+		{"policy", "umbra metacharacter gate", clitrees.Policy},
 	}
 
 	outRoot := "../../site/cli"

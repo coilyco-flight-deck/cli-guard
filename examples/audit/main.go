@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"forgejo.coilysiren.me/coilyco-flight-deck/umbra/examples/treebuilders"
+	"forgejo.coilysiren.me/coilyco-flight-deck/umbra/internal/clitrees"
 	"forgejo.coilysiren.me/coilyco-flight-deck/umbra/pkg/audit"
 )
 
@@ -22,7 +22,7 @@ func main() {
 		os.Exit(1) //nolint:gocritic // intentional: failed preflight cannot proceed
 	}
 
-	if err := treebuilders.Audit(writer).Run(context.Background(), os.Args); err != nil {
+	if err := clitrees.Audit(writer).Run(context.Background(), os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, "umbra-demo:", err)
 		_ = writer.Close()
 		os.Exit(1) //nolint:gocritic // intentional: defer handled above

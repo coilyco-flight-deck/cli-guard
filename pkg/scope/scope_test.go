@@ -70,3 +70,35 @@ func TestRepoRoot_OutsideRepoReturnsEmpty(t *testing.T) {
 		t.Errorf("got %q, want empty for a non-repo cwd", got)
 	}
 }
+
+// The regression that prompted the walk: an occluded `git` grants neither
+// `rev-parse` nor a pre-verb `-C`, so shelling out lost the field silently.
+func TestRepoRoot_SurvivesAGitReplacementOnPath(t *testing.T) {
+	dir := initRepo(t)
+	shim := t.TempDir()
+	body := "#!/bin/sh\necho 'git: `git rev-parse` is not granted' >&2\nexit 2\n"
+	if err := os.WriteFile(filepath.Join(shim, "git"), []byte(body), 0o755); err != nil {
+		t.Fatalf("write shim: %v", err)
+	}
+	t.Setenv("PATH", shim)
+
+	if got := scope.RepoRoot(dir); got != dir {
+		t.Errorf("got %q, want %q: resolution must not depend on the PATH git", got, dir)
+	}
+}
+
+// A worktree and a submodule carry .git as a file. git calls that a toplevel
+// and so must this.
+func TestRepoRoot_TreatsAGitFileAsAToplevel(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: /elsewhere/.git/worktrees/x\n"), 0o600); err != nil {
+		t.Fatalf("write .git file: %v", err)
+	}
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if got := scope.RepoRoot(dir); got != resolved {
+		t.Errorf("got %q, want %q", got, resolved)
+	}
+}
