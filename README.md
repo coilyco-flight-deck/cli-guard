@@ -1,13 +1,13 @@
 # umbra
 
-config driven occlusion framework
+occlusion for agent CLIs and APIs
 
 ![umbra - a config driven occlusion framework](assets/banner/umbra.jpg)
 
-Occlusion is the idea. umbra sits between semi-trusted automation and the host
-system, and what you did not declare does not get through. The boundary lives in
-a KDL guardfile rather than in code, so it is one artifact a reviewer reads in a
-sitting. umbra ships no denylist and knows nothing about your tools: policy is
+Occlusion is the idea. umbra is a least privilege boundary between an agent and
+the host system, and what you did not declare does not get through. The boundary
+lives in a KDL guardfile rather than in code, so it is one artifact a reviewer
+reads in a sitting. umbra ships no denylist and knows nothing about your tools: policy is
 yours, and umbra enforces it across two surfaces, `cli/` around subprocess exec
 and `http/` around outbound requests.
 
