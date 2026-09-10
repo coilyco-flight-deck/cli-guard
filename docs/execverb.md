@@ -37,3 +37,5 @@ A grant that guards `argN` or `any-arg` while allowing a long flag neither the t
 ## Shaping a call beyond allow and deny
 
 Three grant-level primitives state more than presence or absence: `withhold` mounts a verb that says why it is refused, `pin` fixes a flag's only safe value, and `resolve-flag` reads a flag's value through `pkg/valuesource` instead of forwarding it. See [occlusion primitives](execverb-occlusion.md).
+
+A wrap may also declare `replace`, which installs the generated binary under the wrapped tool's own name instead of as a verb under a driver's tree. The grants become the tool's whole visible surface. See [occluded replacement binaries](execverb-replacement.md).

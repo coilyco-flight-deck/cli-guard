@@ -37,6 +37,7 @@ type Options struct {
 	CLIGuardReplace string   // lock: local umbra checkout to replace with (dev locks only)
 	Version         string   // build: release version stamped into the binary via -ldflags (empty = "dev")
 	SkillsOut       string   // explicit skill root; empty writes no agent-facing artifacts
+	ShimDir         string   // install/doctor: the PATH directory an occluded replacement is installed onto
 }
 
 // ErrNoLock is returned by run and skew when a required committed lock is
@@ -133,10 +134,38 @@ func newGroup(dir, selector string, members []member, binaryName string) (*group
 	if err != nil {
 		return nil, err
 	}
+	occluded, err := occludedName(members)
+	if err != nil {
+		return nil, err
+	}
+	// A replacement's name is not a publishing choice: it is the tool it stands
+	// in front of, and installing it under any other name occludes nothing.
+	if occluded != "" {
+		if runtimeBinary != "" && runtimeBinary != occluded {
+			return nil, fmt.Errorf("umbra: --binary %q disagrees with `replace %q`: a replacement is installed under the name it occludes", runtimeBinary, occluded)
+		}
+		runtimeBinary = occluded
+	}
 	if runtimeBinary == "" {
 		runtimeBinary = selector
 	}
 	return &group{Dir: dir, Binary: selector, RuntimeBinary: runtimeBinary, Members: members}, nil
+}
+
+// occludedName returns the name a replacement member is installed under, empty
+// when none declares `replace`. See docs/execverb-replacement.md.
+func occludedName(members []member) (string, error) {
+	var name string
+	for _, m := range members {
+		if !m.Params.Replace {
+			continue
+		}
+		if len(members) > 1 {
+			return "", fmt.Errorf("umbra: member %q declares `replace` but %d members merge into this binary: a replacement stands in for one tool and takes the binary alone", m.Path, len(members))
+		}
+		name = m.Params.Occluded
+	}
+	return name, nil
 }
 
 // sniffTransport reads a guardfile's dialect from a child of the `wrap` block:
@@ -208,6 +237,7 @@ func readExecMember(path, identity string, src []byte) (member, error) {
 	if err != nil {
 		return member{}, err
 	}
+	p.Replace, p.Occluded = egf.Replace, egf.OccludedName()
 	embeds, err := readEmbeddedFiles(path, identity, egf.EmbedPaths())
 	if err != nil {
 		return member{}, err
@@ -555,6 +585,9 @@ func (g *group) render() ([]byte, error) {
 	sp := codegen.SetParams{Binary: g.runtimeBinary()}
 	for _, m := range g.Members {
 		sp.Mounts = append(sp.Mounts, m.Params)
+		if m.Params.Replace {
+			sp.Replace, sp.Occluded = true, m.Params.Occluded
+		}
 		switch {
 		case m.isExec():
 			sp.HasExec = true

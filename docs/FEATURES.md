@@ -5,6 +5,7 @@ Inventory of umbra today, grouped by **guarded surface** over a shared `pkg/`. S
 ## CLI exec surface (`cli/`)
 
 - **execverb** - Exec-dialect KDL verbs, complex actions, and inspect lists. A guardfile may `withhold` a verb as a stated refusal rather than a silent absence, `pin` a flag to one value umbra supplies and a caller cannot override, and declare `resolve-flag` so umbra resolves that flag's value through `pkg/valuesource` and spills it to a file rather than forwarding an argv token. See [execverb.md](execverb.md) and [occlusion primitives](execverb-occlusion.md).
+- **execverb replacements** - A wrap declaring `replace` builds a binary installed under the wrapped tool's own name rather than as a verb under a driver's tree, so the guardfile's grants are the whole tool a caller sees. Real-binary resolution excludes the running executable and the child's PATH loses the shim directory, because a wrapper that resolves its own name finds itself. `umbra install` places it and `umbra doctor` reports what the installation occludes, including the finding that never passes. See [occluded replacement binaries](execverb-replacement.md).
 - **verb** - Middleware wrapping every `*cli.Command.Action` in the validate -> execute -> audit pipeline, with audited argv and env injection.
 
 ## HTTP request surface (`http/`)

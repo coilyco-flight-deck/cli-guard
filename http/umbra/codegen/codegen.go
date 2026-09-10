@@ -42,6 +42,14 @@ type Params struct {
 	// EmbeddedFiles are fixed build-time sources used as typed argv by an exec
 	// member. Empty for spec members.
 	EmbeddedFiles []EmbeddedFile
+
+	// Replace marks an exec member that declares `replace`: the generated binary
+	// is the wrapped tool rather than a verb group under a driver.
+	Replace bool
+
+	// Occluded is the binary name a replacement is installed under. Empty unless
+	// Replace is set. See docs/execverb-replacement.md.
+	Occluded string
 }
 
 // EmbeddedFile maps the guardfile-relative source key used by execverb to the
@@ -129,6 +137,13 @@ type SetParams struct {
 	// ExecProviders are the consumer-declared resolvers actually named by some
 	// member, deduped. umbra itself ships none. See docs/value-providers.md.
 	ExecProviders []guardfile.ProviderDecl
+
+	// Replace roots the binary at the wrapped tool, so a grant is a top-level
+	// verb. Only ever set with exactly one mount.
+	Replace bool
+
+	// Occluded is the tool name the replacement stands in front of.
+	Occluded string
 }
 
 // PlanSet derives the merged params for guardfiles that share a binary name. It
@@ -184,6 +199,9 @@ func RenderParams(sp SetParams) ([]byte, error) {
 	if len(sp.Mounts) == 0 {
 		return nil, fmt.Errorf("codegen: no mounts to render")
 	}
+	if err := validateReplacement(sp); err != nil {
+		return nil, err
+	}
 	// Derive which consumer-side resolvers to wire from the members' providers, so
 	// a hand-assembled SetParams (the driver) and a planned one agree.
 	seenProv := map[string]bool{}
@@ -209,6 +227,29 @@ func RenderParams(sp SetParams) ([]byte, error) {
 		return nil, fmt.Errorf("codegen: gofmt generated source: %w", err)
 	}
 	return out, nil
+}
+
+// validateReplacement holds the one-tool rule: a merged member would mount
+// verbs as if the occluded tool offered them.
+func validateReplacement(sp SetParams) error {
+	if !sp.Replace {
+		for _, m := range sp.Mounts {
+			if m.Replace {
+				return fmt.Errorf("codegen: member %q declares `replace` but the binary was not planned as a replacement", m.GuardfileName)
+			}
+		}
+		return nil
+	}
+	if len(sp.Mounts) != 1 {
+		return fmt.Errorf("codegen: a replacement binary takes exactly one member, got %d: %q stands in for a tool, and a merged member would mount verbs that tool does not have", len(sp.Mounts), sp.Occluded)
+	}
+	if !sp.Mounts[0].Replace {
+		return fmt.Errorf("codegen: binary %q is planned as a replacement but its member declares no `replace`", sp.Occluded)
+	}
+	if sp.Occluded == "" {
+		return fmt.Errorf("codegen: a replacement needs the name it is installed under (fail-closed)")
+	}
+	return nil
 }
 
 // deriveLockName maps the Guardfile spec filename to the committed gzip lock
@@ -256,8 +297,8 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
-	"strings"
-{{if .ExecProviders}}	"os/exec"
+{{if or (not .Replace) .ExecProviders}}	"strings"
+{{end}}{{if .ExecProviders}}	"os/exec"
 {{end}}{{if .HasSpec}}	"io"
 	"net/http"
 	"time"
@@ -303,7 +344,7 @@ func main() {
 	}
 }
 
-// unknownVerb keeps an unrecognised subcommand out of urfave's own exit 3,
+{{if not .Replace}}// unknownVerb keeps an unrecognised subcommand out of urfave's own exit 3,
 // which collides with UpstreamFailed and would report a typo as an upstream
 // fault. A denied verb and a misspelt one land here alike: deny is absence,
 // and this deliberately does not say which.
@@ -342,8 +383,38 @@ func placementHint(_ context.Context, _ *cli.Command, err error, _ bool) error {
 	}
 	return fmt.Errorf("%w. This is argument placement, not a denied capability: a flag for the wrapped tool goes after the verb, not before it", err)
 }
-
+{{end}}
+{{if .Replace}}// run drives an occluded replacement: this binary is installed as {{.Occluded}}
+// itself, so the guardfile's grants are top-level verbs and there is no driver
+// name to type. See docs/execverb-replacement.md.
 func run() error {
+	w := auditWriter()
+{{if .HasEmbeds}}	embeddedFiles, cleanup, err := embedfile.Materialize("{{.Occluded}}", embeddedSources())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = cleanup() }()
+{{end}}	gf, err := execverb.Parse(embeddedGuardfile0)
+	if err != nil {
+		return fmt.Errorf("parse exec guardfile: %w", err)
+	}
+	// The only surface that says umbra is here. A replacement cannot take a
+	// flag of its own, because every flag belongs to the tool it occludes.
+	if os.Getenv(execverb.IdentifyEnv) != "" {
+		execverb.Identify(os.Stdout, gf, Version)
+		return nil
+	}
+	app, err := execverb.BuildReplacement(execverb.Config{Guardfile: gf, Wrap: wrapWith(w), Providers: providerRegistry(){{if .HasEmbeds}}, EmbeddedFiles: embeddedFiles[0]{{end}}})
+	if err != nil {
+		return err
+	}
+	app.OnUsageError = func(_ context.Context, _ *cli.Command, err error, _ bool) error {
+		return execverb.RefuseRootFlag(gf, err)
+	}
+	execverb.InstallRefusal(app, gf)
+	return app.Run(context.Background(), os.Args)
+}
+{{else}}func run() error {
 	app := &cli.Command{Name: "{{.Binary}}", Usage: "guarded verbs generated by umbra", Version: Version, OnUsageError: placementHint, CommandNotFound: unknownVerb}
 	w := auditWriter()
 {{if .HasEmbeds}}	embeddedFiles, cleanup, err := embedfile.Materialize("{{.Binary}}", embeddedSources())
@@ -358,8 +429,9 @@ func run() error {
 	hintUnknownVerb(app.Commands)
 	return app.Run(context.Background(), os.Args)
 }
+{{end}}
 
-// mountOps mounts every merged guardfile onto app under its shared command
+{{if not .Replace}}// mountOps mounts every merged guardfile onto app under its shared command
 // path, dispatching on transport. The audit writer is built once and reused.
 func mountOps(app *cli.Command, w *audit.Writer{{if .HasEmbeds}}, embeddedFiles map[int]map[string]string{{end}}) error {
 	wrap := wrapWith(w)
@@ -375,7 +447,7 @@ func mountOps(app *cli.Command, w *audit.Writer{{if .HasEmbeds}}, embeddedFiles 
 	}
 {{end}}{{end}}	return nil
 }
-{{if .HasEmbeds}}
+{{end}}{{if .HasEmbeds}}
 func embeddedSources() map[int]map[string]embedfile.Source {
 	return map[int]map[string]embedfile.Source{
 {{range $i, $m := .Mounts}}{{if $m.EmbeddedFiles}}		{{$i}}: {
@@ -469,7 +541,7 @@ func mountMCP(app *cli.Command, wrap func(verb.Spec) cli.ActionFunc, provs map[s
 	}
 	return mcpverb.Mount(app, mcpverb.Config{Guardfile: gf, Tools: tools, Wrap: wrap, Providers: provs})
 }
-{{end}}{{if .HasExec}}
+{{end}}{{if and .HasExec (not .Replace)}}
 // mountExec parses one exec member's policy and mounts the execverb tree onto
 // app; its env injections resolve through the shared provider registry.
 func mountExec(app *cli.Command, wrap func(verb.Spec) cli.ActionFunc, provs map[string]valuesource.Provider, gfBytes []byte{{if .HasEmbeds}}, embeddedFiles map[string]string{{end}}) error {

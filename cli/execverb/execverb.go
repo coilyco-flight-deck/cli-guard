@@ -68,6 +68,11 @@ func Build(cfg Config) (*cli.Command, error) {
 		return nil, err
 	}
 	wrap, run, host := cfg.defaults()
+	if gf.Replace {
+		// A replacement wins PATH under the wrapped tool's own name, so a bare
+		// name handed to exec resolves back to this process. See realbin.go.
+		run = occludeRunner(run)
+	}
 	providers := valuesource.Merge(cfg.Providers)
 	root := &cli.Command{
 		Name:  gf.Group[len(gf.Group)-1],
@@ -88,6 +93,9 @@ func Build(cfg Config) (*cli.Command, error) {
 	capture := cfg.RunCapture
 	if capture == nil {
 		capture = realCapture
+	}
+	if gf.Replace {
+		capture = occludeCapture(capture)
 	}
 	if err := mountActions(root, gf, wrap, capture, host, providers); err != nil {
 		return nil, err

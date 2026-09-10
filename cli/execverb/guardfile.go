@@ -33,6 +33,14 @@ type Guardfile struct {
 	// funnel - the read-only floor over the whole inspect list (allow only).
 	WrapWhens []WhenClause
 
+	// Replace installs the generated binary under the wrapped tool's own name,
+	// ahead of it on PATH. See docs/execverb-replacement.md.
+	Replace bool
+
+	// Occlude is the name a replacement is installed under, resolved at parse.
+	// Empty unless Replace is set.
+	Occlude string
+
 	// Withheld are `withhold` stubs: verbs stated as refused so a caller can
 	// tell policy from an unimplemented feature. See docs/execverb.md.
 	Withheld []WithheldStub
@@ -252,6 +260,9 @@ func (gf *Guardfile) applyDescription(doc *kdl.Document) error {
 // validate enforces the cross-node invariants after every wrap child is applied:
 // `allow` inspect lists and exec/passthrough funnels are exclusive, fail-closed shapes.
 func (gf *Guardfile) validate() error {
+	if gf.Replace && len(gf.Allow) > 0 {
+		return fmt.Errorf("execverb: `replace` is mutually exclusive with `allow`: an inspect list mounts one funnel per binary and names no single binary to stand in for (fail-closed)")
+	}
 	if len(gf.Allow) > 0 {
 		if gf.Bin != "" {
 			return fmt.Errorf("execverb: `allow` is mutually exclusive with `exec` (fail-closed)")
@@ -273,7 +284,7 @@ func (gf *Guardfile) validate() error {
 	if len(gf.Grants) == 0 {
 		return fmt.Errorf("execverb: no `can run` grants (nothing to mount)")
 	}
-	return nil
+	return gf.resolveOcclusion()
 }
 
 // applyNode dispatches one child of the wrap block onto gf.
@@ -312,6 +323,8 @@ func (gf *Guardfile) applyTailNode(n *kdl.Node) error {
 		}
 		gf.Withheld = append(gf.Withheld, w)
 		return nil
+	case "replace":
+		return gf.parseReplace(n)
 	case "action":
 		return gf.appendAction(n)
 	case "provider":

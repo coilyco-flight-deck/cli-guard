@@ -38,7 +38,7 @@ func exitCode(err error) int {
 func app() *cli.Command {
 	return &cli.Command{
 		Name:    "umbra",
-		Usage:   "no-code driver for a spec-driven consumer CLI (gen / lock / skew / build / run)",
+		Usage:   "no-code driver for a spec-driven consumer CLI (gen / lock / skew / build / run / install / doctor)",
 		Version: fmt.Sprintf("%s (umbra ref %s)", umbra.DriverVersion(), umbra.DefaultCLIGuardRef()),
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -65,6 +65,8 @@ func app() *cli.Command {
 			buildCmd(),
 			runCmd(),
 			openapiCmd(),
+			installCmd(),
+			doctorCmd(),
 		},
 		// Root action keeps the legacy `--guardfile X --out Y` one-shot working:
 		// with --out set and no subcommand, behave as `gen --out Y`.
@@ -159,6 +161,53 @@ func buildCmd() *cli.Command {
 				Version:       c.String("set-version"),
 				SkillsOut:     c.String("skills-out"),
 			})
+		},
+	}
+}
+
+// shimDirFlag names the PATH directory an occluded replacement is installed
+// onto. It is not an output path: the filename is the occluded tool's own name.
+func shimDirFlag() cli.Flag {
+	return &cli.StringFlag{Name: "shim-dir", Usage: "PATH directory the replacement is installed onto (its filename is the occluded tool's name)"}
+}
+
+// installCmd is `build` for a replacement, with the destination filename fixed
+// by the guardfile rather than by a flag.
+func installCmd() *cli.Command {
+	return &cli.Command{
+		Name:  "install",
+		Usage: "build an occluded replacement and place it on --shim-dir under the name it occludes",
+		Flags: []cli.Flag{shimDirFlag(), &cli.StringFlag{Name: "set-version", Usage: "release version stamped into the binary via -ldflags (default \"dev\")"}},
+		Action: func(_ context.Context, c *cli.Command) error {
+			return umbra.Install(umbra.Options{
+				GuardfilePath: resolveGuardfile(c),
+				ProjectRoot:   c.String("project-root"),
+				ShimDir:       c.String("shim-dir"),
+				Version:       c.String("set-version"),
+				SkillsOut:     c.String("skills-out"),
+			})
+		},
+	}
+}
+
+// doctorCmd reports what a replacement installation achieves on this host, and
+// changes nothing. Its last finding never passes: see docs/execverb-replacement.md.
+func doctorCmd() *cli.Command {
+	return &cli.Command{
+		Name:  "doctor",
+		Usage: "report what an installed replacement occludes on this host (read-only)",
+		Flags: []cli.Flag{shimDirFlag()},
+		Action: func(_ context.Context, c *cli.Command) error {
+			findings, err := umbra.Doctor(umbra.Options{
+				GuardfilePath: resolveGuardfile(c),
+				ProjectRoot:   c.String("project-root"),
+				ShimDir:       c.String("shim-dir"),
+			})
+			if err != nil {
+				return err
+			}
+			umbra.WriteFindings(c.Root().Writer, findings)
+			return nil
 		},
 	}
 }

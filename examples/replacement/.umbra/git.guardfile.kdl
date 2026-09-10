@@ -1,0 +1,18 @@
+description "A git that only reads, plus a commit that cannot skip the hooks."
+
+wrap example git {
+    exec git
+    replace
+
+    can run status
+    can run log
+    can run diff
+    can run commit {
+        deny-flag "--no-verify"
+    }
+
+    withhold push {
+        reason "This example occludes a local git: nothing here should reach a remote."
+        alternative "status"
+    }
+}

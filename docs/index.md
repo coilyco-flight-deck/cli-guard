@@ -16,6 +16,7 @@ code, enforced across two surfaces: `cli/` around subprocess exec, `http/` aroun
 - [Spec-driven verbs](specverb.md) - the three-layer engine behind the HTTP surface.
 - [Exec-dialect verbs](execverb.md) - the same grammar aimed at wrapped binaries.
 - [Occlusion primitives](execverb-occlusion.md) - `withhold`, `pin`, and `resolve-flag` in the exec dialect.
+- [Occluded replacement binaries](execverb-replacement.md) - `replace`, and the generated binary installed under the wrapped tool's own name.
 - [MCP-dialect verbs](mcpverb.md) - the same grammar aimed at upstream MCP servers.
 
 ## Guides

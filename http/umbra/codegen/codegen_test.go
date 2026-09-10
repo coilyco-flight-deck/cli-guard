@@ -407,3 +407,65 @@ func TestRender_GeneratedMainHonoursTheTaxonomy(t *testing.T) {
 		t.Error("generated main still exits 1 on a coded error")
 	}
 }
+
+// replacementParams is the shape the driver plans for a `replace` member: one
+// exec mount, and the binary named for the tool rather than for a driver.
+func replacementParams() SetParams {
+	return SetParams{
+		Binary:   "git",
+		HasExec:  true,
+		Replace:  true,
+		Occluded: "git",
+		Mounts: []Params{{
+			Transport:     TransportExec,
+			Binary:        "git",
+			GuardfileName: "git.guardfile.kdl",
+			Replace:       true,
+			Occluded:      "git",
+		}},
+	}
+}
+
+func TestRenderParamsReplacementIsTheToolItself(t *testing.T) {
+	out, err := RenderParams(replacementParams())
+	if err != nil {
+		t.Fatalf("RenderParams: %v", err)
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), "main.go", out, parser.AllErrors); err != nil {
+		t.Fatalf("replacement source does not parse: %v\n%s", err, out)
+	}
+	src := string(out)
+	for _, want := range []string{
+		"execverb.BuildReplacement",
+		"execverb.InstallRefusal",
+		"execverb.IdentifyEnv",
+		"execverb.RefuseRootFlag",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("replacement source missing %q", want)
+		}
+	}
+	// The grants are the tool's own verbs, so nothing mounts under a driver
+	// group and no urfave Version flag is registered over the tool's own.
+	for _, absent := range []string{"execverb.Mount(app", "Version: Version"} {
+		if strings.Contains(src, absent) {
+			t.Errorf("replacement source should not contain %q", absent)
+		}
+	}
+}
+
+func TestRenderParamsRefusesAMergedReplacement(t *testing.T) {
+	sp := replacementParams()
+	sp.Mounts = append(sp.Mounts, Params{Transport: TransportExec, Binary: "git", GuardfileName: "gh.guardfile.kdl"})
+	if _, err := RenderParams(sp); err == nil {
+		t.Fatal("a replacement merged with a second member must fail closed: it would mount verbs the occluded tool does not have")
+	}
+}
+
+func TestRenderParamsRefusesAnUnplannedReplacementMember(t *testing.T) {
+	sp := replacementParams()
+	sp.Replace, sp.Occluded = false, ""
+	if _, err := RenderParams(sp); err == nil {
+		t.Fatal("a member declaring `replace` under a binary not planned as one must fail closed")
+	}
+}

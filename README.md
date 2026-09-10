@@ -29,6 +29,14 @@ Go, over three transports: an HTTP API from its OpenAPI contract, a wrapped
 binary, and an upstream MCP server. `--skills-out` also renders a native agent
 skill and a lazy command index.
 
+A wrapped binary may go one step further. A `replace` wrap is **installed under
+the wrapped tool's own name**, ahead of it on PATH, so a caller types `git
+commit` and the guardfile's grants are the whole `git` they can see. `umbra
+install` places it and `umbra doctor` reports what it occludes, including the
+finding that never passes: a PATH shim is what a caller sees rather than what a
+caller can reach. See
+[docs/execverb-replacement.md](docs/execverb-replacement.md).
+
 **Import the primitives.** Every package stands alone if you are adding a
 boundary to an existing [urfave/cli](https://github.com/urfave/cli) v3 app.
 Nothing consumer-shaped leaks into the API.

@@ -5,15 +5,53 @@ package execverb // import "forgejo.coilysiren.me/coilyco-flight-deck/umbra/cli/
 Package execverb mounts exec-shaped verbs from a KDL Guardfile: the exec dialect
 of the spec-driven design. See docs/execverb.md.
 
+CONSTANTS
+
+const IdentifyEnv = "UMBRA_IDENTIFY"
+    IdentifyEnv asks a replacement to state what it is and exit. It cannot be a
+    flag: every flag belongs to the tool being occluded.
+
+
 FUNCTIONS
 
 func Build(cfg Config) (*cli.Command, error)
     Build assembles the guarded command tree and returns the Guardfile group's
     leaf command (e.g. `git`). Fails closed: a malformed grant is an error.
 
+func BuildReplacement(cfg Config) (*cli.Command, error)
+    BuildReplacement builds the guarded tree rooted at the wrapped tool,
+    so a grant is a top-level verb. Refuses a guardfile declaring no `replace`.
+
+func Identify(w *os.File, gf *Guardfile, version string)
+    Identify writes what stands in the wrapped tool's place, the only surface
+    that says umbra is here.
+
+func InstallRefusal(root *cli.Command, gf *Guardfile)
+    InstallRefusal sets the refusal on root and every group under it: urfave
+    resolves a subcommand against the group that owns it.
+
 func Mount(root *cli.Command, cfg Config) error
     Mount builds the guarded group and grafts it onto root, generating the
     intermediate path groups the Guardfile names, mirroring specverb.Mount.
+
+func RefuseRootFlag(gf *Guardfile, err error) error
+    RefuseRootFlag answers a flag the root does not define. A replacement
+    registers none of its own, and `--version` is the flag that finds this
+    first.
+
+func RefuseUngranted(gf *Guardfile, name string) error
+    RefuseUngranted refuses a verb the guardfile does not grant. It cannot tell
+    a denied verb from a misspelt one, so it says only that the name is not
+    granted.
+
+func ResolveReal(bin string) (string, error)
+    ResolveReal resolves bin to the real binary a replacement stands in front
+    of, skipping the wrapper itself. Fails closed: no survivor means no command
+    runs.
+
+func ResolveRealExcluding(bin, excludeDir string) (string, error)
+    ResolveRealExcluding answers the doctor's question from outside the wrapper:
+    given this shim directory, which binary would the shim reach?
 
 
 TYPES
@@ -164,6 +202,14 @@ type Guardfile struct {
 	// funnel - the read-only floor over the whole inspect list (allow only).
 	WrapWhens []WhenClause
 
+	// Replace installs the generated binary under the wrapped tool's own name,
+	// ahead of it on PATH. See docs/execverb-replacement.md.
+	Replace bool
+
+	// Occlude is the name a replacement is installed under, resolved at parse.
+	// Empty unless Replace is set.
+	Occlude string
+
 	// Withheld are `withhold` stubs: verbs stated as refused so a caller can
 	// tell policy from an unimplemented feature. See docs/execverb.md.
 	Withheld []WithheldStub
@@ -186,6 +232,10 @@ func Parse(src []byte) (*Guardfile, error)
 
 func (gf *Guardfile) EmbedPaths() []string
     EmbedPaths returns distinct build-time file references in declaration order.
+
+func (gf *Guardfile) OccludedName() string
+    OccludedName is the binary name a replacement stands in front of, empty when
+    the guardfile declares no `replace`.
 
 func (gf *Guardfile) Providers() []string
     Providers returns the distinct value-source provider names this guardfile's
@@ -1817,6 +1867,10 @@ func Gen(opts Options) error
     Gen renders the merged consumer main.go into the cache or --out. Agent skill
     output is opt-in through Options.SkillsOut.
 
+func Install(opts Options) error
+    Install is `build` with the destination filename fixed by policy:
+    a replacement installed under any other name occludes nothing.
+
 func Lock(opts Options) error
     Lock refreshes both committed locks: each member's pruned spec lock and the
     one specverb.lock (the frozen build module). Skill output remains opt-in.
@@ -1834,6 +1888,9 @@ func Skew(opts Options) error
     Skew reports drift between each member's committed lock and live upstream,
     never writing. ErrSkew signals drift; a fetch failure is a plain error.
 
+func WriteFindings(w io.Writer, findings []Finding)
+    WriteFindings renders a doctor report, `ok` leading each line that holds.
+
 
 TYPES
 
@@ -1848,6 +1905,18 @@ type DepLock struct {
     are captured verbatim from a resolved build dir, reproducing the graph
     byte-for-byte.
 
+type Finding struct {
+	Check  string
+	Detail string
+	OK     bool
+}
+    Finding is one line of the doctor's report: the check, what was found,
+    and whether it holds.
+
+func Doctor(opts Options) ([]Finding, error)
+    Doctor reports what a replacement achieves on this host and changes nothing.
+    Its last finding never passes. See docs/execverb-replacement.md.
+
 type Options struct {
 	GuardfilePath   string   // path to the consumer's KDL Guardfile
 	ProjectRoot     string   // explicit recursive KDL project boundary (empty discovers .umbra, then keeps legacy discovery)
@@ -1858,6 +1927,7 @@ type Options struct {
 	CLIGuardReplace string   // lock: local umbra checkout to replace with (dev locks only)
 	Version         string   // build: release version stamped into the binary via -ldflags (empty = "dev")
 	SkillsOut       string   // explicit skill root; empty writes no agent-facing artifacts
+	ShimDir         string   // install/doctor: the PATH directory an occluded replacement is installed onto
 }
     Options are the inputs shared by every driver verb.
 
@@ -1923,6 +1993,14 @@ type Params struct {
 	// EmbeddedFiles are fixed build-time sources used as typed argv by an exec
 	// member. Empty for spec members.
 	EmbeddedFiles []EmbeddedFile
+
+	// Replace marks an exec member that declares `replace`: the generated binary
+	// is the wrapped tool rather than a verb group under a driver.
+	Replace bool
+
+	// Occluded is the binary name a replacement is installed under. Empty unless
+	// Replace is set. See docs/execverb-replacement.md.
+	Occluded string
 }
     Params is the per-consumer data the template binds to, derived from
     the Guardfile. The spec-lock fields are empty for an exec member. See
@@ -1950,6 +2028,13 @@ type SetParams struct {
 	// ExecProviders are the consumer-declared resolvers actually named by some
 	// member, deduped. umbra itself ships none. See docs/value-providers.md.
 	ExecProviders []guardfile.ProviderDecl
+
+	// Replace roots the binary at the wrapped tool, so a grant is a top-level
+	// verb. Only ever set with exactly one mount.
+	Replace bool
+
+	// Occluded is the tool name the replacement stands in front of.
+	Occluded string
 }
     SetParams binds the merged-binary template: one shared Binary and N mounts.
     HasSpec/HasExec/HasMCP gate the per-transport imports the template emits.

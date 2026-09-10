@@ -18,13 +18,14 @@ The `mcp` in a command path like `wrap ward mcp forgejo` is a positional argumen
 
 An exec member skips every lock-bearing seam: no lock, no fetch or skew, no token. Exec grants may add [embedded fixed files](umbra-materialization.md). An mcp member has a lock like a spec member, holding its pruned tool surface rather than a pruned Swagger document.
 
-## The five verbs
+## The verbs
 
 - **`gen`** - render merged `main.go` into the cache, or `--out` to inspect it.
 - **`lock`** - the deliberate online step. Per spec member it reads a vendored source or fetches upstream Swagger; per mcp member it connects and runs `tools/list`. Either way it **prunes to the granted surface**, writes a deterministic gzip lock, then freezes the module graph in `specverb.lock`.
 - **`skew`** - prune live upstream to the granted surface and diff against each lock. Exit 3 on drift, never write. For an mcp member that is tool-schema drift, including a moved `_meta`, which nothing else in the ecosystem detects.
 - **`build`** - materialize out-of-band and copy to `--out` (default `bin`) rather than exec it, following `go build -o`. `--set-version` stamps `--version` via `-ldflags`. Refuses without committed locks.
 - **`run`** - materialize out-of-band and exec with passed-through args. Every spec may carry a top-level [`description`](value-providers.md) node.
+- **`install`** / **`doctor`** - the replacement pair. `install` is `build` with the destination filename fixed by the guardfile rather than by a flag, since a replacement installed under any other name occludes nothing. `doctor` changes nothing and reports what the installation achieves on this host. See [occluded replacement binaries](execverb-replacement.md).
 
 ## Vendored sources
 
