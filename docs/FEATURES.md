@@ -1,6 +1,6 @@
 # umbra features
 
-Inventory of umbra today, grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](architecture.md); each primitive ships a runnable `examples/<name>/`. Dev verbs run through the `Makefile`; release is automated and Forgejo-canonical, with commit-scoped draft tags on `main` ([release-pipeline.md](release-pipeline.md)).
+Inventory of umbra today, grouped by **guarded surface** over a shared `pkg/`. See [architecture.md](architecture.md); each primitive ships a walkthrough in `guides/`. Dev verbs run through the `Makefile`; release is automated and Forgejo-canonical, with commit-scoped draft tags on `main` ([release-pipeline.md](release-pipeline.md)).
 
 ## CLI exec surface (`cli/`)
 

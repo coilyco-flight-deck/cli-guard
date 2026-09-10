@@ -2079,8 +2079,8 @@ site/cli/. Compiled by root CI, which is why it is not in that module.
 FUNCTIONS
 
 func Audit(writer *audit.Writer) *cli.Command
-    Audit is the tree for examples/audit. writer may be nil for doc rendering
-    since Actions are not executed.
+    Audit is the audit-surface tree. writer may be nil for doc rendering since
+    Actions are not executed.
 
 func Exitcode() *cli.Command
     Exitcode is the tree for the exit-code taxonomy demo.

@@ -14,7 +14,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// Audit is the tree for examples/audit. writer may be nil for doc
+// Audit is the audit-surface tree. writer may be nil for doc
 // rendering since Actions are not executed.
 func Audit(writer *audit.Writer) *cli.Command {
 	return &cli.Command{

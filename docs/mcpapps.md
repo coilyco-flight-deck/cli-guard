@@ -26,7 +26,7 @@ wrap aosguard ops monitor {
 
 **`connect` takes a CSP source expression, not a regex, and has no deny form.** Its neighbours gate frames the view sends, and `connect-src` governs traffic it never announces. CSP is an allowlist, so `never connect` is refused at parse rather than accepted and ignored.
 
-Runnable: [`examples/mcpapps/`](../examples/mcpapps/main.go) replays a real widget's frame sequence against a server it starts itself.
+Walkthrough: [`guides/mcpapps.md`](../guides/mcpapps.md) replays a real widget's frame sequence against a server it starts itself.
 
 ## Why a widget needs its own policy
 

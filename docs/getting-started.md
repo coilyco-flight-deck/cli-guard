@@ -33,14 +33,12 @@ GOPRIVATE=forgejo.coilysiren.me go get forgejo.coilysiren.me/coilyco-flight-deck
 
 ## See a refusal
 
-The shortest runnable example rejects a shell metacharacter before `execve`:
+umbra rejects a shell metacharacter before `execve`. The gate section of
+[`guides/primitives.md`](../guides/primitives.md) runs it and shows the refusal
+verbatim.
 
-```sh
-go run ./examples/policy unsafe 'foo; rm -rf /'
-```
-
-[`examples/`](../examples/) holds one app per primitive, and its README gives a
-reading order from the minimum useful program up to the network gate.
+[`guides/`](../guides/) holds one walkthrough per surface, from the minimum
+useful program up to the network gate.
 
 ## Next
 

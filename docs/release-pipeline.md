@@ -17,7 +17,7 @@ The `release` push fires `release.yml` under a no-cancel concurrency queue, so p
 - **G204** fires on every `exec.CommandContext` even with argv properly constructed. Argv validation happens at the umbra policy layer, and refusing it here would defeat the point of the wrappers.
 - **G301/G302/G304/G306** file permissions are managed deliberately per call site, so the per-site choice is trusted over a blanket rule.
 - Generated files and tests relax complexity and a few correctness linters: mechanical or long table-driven code is fine.
-- Examples match on `(^|/)examples/` rather than `^examples/`. In a git worktree golangci-lint reports paths prefixed with the relative hop back to the checkout, which a start-anchored pattern would miss, leaking example-only noise into every dispatched commit.
+- The generated-code relaxation matches on `(^|/)internal/clitrees/` rather than `^internal/clitrees/`. In a git worktree golangci-lint reports paths prefixed with the relative hop back to the checkout, which a start-anchored pattern would miss, leaking generated-code noise into every dispatched commit.
 
 ## The mark
 

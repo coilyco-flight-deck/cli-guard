@@ -64,12 +64,10 @@ locks and build, so Go has to be present.
 
 ## Try it
 
-[`examples/`](examples/) holds one runnable app per primitive, and
-[docs/getting-started.md](docs/getting-started.md) walks the first run. The shortest:
-
-```sh
-go run ./examples/policy unsafe 'foo; rm -rf /'
-```
+[`guides/quickstart.md`](guides/quickstart.md) goes from an empty terminal to a
+`git` that can read your repository and cannot push it, assuming no checkout of
+this one. [`guides/primitives.md`](guides/primitives.md) is the shortest look at
+a refusal, and [`guides/`](guides/) holds one walkthrough per surface.
 
 ## Status and development
 

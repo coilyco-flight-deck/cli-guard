@@ -12,7 +12,7 @@ A security-boundary framework for urfave/cli v3 applications. The primitives her
 
 ## Project shape
 
-Inventory: [`docs/FEATURES.md`](docs/FEATURES.md). Per-feature demos: [`examples/`](examples/). One Go package per primitive at the repo root. Each ships its own tests and an `examples/<name>/` runnable.
+Inventory: [`docs/FEATURES.md`](docs/FEATURES.md). Walkthroughs: [`guides/`](guides/). One Go package per primitive at the repo root, each shipping its own tests.
 
 ## Repo boundaries
 

@@ -114,7 +114,7 @@ linters:
           - goconst
           - errcheck
           - gosec
-      - path: "(^|/)(examples|internal/clitrees)/"
+      - path: "(^|/)internal/clitrees/"
         linters:
           - funlen
           - gocognit

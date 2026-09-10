@@ -39,7 +39,7 @@ Every package here is reached through **umbra** or through **beaver**. A package
 
 ## What stays flat
 
-`cmd/`, `docs/`, `examples/`, and `scripts/` are not surfaces and stay at the repo root. Each `examples/<name>/` runnable still pairs with the primitive it demonstrates, now found under its surface dir.
+`cmd/`, `docs/`, `guides/`, and `scripts/` are not surfaces and stay at the repo root. Each guide still pairs with the primitive it walks through, now found under its surface dir.
 
 ## See also
 
