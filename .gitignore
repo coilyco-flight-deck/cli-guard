@@ -12,7 +12,7 @@
 /bin/
 /dist/
 
-# mkdocs build output
+# generated CLI reference (make docs-cli)
 /site/
 
 # Editor / OS

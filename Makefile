@@ -1,4 +1,4 @@
-.PHONY: build test vet lint tidy fmt cover docs docs-cli docs-serve godoc-update release-artifacts release-package release-check pre-commit
+.PHONY: build test vet lint tidy fmt cover docs-cli godoc-update release-artifacts release-package release-check pre-commit
 
 build: ## Build all packages.
 	go build ./...
@@ -21,14 +21,8 @@ fmt: ## Format Go source.
 cover: ## Unit tests with a coverage profile.
 	go test -coverprofile=coverage.out ./...
 
-docs: ## Build the mkdocs site into ./site.
-	mkdocs build --strict
-
-docs-cli: ## Overlay the per-example CLI reference under site/cli/ via cli-web-docs.
+docs-cli: ## Render the CLI reference under site/cli/ via cli-web-docs.
 	cd scripts/gen-webdocs && go run .
-
-docs-serve: ## Serve mkdocs locally with live reload on 127.0.0.1:8000.
-	mkdocs serve
 
 godoc-update: ## Regenerate godoc-current.txt; commit the diff to land API changes.
 	./scripts/check-godoc-current.sh --update
