@@ -1,6 +1,6 @@
 # describe model and generated visibility
 
-Gold-standard visibility for a fanatically thin generated CLI. The surface is spec-driven with no hand-written verbs, so its visibility is generated too. The engine never pulls descriptions it cannot trust from a sparse upstream spec; it surfaces the **structure** it always knows. See [specverb.md](specverb.md).
+Gold-standard visibility for a fanatically thin generated CLI. The surface is spec-driven with no hand-written verbs, so its visibility is generated too. The engine never pulls descriptions it cannot trust from a sparse upstream spec. It surfaces the **structure** it always knows. See [specverb.md](specverb.md).
 
 ## The Surface model
 
@@ -13,9 +13,9 @@ Gold-standard visibility for a fanatically thin generated CLI. The surface is sp
 
 ## The three consumer surfaces
 
-**Rich per-verb help.** Every leaf's `--help` carries method and path, the authorizing grant, the `describe` note, each param tagged by kind and requiredness, and the dry-run hint. Always present, even where the upstream description is blank.
+**Per-verb help.** Every leaf's `--help` carries method and path, the authorizing grant, the `describe` note, each param tagged by kind and requiredness, and the dry-run hint. Always present, even where the upstream description is blank.
 
-**The `describe` verb.** `Build` mounts `describe` as a real verb on the group, rendering `Surface.Markdown()`: a header and plain-language auth sentence, then a stanza per verb whose heading is the full command path and whose body frames the HTTP op, grant, and destructive flag in prose above two flat aligned enumerations, positional arguments and options, kept in separate lists. The verb takes no flags; capture is a shell redirect.
+**The `describe` verb.** `Build` mounts `describe` as a real verb on the group, rendering `Surface.Markdown()`: a header and plain-language auth sentence, then a stanza per verb whose heading is the full command path and whose body frames the HTTP op, grant, and destructive flag in prose above two flat aligned enumerations, positional arguments and options, kept in separate lists. The verb takes no flags, and capture is a shell redirect.
 
 **The generated agent skill.** With `--skills-out`, umbra reconstructs the merged urfave tree and writes a concise `SKILL.md` plus `references/commands.yaml`. The body routes agents to live help and describe output, and the lazy index records every reachable leaf without copying exhaustive help into eager context.
 

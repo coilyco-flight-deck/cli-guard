@@ -6,8 +6,8 @@ This project is run on volunteer time, so please have patience.
 
 ## Before you open a PR
 
-1. **Open an issue first.** Every commit in this repo closes a same-repo issue (`closes #N` in the commit body). Discussion happens in the issue; the PR is the change itself. This applies even to trivial fixes - the issue gives the change a stable URL.
-2. **Stay close to scope.** This package is intentionally small. Features that pull this package out of its lane will get pushed back, even when well-intentioned. The [README](https://github.com/coilyco-flight-deck/umbra#readme) and [docs/FEATURES.md](https://github.com/coilyco-flight-deck/umbra/blob/main/docs/FEATURES.md) describe the surface; if your idea expands it, lead with an issue arguing for the expansion.
+1. **Open an issue first.** Every commit in this repo closes a same-repo issue (`closes #N` in the commit body). Discussion happens in the issue. The PR is the change itself. This applies even to trivial fixes - the issue gives the change a stable URL.
+2. **Stay close to scope.** This package is intentionally small. Features that pull this package out of its lane will get pushed back, even when well-intentioned. The [README](https://github.com/coilyco-flight-deck/umbra#readme) and [docs/FEATURES.md](https://github.com/coilyco-flight-deck/umbra/blob/main/docs/FEATURES.md) describe the surface. If your idea expands it, lead with an issue arguing for the expansion.
 3. **Run the dev verbs before pushing.** Local dev routes straight through `make` (umbra is the framework itself, not a guarded consumer):
 
    ```

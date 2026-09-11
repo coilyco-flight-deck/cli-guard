@@ -30,7 +30,7 @@ can search result {
 }
 ```
 
-**One key cannot be both pinned and mapped**, which fails closed rather than picking a silent winner. Absence remains the stronger control where the wanted value is already the upstream default; a pin is for the value that is not.
+**One key cannot be both pinned and mapped**, which fails closed rather than picking a silent winner. Absence remains the stronger control where the wanted value is already the upstream default. A pin is for the value that is not.
 
 Alone on a leaf that declares no `body` fields, `set` owns the body outright, which is the state-toggle shape: the caller's body is discarded rather than merged.
 
@@ -38,7 +38,7 @@ Alone on a leaf that declares no `body` fields, `set` owns the body outright, wh
 
 A leaf may declare body fields and pin others. The caller fills the declared fields, those are validated as usual, and the pins are laid over the result, the same precedence a mapped body gets. So a grant can expose the inputs a model needs while fixing an argument the model must not reach.
 
-The pinned name simply goes undeclared. It never enters the input schema, so a caller cannot supply it and the pin has nothing to win against.
+The pinned name goes undeclared. It never enters the input schema, so a caller cannot supply it and the pin has nothing to win against.
 
 ```kdl
 can create record {

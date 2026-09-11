@@ -51,6 +51,6 @@ Two behaviors change under the pair:
 
 `default-allow` gave gosec's taint analysis a path it could follow from the caller's argv to `exec.CommandContext`, so G702 started firing on the shared runner every granted leaf already reached. It is excluded beside G204, which this repo has always excluded for the same reason: both findings say "execs a variable binary with caller arguments", which is the definition of a guarded wrapper rather than a defect in one. The binary is fixed at parse, and the arguments are policed before the sink.
 
-## The honest limit
+## The limit
 
 Default-allow makes the boundary the thing you wrote down, rather than the thing you remembered to enumerate. That is a readability and maintenance win, and it is also strictly less containment: a verb upstream adds tomorrow is reachable tomorrow. Reach for it where the tool is broadly safe and the boundary is narrow. Where the tool is broadly dangerous, enumerate, and take the upkeep.

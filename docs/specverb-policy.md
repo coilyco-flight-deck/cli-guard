@@ -4,15 +4,15 @@ The policy surface a Guardfile authors over the `op`-bound grants. Engine and la
 
 ## Auth
 
-A secret or opaque host is named, never committed: `value <provider> "<address>"`. umbra never reads the store; a registered provider does, and an unregistered one fails closed. See [value providers](value-providers.md).
+A secret or opaque host is named, never committed: `value <provider> "<address>"`. umbra never reads the store. A registered provider does, and an unregistered one fails closed. See [value providers](value-providers.md).
 
 Three schemes, each redacting its secrets in `--dry-run`: `header-token { header; prefix; value ... }` (the trailing space in `prefix "token "` is significant), `bearer`, and `query-param`.
 
 `auth none` states that the upstream takes no credential: `authorize` returns without touching the request. The block stays **required**, because a spec omitting `auth` is a spec that forgot, and `auth none` carrying a block is an error. A placeholder is not a substitute: `value literal "unused"` sends a **wrong** `Authorization` rather than none, and an endpoint serving anonymous callers can still reject a credential it cannot verify.
 
-`base-url` takes a committed string or a block resolving the host through a provider at request time, lazily and cached, so mounting the tree never touches the store. The forms are mutually exclusive; with no committed host the spec is vendored beside the guardfile.
+`base-url` takes a committed string or a block resolving the host through a provider at request time, lazily and cached, so mounting the tree never touches the store. The forms are mutually exclusive. With no committed host the spec is vendored beside the guardfile.
 
-## Deny beats allow; restrict gates scope
+## Deny beats allow - restrict gates scope
 
 `cannot`/`never <verb> <resource>` blocks that class and beats any matching `can`. The allowed leaf is dropped from the tree, the spec lock, and the action poll set, replaced by a teaching leaf failing closed with `PolicyDenied` and the grant's `message`. A deny with no allow still mounts that leaf, so an operator learns why rather than hitting an unknown command.
 

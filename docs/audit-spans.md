@@ -53,12 +53,10 @@ timestamp and closes at start+duration rather than at export time.
 `OutcomeFor` classifies the exit code into four outcomes, and this is the whole
 point of the projection rather than a detail of it:
 
-| exit code | outcome | span error |
-| --- | --- | --- |
-| `Success` | `ok` | no |
-| `PolicyDenied` | `refused` | **no** |
-| `Internal` | `internal` | yes |
-| everything else | `failed` | yes |
+- `Success` - outcome `ok`, no span error
+- `PolicyDenied` - outcome `refused`, **no** span error
+- `Internal` - outcome `internal`, span error
+- everything else - outcome `failed`, span error
 
 A refusal is a **successful boundary**. Marking its span an error would bury it
 in the same bucket as a broken upstream, which is exactly the confusion the
@@ -81,7 +79,7 @@ so a backend does not index a column of blanks.
 The keys are namespaced so a collector can select umbra's rows without matching
 on a verb name, and they are **stable**: a consumer's dashboard queries them.
 
-The span is built from the record *after* redaction, so a sink can never carry
+The span is built from the record **after** redaction, so a sink can never carry
 a value the JSONL would not.
 
 ## What is not here

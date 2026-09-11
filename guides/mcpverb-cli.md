@@ -72,7 +72,7 @@ Two locks, doing two different jobs.
   It is yours rather than this repository's, which is why it is a step you run
   rather than a file you are given.
 
-`3 tools of 14 upstream` is the pruning stated out loud. The eleven that did not
+`3 tools of 14 upstream` is the pruning said out loud. The eleven that did not
 survive are not in the file at all, so the lock is not a record of what was
 refused.
 
@@ -125,7 +125,7 @@ mcpdemo: unknown verb "get-tiny-image" under "everything"; run --help for the ve
 
 Both exit **5**. `get-env` was closed deliberately, since a tool that reads the
 process environment is the obvious thing to shut, and `get-tiny-image` was
-simply never granted. **The binary cannot tell you which is which**, so a reader
+never granted. **The binary cannot tell you which is which**, so a reader
 of `--help` learns nothing about what exists upstream and an agent spends no
 context on a verb it may not call.
 

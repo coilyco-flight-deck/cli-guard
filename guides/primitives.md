@@ -9,7 +9,7 @@ is installed and nothing new is written. Paths are shortened, and refusal text
 and exit codes are verbatim.
 
 If you arrived here by importing the packages rather than by building a
-replacement, the gate and the exit codes below are package behaviour and read
+replacement, the gate and the exit codes below are package behavior and read
 standalone. Only the first section needs the quickstart's binary, because it is
 about a row that something has to write.
 
@@ -126,11 +126,11 @@ stderr.
 * **4, Internal** - a consumer-internal failure such as a config load, a
   manifest miss, or a failed audit write. Distinct from PolicyDenied because the
   user cannot fix it.
-* **5, UserError** - obviously wrong input that was not a metacharacter
+* **5, UserError** - wrong input that was not a metacharacter
   rejection, such as a missing flag or an unknown verb. Distinct from
   PolicyDenied so a caller can tell "you typed it wrong" from "policy says no".
 
-The full statement, with the retry behaviour attached to each code, is published
+The full statement, with the retry behavior attached to each code, is published
 in the CLI reference under `site/cli/exitcode/`. Read that rather than this list
 when you are implementing against it, because that one is generated from the
 code and this one is prose.
@@ -177,7 +177,7 @@ The codes differ because the two binaries are answering different questions.
   a misspelt one land in the same place, and it deliberately does not say which.
   5 is UserError: you supplied a name this binary does not have.
 * **A replacement exits 2** because a caller under occlusion has no other view
-  of the tool. Absence cannot honestly read as a typo when the replacement is
+  of the tool. Absence cannot read as a typo when the replacement is
   the only `git` you can see, so it is stated as policy instead.
 
 **For a caller deciding what to do next, this distinction does not matter.** Two

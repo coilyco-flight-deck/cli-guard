@@ -6,7 +6,7 @@ The materialized module lives under `config.CacheDir()`: generated `main.go`, th
 
 `.stamp.json` records input hashes for member identities and bytes, spec contracts, dependency lock, and generator version. A rebuild fires only when one changes or the binary is missing. `run` refuses without committed locks rather than silently locking, and `lock` is the only online step, so the first `run` after it works offline.
 
-**A dev lock never uses the cache.** When `specverb.lock` replaces umbra with a local checkout (`lock --umbra-replace <path>`), every build rebuilds, and the stamp is not consulted. The replace target's *source* is in no staleness input: the dep lock names the path, and the path does not change when the code behind it does, so the stamp is identical across an arbitrarily large edit and a build reports success carrying none of it (umbra#1046). Hashing the checkout would be more precise and needs a rule for untracked files; always rebuilding costs a `go build` on a path already understood to be a dev loop. A released pin stays cached, because a released version is immutable and hashing it would be wasted work.
+**A dev lock never uses the cache.** When `specverb.lock` replaces umbra with a local checkout (`lock --umbra-replace <path>`), every build rebuilds, and the stamp is not consulted. The replace target's **source** is in no staleness input: the dep lock names the path, and the path does not change when the code behind it does, so the stamp is identical across an arbitrarily large edit and a build reports success carrying none of it (umbra#1046). Hashing the checkout would be more precise and needs a rule for untracked files. Always rebuilding costs a `go build` on a path already understood to be a dev loop. A released pin stays cached, because a released version is immutable and hashing it would be wasted work.
 
 ## The cache lock, and where it is absent
 
@@ -20,6 +20,6 @@ The source path is relative to the declaring guardfile and must be normalized an
 
 ## Generated skills
 
-`--skills-out <root>` is opt-in; ordinary verbs write no skill into the consumer tree. The selected binary writes `<root>/<binary>/SKILL.md` plus `references/commands.yaml`, listing every reachable leaf and its canonical flags. Identical specs, locks, names, and generator versions produce identical output.
+`--skills-out <root>` is opt-in, and ordinary verbs write no skill into the consumer tree. The selected binary writes `<root>/<binary>/SKILL.md` plus `references/commands.yaml`, listing every reachable leaf and its canonical flags. Identical specs, locks, names, and generator versions produce identical output.
 
 The eager `SKILL.md` stays small: it tells an agent to start with `--help` and use `describe`, while the lazy index makes every leaf discoverable without copying exhaustive prose into startup context. The running CLI remains authoritative: the skill grants no permission and resolves no credential.

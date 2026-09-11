@@ -21,12 +21,12 @@ An exec member skips every lock-bearing seam: no lock, no fetch or skew, no toke
 ## The verbs
 
 - **`gen`** - render merged `main.go` into the cache, or `--out` to inspect it.
-- **`lock`** - the deliberate online step. Per spec member it reads a vendored source or fetches upstream Swagger; per mcp member it connects and runs `tools/list`. Either way it **prunes to the granted surface**, writes a deterministic gzip lock, then freezes the module graph in `specverb.lock`.
-- **`skew`** - prune live upstream to the granted surface and diff against each lock. Exit 3 on drift, never write. For an mcp member that is tool-schema drift, including a moved `_meta`, which nothing else in the ecosystem detects.
+- **`lock`** - the deliberate online step. Per spec member it reads a vendored source or fetches upstream Swagger. Per mcp member it connects and runs `tools/list`. Either way it **prunes to the granted surface**, writes a deterministic gzip lock, then freezes the module graph in `specverb.lock`.
+- **`skew`** - prune live upstream to the granted surface and diff against each lock. Exit 3 on drift, never write. For an mcp member that is tool-schema drift, including a moved `_meta`, which no other tool detects.
 - **`build`** - materialize out-of-band and copy to `--out` (default `bin`) rather than exec it, following `go build -o`. `--set-version` stamps `--version` via `-ldflags`. Refuses without committed locks.
 - **`run`** - materialize out-of-band and exec with passed-through args. Every spec may carry a top-level [`description`](value-providers.md) node.
 - **`install`** / **`doctor`** - the replacement pair. `install` is `build` with the destination filename fixed by the guardfile rather than by a flag, since a replacement installed under any other name occludes nothing. `doctor` changes nothing and reports what the installation achieves on this host. See [occluded replacement binaries](execverb-replacement.md).
 
 ## Vendored sources
 
-A spec member normally derives a live Swagger URL from `base-url`. A consumer may instead commit the contract beside its member and name it with `spec`, which `lock` reads without reaching the endpoint. JSON, YAML, and `.gz` are supported. Invalid gzip fails the lock: a present but unreadable source is never permission to fetch the network copy, though a *missing* one may still fall back to the derived URL.
+A spec member normally derives a live Swagger URL from `base-url`. A consumer may instead commit the contract beside its member and name it with `spec`, which `lock` reads without reaching the endpoint. JSON, YAML, and `.gz` are supported. Invalid gzip fails the lock: a present but unreadable source is never permission to fetch the network copy, though a **missing** one may still fall back to the derived URL.

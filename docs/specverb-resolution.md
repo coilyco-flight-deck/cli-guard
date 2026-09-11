@@ -1,13 +1,13 @@
 # op resolution, wildcards, and unrecognised verbs
 
-A grant's verb+resource resolve to a spec operation by convention, so the author rarely hand-binds an operationId; a grant-body `op` is the override seam. The conventions are pure path+method structure, no vendor strings, so one resolver drives Swagger 2.0 and OpenAPI 3.x alike.
+A grant's verb+resource resolve to a spec operation by convention, so the author rarely hand-binds an operationId. A grant-body `op` is the override seam. The conventions are pure path+method structure, no vendor strings, so one resolver drives Swagger 2.0 and OpenAPI 3.x alike.
 
 ## Verbs
 
 - **CRUD** - `get`/`view` (GET item), `list` (GET collection), `create` (POST collection), `edit` (PATCH then PUT), `delete` (DELETE item).
 - **State toggles** - `close`/`reopen`/`archive`/`unarchive` resolve like `edit` and carry a fixed `body`. **Membership** - `add` (POST), `set` (PUT), `remove` (DELETE).
 - **`search`**, **`list-<child>`**, **`create-on-<parent>`** - GET `<collection>/search`, GET that sub-collection, POST under `<parent>`.
-- **`comment`** / **`pin`** - POST, stated rather than reaching it through the fallthrough.
+- **`comment`** / **`pin`** - POST, named rather than reached through the fallthrough.
 - **Any other verb** - its trailing noun is read as a child sub-collection to create on the resource (`transfer repo` -> `POST .../repos/{o}/{r}/transfers`).
 
 ## Resources
@@ -36,10 +36,10 @@ Prefer the operationId when the document has one. It survives an upstream re-pat
 
 ## Unrecognised verbs
 
-That fallthrough is the **one place the grammar infers rather than refuses**, and a wrong POST against a real endpoint may not fail loudly the way a wrong GET does. So the guess is not silent: `MethodForVerb` reports `ok=false`, the parser records `Descriptor.MethodInferred`, and `ParseInlineWithWarnings` returns one note per inferred grant. Guardfiles keep working; for a novel verb state `method "PUT"`.
+That fallthrough is the **one place the grammar infers rather than refuses**, and a wrong POST against a real endpoint may not fail loudly the way a wrong GET does. So the guess is not silent: `MethodForVerb` reports `ok=false`, the parser records `Descriptor.MethodInferred`, and `ParseInlineWithWarnings` returns one note per inferred grant. Guardfiles keep working. For a novel verb state `method "PUT"`.
 
 ## Wildcard resource `"*"`
 
-`can get "*"` applies a verb across every resource exposing it and `never delete "*"` denies it everywhere, expanding at build and prune time into one grant per match. Only convention verbs enumerate, because `"*"` carries no `op` to break a tie; any other fails closed.
+`can get "*"` applies a verb across every resource exposing it and `never delete "*"` denies it everywhere, expanding at build and prune time into one grant per match. Only convention verbs enumerate, because `"*"` carries no `op` to break a tie. Any other fails closed.
 
 Precedence is the ordinary deny-wins rule rather than a special case: a wildcard deny shadows a specific allow, a specific deny carves an exception out of a wildcard allow, and an explicit same-class grant wins rather than double-mounting. A wildcard mounts only ops the spec has, a new resource exposing `delete` is auto-denied with no edit, an empty expansion fails the build, and an ambiguous resource stays unmounted.

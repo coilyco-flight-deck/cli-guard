@@ -1,6 +1,6 @@
 # value providers, chains, and the `description` node
 
-A `value <provider> <address>` names *where* a value is read at request time. umbra ships three store-agnostic resolvers: **`env`** and **`file`**, both trimmed, and **`literal`**, which is not. A stored credential arrives with the trailing newline an editor left in the file it was uploaded from, and every layer between faithfully preserves it, so Go refuses to write the resulting auth header and the request never leaves the process. `literal` keeps its bytes because a guardfile author wrote them and a reviewer can see them. A value may also be **minted** rather than read: `pkg/tokenmint` resolves `value oauth2 "<client>"` to a live OAuth `client_credentials` access token, cached to the token's own `expires_in` and re-minted when the client secret rotates. The consumer constructs it over its base registry and merges the result in, so no grammar changes and spec mode and upstream mode share one implementation.
+A `value <provider> <address>` names **where** a value is read at request time. umbra ships three store-agnostic resolvers: **`env`** and **`file`**, both trimmed, and **`literal`**, which is not. A stored credential arrives with the trailing newline an editor left in the file it was uploaded from, and every layer between faithfully preserves it, so Go refuses to write the resulting auth header and the request never leaves the process. `literal` keeps its bytes because a guardfile author wrote them and a reviewer can see them. A value may also be **minted** rather than read: `pkg/tokenmint` resolves `value oauth2 "<client>"` to a live OAuth `client_credentials` access token, cached to the token's own `expires_in` and re-minted when the client secret rotates. The consumer constructs it over its base registry and merges the result in, so no grammar changes and spec mode and upstream mode share one implementation.
 
 Anything store-backed is the consumer's, declared as a subprocess contract:
 
@@ -10,13 +10,13 @@ provider ssm {
 }
 ```
 
-The address is appended as the final argument. Only stdout is read, trimmed; the resolved value never reaches argv, the audit row, or an error message, and a non-zero exit surfaces the exit status alone.
+The address is appended as the final argument. Only stdout is read, trimmed. The resolved value never reaches argv, the audit row, or an error message, and a non-zero exit surfaces the exit status alone.
 
 ## Why exec rather than an SDK
 
 umbra is a policy-free engine, and [architecture.md](architecture.md) keeps consumer-specific knowledge out of it. Linking a vendor SDK would put one cloud's credential rules inside the framework and hand every generated binary that dependency whether or not it resolves anything.
 
-The trade is worth naming: resolution becomes whatever the declared binary does, so a provider relying on SDK profile precedence or SSO fallbacks inherits the CLI's behaviour, and that CLI must exist wherever the binary runs.
+The trade is worth naming: resolution becomes whatever the declared binary does, so a provider relying on SDK profile precedence or SSO fallbacks inherits the CLI's behavior, and that CLI must exist wherever the binary runs.
 
 ## Fallback chains
 
@@ -37,4 +37,4 @@ A `value` naming a provider that is neither built-in nor declared is an error at
 
 ## The `description` node
 
-Every `.kdl` spec may carry a top-level `description "..."` node, sibling of the root block and present on both dialects. It is **queryable contract data rather than a comment header**, the sanctioned home for standing context. A single string argument, with KDL's multi-line literals available for longer prose; an empty `description ""` fails closed, so the node is never a silent no-op.
+Every `.kdl` spec may carry a top-level `description "..."` node, sibling of the root block and present on both dialects. It is **queryable contract data rather than a comment header**, the sanctioned home for standing context. A single string argument, with KDL's multi-line literals available for longer prose. An empty `description ""` fails closed, so the node is never a silent no-op.

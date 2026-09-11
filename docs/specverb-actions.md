@@ -12,7 +12,7 @@ A **complex action** is a named composite verb authored inside a `wrap` block, o
 
 ## What an action deliberately cannot express
 
-`poll`, `collect`, and `call` are mutually exclusive within one action, and there is no per-element fan-out. Both fall out of invariant 2 and are deliberate, so snapshot-mutate-snapshot-restore is structurally outside this dialect. The boundary, its cost, and the two guard shapes that *are* expressible: [action limits](specverb-action-limits.md).
+`poll`, `collect`, and `call` are mutually exclusive within one action, and there is no per-element fan-out. Both fall out of invariant 2 and are deliberate, so snapshot-mutate-snapshot-restore is structurally outside this dialect. The boundary, its cost, and the two guard shapes that **are** expressible: [action limits](specverb-action-limits.md).
 
 ## Input defaulting
 
@@ -43,7 +43,7 @@ input labels {
 }
 ```
 
-Globs within one constraint are **alternatives**, variadic like `restrict <param> matches <glob...>`. Constraints **stack**, and each is checked independently, which is what lets a refusal say *which* axis is missing instead of only that something is.
+Globs within one constraint are **alternatives**, variadic like `restrict <param> matches <glob...>`. Constraints **stack**, and each is checked independently, which is what lets a refusal say **which** axis is missing instead of only that something is.
 
 On an `array` input each constraint demands **at least one** matching element, so the set above is refused when it carries no priority label however many other labels it has. On a scalar input the bound value itself must match.
 
@@ -55,7 +55,7 @@ Like `required`, this is enforced while the inputs bind, **before** the request 
 
 ## An omitted optional input drops its argument
 
-An `input` without `required` may simply not be supplied. The argument bound to
+An `input` without `required` can be left out. The argument bound to
 it is then **left out of the request** rather than failing the call, so a shadow
 can carry the leaf's optional fields without forcing a caller to pass all of
 them. `--dry-run` renders the same shape, so the plan never shows a
@@ -82,6 +82,6 @@ A `collect` action walks a granted list leaf page by page, appending every array
 
 ## Mount actions: shadowing a generated leaf
 
-An action authored with **two** header arguments (`action view issue` rather than `action <name>`) mounts at that leaf path, taking the place of the generated leaf, which is how a default verb grows behaviour: `forgejo issue view` now resolves to a composite fetching the issue **and** its comment thread.
+An action authored with **two** header arguments (`action view issue` rather than `action <name>`) mounts at that leaf path, taking the place of the generated leaf, which is how a default verb grows behavior: `forgejo issue view` now resolves to a composite fetching the issue **and** its comment thread.
 
 Three things follow. **It shadows**: the generated leaf is dropped from the CLI and describe surface, while the `can view issue` grant still resolves, so the shadow replaces the CLI leaf, never the grant. **It combines**: a mount call-action renders every `as` binding together as one object rather than only the final call's response, and `--query` projects that shape. **It keeps the leaf's audit identity**: the envelope row is named for the shadowed path, so audit and metrics stay continuous while each inner call writes its own row. A mount action may also be a `poll`, and only the header arity differs.

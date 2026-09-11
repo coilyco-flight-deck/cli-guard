@@ -6,14 +6,12 @@ Hello and thank you for your interest! :tada: :lock:
 
 This package is at v0. Only the latest commit on `main` is supported for security fixes - there are no published releases yet to backport to.
 
-| Version             | Supported          |
-| ------------------- | ------------------ |
-| `main` (latest)     | :white_check_mark: |
-| any pinned commit   | :x: (upgrade)      |
+- `main` (latest) - supported :white_check_mark:
+- any pinned commit - not supported :x:, upgrade to `main`
 
 ## Reporting a vulnerability
 
-Please disclose any vulnerabilities by emailing [coilysiren@gmail.com](mailto:coilysiren@gmail.com). Expect a first response within 48 hours; follow-up cadence by email after that. This project is run on volunteer time, so please have patience :bow:
+Please disclose any vulnerabilities by emailing [coilysiren@gmail.com](mailto:coilysiren@gmail.com). Expect a first response within 48 hours. Follow-up cadence is by email after that. This project is run on volunteer time, so please have patience :bow:
 
 ## What counts as a vulnerability
 

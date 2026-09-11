@@ -4,7 +4,7 @@ Primitives in [the exec dialect](execverb.md) that state more than presence or a
 
 ## Stating an absence: `withhold`
 
-Deny-by-absence is the default and stays the default. But absence carries four meanings at once - withheld by policy, not implemented, not offered by the binary, or simply not matched by the caller's search - and a caller reasoning from a hole has to guess which. The guesses go wrong both ways: a real capability gets worked around because it looked absent, or a workaround gets built for a restriction that was never there.
+Deny-by-absence is the default and stays the default. But absence carries four meanings at once - withheld by policy, not implemented, not offered by the binary, or not matched by the caller's search - and a caller reasoning from a hole has to guess which. The guesses go wrong both ways: a real capability gets worked around because it looked absent, or a workaround gets built for a restriction that was never there.
 
 `withhold` converts one silence into a statement:
 
@@ -35,11 +35,11 @@ can run ssm put-parameter {
 }
 ```
 
-A `when` guard gets refusal; a pin gets **correctness by construction**. For a flag whose only safe value is one constant, the second is better: nothing to type, nothing to get wrong, and the guardfile stops depending on every caller remembering (umbra#6821). Passing the pinned value is not a conflict, so a caller who spells it out agrees with the policy rather than tripping it.
+A `when` guard gets refusal. A pin gets **correctness by construction**. For a flag whose only safe value is one constant, the second is better: nothing to type, nothing to get wrong, and the guardfile stops depending on every caller remembering (umbra#6821). Passing the pinned value is not a conflict, so a caller who spells it out agrees with the policy rather than tripping it.
 
 A pin implies `value-flag`, since a pinned flag necessarily takes a separate token, so an `argN` guard beside one does not read the pinned value as a positional.
 
-Pins apply **before** the gates and guards, so a `when` reads the argv that will actually run. That is the opposite of `resolve-flag` below, and deliberately: a pin changes *what* the call does, so a guard must see the change; a resolve-flag changes only how a value travels, so a guard must see what the caller typed.
+Pins apply **before** the gates and guards, so a `when` reads the argv that will actually run. That is the opposite of `resolve-flag` below, and deliberately: a pin changes **what** the call does, so a guard must see the change. A resolve-flag changes only how a value travels, so a guard must see what the caller typed.
 
 `argv-prefix` is the neighbouring tool and a different one: it is wrap-level and prepends unoverridable leading argv, not a per-flag value.
 

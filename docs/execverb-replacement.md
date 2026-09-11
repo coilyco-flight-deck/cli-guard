@@ -25,7 +25,7 @@ Three things fail closed at parse or plan:
 
 - **`replace` beside an `allow` inspect list.** That list mounts one funnel per binary and names no single tool to stand in for.
 - **A name carrying a path separator.** The name becomes a filename on a PATH directory, so a separator would install somewhere the consumer did not name.
-- **A replacement merged with a second member.** A replacement binary *is* the tool, and a merged member would mount verbs that tool does not have. `--binary` disagreeing with the occluded name is refused for the same reason: the name is policy, not a publishing choice.
+- **A replacement merged with a second member.** A replacement binary **is** the tool, and a merged member would mount verbs that tool does not have. `--binary` disagreeing with the occluded name is refused for the same reason: the name is policy, not a publishing choice.
 
 ## The part that is load-bearing
 
@@ -36,7 +36,7 @@ Two guards, and both are needed:
 - **Resolution excludes the wrapper.** `ResolveReal` walks PATH itself, skipping the replacement's own directory and any candidate that is the running executable by inode, following symlinks. When nothing survives it refuses rather than running, as an `internal` exit rather than a policy one: nothing about the call was denied, the host holds no copy of the tool.
 - **The child's PATH loses the shim directory.** Resolution alone is not enough, because the wrapped tool, or another wrapper in front of it, re-resolves its own name and lands back on the replacement. That is not hypothetical. Installing a `git` replacement on a host already carrying a second `git` shim, one that strips only its own directory, hangs: each wrapper skips itself, finds the other, and loops.
 
-The second guard has a stated cost. Everything a replacement spawns sees the shim directory gone, so a sibling replacement installed beside it is absent from that subprocess tree's PATH. A wrapper a wrapped tool re-enters is a hang rather than a boundary, and a shim was never the boundary anyway (below).
+The second guard has a cost. Everything a replacement spawns sees the shim directory gone, so a sibling replacement installed beside it is absent from that subprocess tree's PATH. A wrapper a wrapped tool re-enters is a hang rather than a boundary, and a shim was never the boundary anyway (below).
 
 ## What the caller sees
 

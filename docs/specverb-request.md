@@ -5,7 +5,7 @@ How the generic action behind every mounted leaf assembles, previews, and fires 
 ## Inputs
 
 - **Path params** become positional args, count-validated before any wire call. **Query params** become typed flags: scalars encode once, arrays as repeated keys in input order, unset values omitted.
-- **Body fields** become typed flags; an unset optional is omitted rather than sent as a zero value, and arrays repeat the flag. **`--body-file`** supplies the whole body instead. Required fields are enforced at assembly rather than in the CLI layer, so either source satisfies them.
+- **Body fields** become typed flags, and an unset optional is omitted rather than sent as a zero value, and arrays repeat the flag. **`--body-file`** supplies the whole body instead. Required fields are enforced at assembly rather than in the CLI layer, so either source satisfies them.
 
 A local input shadowing a reserved engine flag (`--dry-run`, `--query`, `--output`, `--body-file`), or a query/body collision on one leaf, refuses to build rather than shadowing silently.
 
@@ -57,7 +57,7 @@ Until umbra#6827 the two refusal messages named `allow_metacharacters` as the re
 ## A one-element array needs `encode="brackets"`
 
 Query arrays reach the URL as the bare name repeated once per element, which is
-correct at every length except one. `ids=a&ids=b` is unambiguously two values;
+correct at every length except one. `ids=a&ids=b` is unambiguously two values.
 `ids=a` is indistinguishable from a scalar, so a server whose schema wants an
 array refuses it and one that coerces accepts it. Both happen on the same API.
 

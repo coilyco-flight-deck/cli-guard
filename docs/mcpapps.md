@@ -85,13 +85,13 @@ Each of these produces no error frame and no console warning: a widget that rend
 3. **`hostCapabilities.serverTools` is load-bearing.** Omit it and the view will not send `tools/call` at all.
 4. **`postMessage` is structured clone, not JSON**, so a key holding an empty value survives the hop. A reply carrying `error` beside a valid `result` reads as a failure, and the widget renders `Error` while receiving correct data. `Reply` has unexported members and three constructors, so both cannot be set.
 
-Field-level detail and the frame log they came from: [inbox#505 comments 82102 and 82130](https://forgejo.coilysiren.me/coilysiren/inbox/issues/505). The contract itself was read from `spec.types.d.ts` in `@modelcontextprotocol/ext-apps`, not inferred from behaviour.
+Field-level detail and the frame log they came from: [inbox#505 comments 82102 and 82130](https://forgejo.coilysiren.me/coilysiren/inbox/issues/505). The contract itself was read from `spec.types.d.ts` in `@modelcontextprotocol/ext-apps`, not inferred from behavior.
 
 ## What umbra ships, and what it does not
 
 `Host` is transport-free: a caller reads a frame from wherever it arrives and hands the bytes to `Handle`. umbra ships no presenter, no iframe, and no HTML page.
 
-That leaves the **isolation-versus-automation** decision with the consumer, and it is a real one. Serving the host page over `http://` lets the iframe run under `sandbox="allow-scripts"` alone, which is what the spec's model wants. The cost is that an agent's accessibility tree stops at `Iframe [ref=e1]`, so verifying a widget falls back to pixels; under `allow-same-origin` it read `button "Start" [ref=e2]`. **Take the isolation.** `allow-same-origin` on a page holding the bridge gives untrusted remote HTML the host's origin, and a verification convenience is not worth it.
+That leaves the **isolation-versus-automation** decision with the consumer, and it is a real one. Serving the host page over `http://` lets the iframe run under `sandbox="allow-scripts"` alone, which is what the spec's model wants. The cost is that an agent's accessibility tree stops at `Iframe [ref=e1]`, so verifying a widget falls back to pixels. Under `allow-same-origin` it read `button "Start" [ref=e2]`. **Take the isolation.** `allow-same-origin` on a page holding the bridge gives untrusted remote HTML the host's origin, and a verification convenience is not worth it.
 
 `ui/message`, `ui/update-model-context`, `ui/request-display-mode`, and `ui/resource-teardown` are unimplemented and undeclared: a view asking for one gets `-32601`. Each needs a host with a model turn or a layout to change, which this one does not have.
 

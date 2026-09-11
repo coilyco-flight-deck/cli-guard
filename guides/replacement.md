@@ -130,7 +130,7 @@ seccomp policy. umbra does not own that layer and does not claim to.
 
 ## What else notices
 
-This is the part the quickstart did not tell you, and it is the honest cost of
+This is the part the quickstart did not tell you, and it is the real cost of
 the property that makes replacements useful.
 
 **Everything on that PATH sees your replacement, including things you did not

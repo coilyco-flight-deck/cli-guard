@@ -193,7 +193,7 @@ upstream, and an agent spends no context on a verb it may not call.
 `fetch` is the one worth sitting with. It only reads, so a reader who has
 followed the grants so far expects it to work. It does not, because the
 guardfile never named it, and a guardfile grants rather than forbids. Nothing is
-denied here. Four verbs were granted and everything else simply is not there.
+denied here. Four verbs were granted and everything else is not there.
 
 ## 6. Check your work
 

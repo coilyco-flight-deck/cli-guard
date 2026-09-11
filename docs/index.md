@@ -32,7 +32,7 @@ code, enforced across two surfaces: `cli/` around subprocess exec, `http/` aroun
 - [Action limits](specverb-action-limits.md) - what an action deliberately cannot express, and what to reach for instead.
 - [Describe model](specverb-describe.md) - generated visibility for a generated surface.
 - [Descriptors](specverb-descriptors.md) - the spec-driven source resolved without a cli tree.
-- [Inline operations](opcore-inline.md) - descriptors stated directly in KDL.
+- [Inline operations](opcore-inline.md) - descriptors written directly in KDL.
 - [Body projection](opcore-body.md) - `map`, `set`, and pinned values.
 - [Value providers](value-providers.md) - `env`, `file`, `literal`, and minted tokens.
 - [Audit spans](audit-spans.md) - projecting audit records onto tracing spans, and why a refusal is not an error.
